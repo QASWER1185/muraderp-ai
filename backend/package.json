@@ -11,14 +11,14 @@
   "keywords": [],
   "author": "Qaswer Hussain",
   "license": "MIT",
-  "dependencies": {
-    "express": "*"
-  },
   "devDependencies": {
-    "@types/express": "*",
+    "@types/express": "^5.0.3",
     "@types/node": "*",
     "nodemon": "*",
     "ts-node": "*",
-    "typescript": "*"
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
   }
 }
