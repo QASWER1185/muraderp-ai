@@ -1,9 +1,14 @@
+import { Customer } from "../models/customer.model";
 import { CustomerRepository } from "../repositories/customer.repository";
 
 export class CustomerService {
   private repository = new CustomerRepository();
 
-  getCustomers() {
+  getCustomers(): Customer[] {
     return this.repository.getAll();
+  }
+
+  addCustomer(customer: Customer): Customer {
+    return this.repository.add(customer);
   }
 }
