@@ -11,4 +11,12 @@ export class CustomerService {
   addCustomer(customer: Customer): Customer {
     return this.repository.add(customer);
   }
+
+  updateCustomer(id: number, customer: Customer): Customer | null {
+    return this.repository.update(id, customer);
+  }
+
+  deleteCustomer(id: number): boolean {
+    return this.repository.delete(id);
+  }
 }

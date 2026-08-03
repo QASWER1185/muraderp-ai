@@ -16,4 +16,14 @@ router.post("/customers", (req, res) => {
   controller.add(req, res);
 });
 
+// PUT Update Customer
+router.put("/customers/:id", (req, res) => {
+  controller.update(req, res);
+});
+
+// DELETE Customer
+router.delete("/customers/:id", (req, res) => {
+  controller.delete(req, res);
+});
+
 export default router;

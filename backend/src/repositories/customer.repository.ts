@@ -24,4 +24,28 @@ export class CustomerRepository {
     this.customers.push(customer);
     return customer;
   }
+
+  update(id: number, customer: Customer): Customer | null {
+    const index = this.customers.findIndex(c => c.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    this.customers[index] = customer;
+
+    return customer;
+  }
+
+  delete(id: number): boolean {
+    const index = this.customers.findIndex(c => c.id === id);
+
+    if (index === -1) {
+      return false;
+    }
+
+    this.customers.splice(index, 1);
+
+    return true;
+  }
 }
