@@ -4,9 +4,16 @@ import { pinoHttp } from "pino-http";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import customerRoutes from "./routes/customer.routes.js";
+import { createErpRouter } from "./routes/erp.routes.js";
 import { healthRouter } from "./routes/health.js";
+import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
 
-export function createApp() {
+export interface AppOptions {
+  erpService?: ErpService;
+  internalApiToken?: string;
+}
+
+export function createApp(options: AppOptions = {}) {
   const app = express();
 
   app.disable("x-powered-by");
@@ -30,9 +37,15 @@ export function createApp() {
   });
 
   app.use("/api/v1/health", healthRouter);
-  app.use("/api/v1", customerRoutes);
+  app.use(
+    "/api/v1",
+    createErpRouter(
+      options.internalApiToken ?? env.INTERNAL_API_TOKEN,
+      options.erpService ?? new SupabaseErpService(),
+    ),
+  );
 
-  // Temporary compatibility paths for the pre-versioned prototype API.
+  // Temporary, in-memory compatibility paths for the pre-versioned prototype API.
   app.use("/api/health", healthRouter);
   app.use("/api", customerRoutes);
 

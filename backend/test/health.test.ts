@@ -36,8 +36,8 @@ describe("MuradERP API foundation", () => {
     expect(response.headers["x-powered-by"]).toBeUndefined();
   });
 
-  it("keeps the existing customer module available through the versioned API", async () => {
-    const response = await request(app).get("/api/v1/customers");
+  it("keeps the existing in-memory customer prototype on its compatibility path", async () => {
+    const response = await request(app).get("/api/customers");
 
     expect(response.status).toBe(200);
     expect(Array.isArray(response.body)).toBe(true);

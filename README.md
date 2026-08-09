@@ -5,7 +5,7 @@ The business workflow may take inspiration from QuickBooks, but the implementati
 
 ## Verified status
 
-Milestone 1 provides a tested backend foundation in `backend/`:
+The repository provides a tested backend and database foundation:
 
 - TypeScript and Express API
 - canonical versioned API path (`/api/v1`)
@@ -14,10 +14,16 @@ Milestone 1 provides a tested backend foundation in `backend/`:
 - consistent 404 and internal-error responses
 - graceful shutdown
 - automated API tests
-- the existing in-memory Customer CRUD remains available while database work is pending
+- schema-typed Customer, Vendor, Product, Brand, Warehouse, Inventory, Stock Movement,
+  and Purchase APIs
+- keyset pagination for list endpoints
+- internal bearer-token protection for every database-backed route
+- the existing in-memory Customer CRUD remains temporarily available on `/api/customers`
 
-Backend-to-Supabase persistence, estimates, invoices, AI, OCR, voice entry, WhatsApp integration,
-and offline sync are not verified in the current repository yet.
+The database-backed API uses a server-only Supabase secret key and calls `record_purchase(...)`
+for atomic purchase writes. It does not expose the secret key or internal API token to browser code.
+End-user authentication, organization isolation, estimates, invoices, AI, OCR, voice entry,
+WhatsApp integration, and offline sync are not verified yet.
 
 ## Database foundation
 
@@ -36,6 +42,35 @@ The transactional smoke test is in `supabase/tests/database_foundation.sql`. It 
 technical fixture rows and does not modify business data.
 
 Never commit a Supabase secret key, service-role key, database password, or access token.
+
+## Database-backed API
+
+Copy `backend/.env.example` to `backend/.env`, then provide values for:
+
+- `SUPABASE_URL`
+- `SUPABASE_SECRET_KEY` using a current `sb_secret_...` server key
+- `INTERNAL_API_TOKEN` using a random value of at least 32 characters
+
+Database-backed requests require this header:
+
+```text
+Authorization: Bearer <INTERNAL_API_TOKEN>
+```
+
+Available versioned resources:
+
+- `/api/v1/brands`
+- `/api/v1/customers`
+- `/api/v1/vendors`
+- `/api/v1/products`
+- `/api/v1/warehouses`
+- `/api/v1/inventory`
+- `/api/v1/stock-movements`
+- `/api/v1/purchases`
+
+Inventory and stock movements are read-only. Purchases can only be created through the atomic
+purchase endpoint; independent purchase-item writes and unsafe stock mutations are intentionally
+not exposed.
 
 ## Requirements
 
@@ -64,8 +99,9 @@ Expected response:
 }
 ```
 
-The canonical Customer endpoint is `http://localhost:3000/api/v1/customers`.
-The former `/api/customers` path is temporarily retained for compatibility.
+The canonical Customer endpoint is `http://localhost:3000/api/v1/customers` and requires the
+internal bearer token. The former in-memory `/api/customers` path is temporarily retained only for
+compatibility.
 
 ## Verify before committing
 
