@@ -1,20 +1,7 @@
-import { Customer } from "../models/customer.model";
+import type { Customer } from "../models/customer.model.js";
 
 export class CustomerRepository {
-  private customers: Customer[] = [
-    {
-      id: 1,
-      name: "Ali Traders",
-      phone: "03001234567",
-      city: "Lahore",
-    },
-    {
-      id: 2,
-      name: "Ahmed Builders",
-      phone: "03111234567",
-      city: "Kasur",
-    },
-  ];
+  private readonly customers: Customer[] = [];
 
   getAll(): Customer[] {
     return this.customers;
@@ -26,26 +13,24 @@ export class CustomerRepository {
   }
 
   update(id: number, customer: Customer): Customer | null {
-    const index = this.customers.findIndex(c => c.id === id);
+    const index = this.customers.findIndex((existingCustomer) => existingCustomer.id === id);
 
     if (index === -1) {
       return null;
     }
 
     this.customers[index] = customer;
-
     return customer;
   }
 
   delete(id: number): boolean {
-    const index = this.customers.findIndex(c => c.id === id);
+    const index = this.customers.findIndex((customer) => customer.id === id);
 
     if (index === -1) {
       return false;
     }
 
     this.customers.splice(index, 1);
-
     return true;
   }
 }

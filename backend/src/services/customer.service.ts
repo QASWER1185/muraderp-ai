@@ -1,8 +1,8 @@
-import { Customer } from "../models/customer.model";
-import { CustomerRepository } from "../repositories/customer.repository";
+import type { Customer } from "../models/customer.model.js";
+import { CustomerRepository } from "../repositories/customer.repository.js";
 
 export class CustomerService {
-  private repository = new CustomerRepository();
+  private readonly repository = new CustomerRepository();
 
   getCustomers(): Customer[] {
     return this.repository.getAll();
