@@ -16,8 +16,26 @@ Milestone 1 provides a tested backend foundation in `backend/`:
 - automated API tests
 - the existing in-memory Customer CRUD remains available while database work is pending
 
-Supabase persistence, purchases, inventory transactions, estimates, invoices, AI, OCR, voice entry,
-WhatsApp integration, and offline sync are not verified in the current repository yet.
+Backend-to-Supabase persistence, estimates, invoices, AI, OCR, voice entry, WhatsApp integration,
+and offline sync are not verified in the current repository yet.
+
+## Database foundation
+
+The Supabase schema is versioned in `supabase/migrations/`. The first database migration:
+
+- preserves the existing Customers, Vendors, Products, Warehouses, Inventory, Purchases,
+  Purchase Items, and Stock Movements tables
+- adds Brands and a product-to-brand relationship
+- adds missing foreign-key indexes and timestamp maintenance triggers
+- keeps browser-facing `anon` and `authenticated` roles deny-by-default until application
+  authentication and organization isolation are implemented
+- adds `record_purchase(...)`, which writes the purchase, its lines, stock movements, and
+  inventory balance atomically
+
+The transactional smoke test is in `supabase/tests/database_foundation.sql`. It rolls back all
+technical fixture rows and does not modify business data.
+
+Never commit a Supabase secret key, service-role key, database password, or access token.
 
 ## Requirements
 
