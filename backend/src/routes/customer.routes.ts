@@ -1,29 +1,12 @@
 import { Router } from "express";
-import { CustomerController } from "../controllers/customer.controller";
+import { CustomerController } from "../controllers/customer.controller.js";
 
 const router = Router();
 const controller = new CustomerController();
 
-console.log("✅ customer.routes.ts loaded");
-
-// GET All Customers
-router.get("/customers", (req, res) => {
-  controller.getAll(req, res);
-});
-
-// POST New Customer
-router.post("/customers", (req, res) => {
-  controller.add(req, res);
-});
-
-// PUT Update Customer
-router.put("/customers/:id", (req, res) => {
-  controller.update(req, res);
-});
-
-// DELETE Customer
-router.delete("/customers/:id", (req, res) => {
-  controller.delete(req, res);
-});
+router.get("/customers", (request, response) => controller.getAll(request, response));
+router.post("/customers", (request, response) => controller.add(request, response));
+router.put("/customers/:id", (request, response) => controller.update(request, response));
+router.delete("/customers/:id", (request, response) => controller.delete(request, response));
 
 export default router;

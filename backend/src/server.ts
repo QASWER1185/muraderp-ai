@@ -1,31 +1,25 @@
-import express from "express";
-import { config } from "./config/app";
+import { createServer } from "node:http";
+import { createApp } from "./app.js";
+import { env } from "./config/env.js";
 
-import healthRoutes from "./routes/health.routes";
-import customerRoutes from "./routes/customer.routes";
+const server = createServer(createApp());
 
-console.log("=========== SERVER VERSION 2 ===========");
-
-const app = express();
-
-app.use(express.json());
-
-app.get("/", (_req, res) => {
-  res.send("🚀 Welcome to MuradERP-AI Backend");
+server.listen(env.PORT, () => {
+  console.log(`MuradERP API is running on http://localhost:${env.PORT}`);
 });
 
-app.get("/api/test", (_req, res) => {
-  res.json({
-    success: true,
-    message: "API Test Working",
+function shutdown(signal: string) {
+  console.log(`${signal} received; closing the API server`);
+
+  server.close((error) => {
+    if (error) {
+      console.error("API server could not close cleanly", error);
+      process.exit(1);
+    }
+
+    process.exit(0);
   });
-});
+}
 
-app.use("/api", healthRoutes);
-app.use("/api", customerRoutes);
-
-app.listen(config.port, () => {
-  console.log(
-    `🚀 MuradERP-AI Server is running on http://localhost:${config.port}`
-  );
-});
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
