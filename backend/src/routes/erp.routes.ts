@@ -30,7 +30,6 @@ const inventoryPageSchema = pageSchema.extend({
 
 const shortText = z.string().trim().min(1).max(200);
 const nullableText = z.string().trim().min(1).max(500).nullable().optional();
-const idempotencyKeySchema = z.string().trim().min(1).max(255);
 
 const brandSchema = z.strictObject({ name: shortText });
 const partySchema = z.strictObject({
@@ -238,12 +237,7 @@ export function createErpRouter(
   });
 
   router.post("/purchases", authorize, async (request, response) => {
-    const purchaseInput = purchaseSchema.parse(request.body);
-    const idempotencyKeyHeader = request.get("Idempotency-Key");
-    const idempotencyKey = idempotencyKeyHeader === undefined
-      ? undefined
-      : idempotencyKeySchema.parse(idempotencyKeyHeader);
-    const purchase = await service.recordPurchase(purchaseInput, idempotencyKey);
+    const purchase = await service.recordPurchase(purchaseSchema.parse(request.body));
     response.status(201).json({ data: purchase });
   });
 
