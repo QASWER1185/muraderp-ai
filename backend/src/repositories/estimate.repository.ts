@@ -63,6 +63,8 @@ export class SupabaseEstimateRepository implements EstimateRepository {
         notes: input.definition.notes ?? null,
         source_type: input.source_type ?? "MANUAL",
         source_reference: input.source_reference ?? null,
+        pass_through_rent: input.definition.pass_through_rent ?? 0,
+        pass_through_rent_payee: input.definition.pass_through_rent_payee ?? null,
       })
       .select()
       .single();
