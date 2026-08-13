@@ -7,6 +7,7 @@ export type EstimateLayoutKey =
 
 export interface BusinessHeaderProfile {
   business_name: string;
+  tagline: string;
   address: string;
   phone: string;
   logo_url?: string | null;
@@ -14,7 +15,8 @@ export interface BusinessHeaderProfile {
 
 export const DEFAULT_BUSINESS_HEADER: BusinessHeaderProfile = {
   business_name: "M MURAD BUILDING MATERIALS STORE",
-  address: "Al Kabir Town, Lahore, Raiwind Road, Lahore",
+  tagline: "SANITARY | ELECTRIC | CEMENT | BRICKS",
+  address: "Al Kabir Town, Raiwind Road, Lahore",
   phone: "03086235608",
   logo_url: null,
 };
