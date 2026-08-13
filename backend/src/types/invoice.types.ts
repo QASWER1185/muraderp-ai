@@ -10,6 +10,7 @@ export type InvoiceStatus = "DRAFT" | "POSTED" | "PARTIALLY_PAID" | "PAID" | "VO
 export interface InvoiceDefinition {
   invoice_number: string;
   customer_id: number;
+  salesperson_id?: number | null;
   issue_date: string;
   currency_code: string;
   notes?: string | null;
