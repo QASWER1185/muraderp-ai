@@ -2,7 +2,7 @@ import type { PricedEstimateLine } from "./estimate.types.js";
 import type { EstimateDocument } from "./estimate-document.types.js";
 
 /**
- * Invoice is the authoritative posting sales document.
+ * Invoice is the authoritative sales transaction.
  * There is intentionally no user-facing "Post Invoice" action.
  */
 export type InvoiceStatus = "DRAFT" | "POSTED" | "PARTIALLY_PAID" | "PAID" | "VOID";
@@ -19,7 +19,6 @@ export type InvoiceSourceType = "DIRECT" | "FROM_ESTIMATE";
 
 export interface InvoiceDraft {
   source_estimate_id: number | null;
-  source_quotation_id: number | null;
   source_type: InvoiceSourceType;
   definition: InvoiceDefinition;
   lines: PricedEstimateLine[];
@@ -44,10 +43,6 @@ export interface InvoiceTransactionResult {
   pass_through_rent_recorded: boolean;
 }
 
-/**
- * Convert a non-posting Estimate into an Invoice transaction request.
- * The Estimate itself remains unchanged and non-posting.
- */
 export function buildInvoiceFromEstimate(
   estimate: EstimateDocument,
   definition: InvoiceDefinition,
@@ -57,7 +52,6 @@ export function buildInvoiceFromEstimate(
     id,
     status: "DRAFT",
     source_estimate_id: estimate.id,
-    source_quotation_id: null,
     source_type: "FROM_ESTIMATE",
     definition,
     lines: estimate.lines,
@@ -68,9 +62,7 @@ export function buildInvoiceFromEstimate(
   };
 }
 
-/**
- * Direct invoice entry does not require an Estimate.
- */
+/** Direct invoice entry does not require an Estimate. */
 export function buildDirectInvoice(
   definition: InvoiceDefinition,
   lines: PricedEstimateLine[],
@@ -84,7 +76,6 @@ export function buildDirectInvoice(
     id,
     status: "DRAFT",
     source_estimate_id: null,
-    source_quotation_id: null,
     source_type: "DIRECT",
     definition,
     lines,
