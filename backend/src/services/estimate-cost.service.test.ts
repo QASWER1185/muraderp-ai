@@ -19,14 +19,16 @@ function resolver(): EstimateCostResolver {
 describe("DefaultEstimateCostService", () => {
   it("shows expected profit when selling above cost", async () => {
     const result = await new DefaultEstimateCostService(resolver()).calculate(lines, "2026-08-13T10:00:00Z");
+    const firstLine = result.lines[0]!;
+    const secondLine = result.lines[1]!;
 
     expect(result.summary.revenue_total).toBe(14500);
     expect(result.summary.cost_total).toBe(13000);
     expect(result.summary.expected_profit).toBe(1500);
     expect(result.summary.expected_loss).toBe(0);
     expect(result.summary.status).toBe("PROFIT");
-    expect(result.lines[0].cost.margin_amount).toBe(2000);
-    expect(result.lines[1].cost.margin_amount).toBe(-500);
+    expect(firstLine.cost.margin_amount).toBe(2000);
+    expect(secondLine.cost.margin_amount).toBe(-500);
   });
 
   it("shows loss when the estimate is below cost", async () => {
