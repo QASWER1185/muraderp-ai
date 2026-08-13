@@ -36,6 +36,9 @@ export interface RateListRepository {
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+  getVersion(versionId: number): Promise<RateListVersionRecord>;
+  activateVersion(versionId: number): Promise<RateListVersionRecord>;
+  archiveVersion(versionId: number): Promise<RateListVersionRecord>;
 }
 
 export class SupabaseRateListRepository implements RateListRepository {
@@ -45,58 +48,77 @@ export class SupabaseRateListRepository implements RateListRepository {
 
   async createRateList(input: RateListDefinition): Promise<RateListRecord> {
     const client = this.clientFactory() as PricingDatabaseClient;
-    const { data, error } = await client
-      .from("rate_lists")
-      .insert({
-        name: input.name,
-        code: input.code,
-        price_type: input.price_type,
-        scope_type: input.scope_type,
-        vendor_id: input.vendor_id ?? null,
-        customer_id: input.customer_id ?? null,
-        currency_code: input.currency_code,
-        is_active: input.is_active ?? true,
-      })
-      .select()
-      .single();
-
+    const { data, error } = await client.from("rate_lists").insert({
+      name: input.name,
+      code: input.code,
+      price_type: input.price_type,
+      scope_type: input.scope_type,
+      vendor_id: input.vendor_id ?? null,
+      customer_id: input.customer_id ?? null,
+      currency_code: input.currency_code,
+      is_active: input.is_active ?? true,
+    }).select().single();
     if (error) throw error;
     return data as RateListRecord;
   }
 
   async createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord> {
     const client = this.clientFactory() as PricingDatabaseClient;
-    const { data, error } = await client
-      .from("rate_list_versions")
-      .insert({
-        rate_list_id: input.rate_list_id,
-        version_number: input.version_number,
-        status: input.status ?? "DRAFT",
-        effective_from: input.effective_from,
-        effective_to: input.effective_to ?? null,
-      })
-      .select()
-      .single();
-
+    const { data, error } = await client.from("rate_list_versions").insert({
+      rate_list_id: input.rate_list_id,
+      version_number: input.version_number,
+      status: input.status ?? "DRAFT",
+      effective_from: input.effective_from,
+      effective_to: input.effective_to ?? null,
+    }).select().single();
     if (error) throw error;
     return data as RateListVersionRecord;
   }
 
   async createItem(input: RateListItemDefinition): Promise<RateListItemRecord> {
     const client = this.clientFactory() as PricingDatabaseClient;
-    const { data, error } = await client
-      .from("rate_list_items")
-      .insert({
-        rate_list_version_id: input.rate_list_version_id,
-        product_id: input.product_id,
-        minimum_quantity: input.minimum_quantity ?? 1,
-        unit_price: input.unit_price,
-        unit: input.unit,
-      })
-      .select()
-      .single();
-
+    const { data, error } = await client.from("rate_list_items").insert({
+      rate_list_version_id: input.rate_list_version_id,
+      product_id: input.product_id,
+      minimum_quantity: input.minimum_quantity ?? 1,
+      unit_price: input.unit_price,
+      unit: input.unit,
+    }).select().single();
     if (error) throw error;
     return data as RateListItemRecord;
+  }
+
+  async getVersion(versionId: number): Promise<RateListVersionRecord> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const { data, error } = await client.from("rate_list_versions")
+      .select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at")
+      .eq("id", versionId)
+      .single();
+    if (error) throw error;
+    return data as RateListVersionRecord;
+  }
+
+  async activateVersion(versionId: number): Promise<RateListVersionRecord> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const { data, error } = await client.from("rate_list_versions")
+      .update({ status: "ACTIVE", updated_at: new Date().toISOString() })
+      .eq("id", versionId)
+      .eq("status", "DRAFT")
+      .select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at")
+      .single();
+    if (error) throw error;
+    return data as RateListVersionRecord;
+  }
+
+  async archiveVersion(versionId: number): Promise<RateListVersionRecord> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const { data, error } = await client.from("rate_list_versions")
+      .update({ status: "ARCHIVED", updated_at: new Date().toISOString() })
+      .eq("id", versionId)
+      .eq("status", "ACTIVE")
+      .select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at")
+      .single();
+    if (error) throw error;
+    return data as RateListVersionRecord;
   }
 }
