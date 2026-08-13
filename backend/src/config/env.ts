@@ -7,6 +7,7 @@ const envSchema = z
     SUPABASE_URL: z.url().optional(),
     SUPABASE_SECRET_KEY: z.string().startsWith("sb_secret_").min(32).optional(),
     INTERNAL_API_TOKEN: z.string().min(32).optional(),
+    INTERNAL_API_PRINCIPAL_ID: z.string().trim().min(1).max(200).default("internal-system"),
   })
   .superRefine((configuration, context) => {
     const erpValues = [
