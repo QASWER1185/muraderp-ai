@@ -12,6 +12,8 @@ export interface EstimateDefinition {
   pass_through_rent?: number;
   pass_through_rent_payee?: string | null;
   layout_key?: EstimateLayoutKey;
+  /** Default sale rate list used when a line has no explicit override. */
+  default_rate_list_id?: number | null;
 }
 
 export interface EstimateDraft {
