@@ -77,6 +77,8 @@ describe("DefaultEstimateService", () => {
       subtotal: 34000,
       discount_total: 0,
       grand_total: 34000,
+      pass_through_rent: 0,
+      customer_payable_total: 34000,
     });
     expect(result.lines).toHaveLength(2);
   });
@@ -98,6 +100,9 @@ describe("DefaultEstimateService", () => {
 
   it("rejects duplicate line numbers", async () => {
     const service = new DefaultEstimateService(repository());
+    const firstLine = lines[0]!;
+    const secondLine = lines[1]!;
+
     await expect(
       service.createDraft({
         definition: {
@@ -106,7 +111,7 @@ describe("DefaultEstimateService", () => {
           issue_date: "2026-08-13",
           currency_code: "PKR",
         },
-        lines: [lines[0], { ...lines[1], line_number: 1 }],
+        lines: [firstLine, { ...secondLine, line_number: 1 }],
       }),
     ).rejects.toThrow("duplicate line_number 1");
   });
