@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { SalesTransactionService } from "./sales-transaction.service.js";
-import type { SalesTransactionPort, SalesTransactionRequest } from "../types/sales-transaction.types.js";
+import type { SalesTransactionLine, SalesTransactionPort, SalesTransactionRequest } from "../types/sales-transaction.types.js";
+
+const requestLine: SalesTransactionLine = {
+  line_number: 1,
+  product_id: 25,
+  quantity: 10,
+  unit: "bag",
+  unit_price: 1000,
+  line_total: 10000,
+  unit_cost: 800,
+  cogs_total: 8000,
+};
 
 const request: SalesTransactionRequest = {
   invoice: {
@@ -17,16 +28,7 @@ const request: SalesTransactionRequest = {
   },
   warehouse_id: 1,
   idempotency_key: "invoice-0001",
-  lines: [{
-    line_number: 1,
-    product_id: 25,
-    quantity: 10,
-    unit: "bag",
-    unit_price: 1000,
-    line_total: 10000,
-    unit_cost: 800,
-    cogs_total: 8000,
-  }],
+  lines: [requestLine],
 };
 
 const transaction: SalesTransactionPort = {
@@ -56,14 +58,15 @@ describe("SalesTransactionService", () => {
   it("rejects duplicate line numbers before any transaction executes", async () => {
     await expect(new SalesTransactionService(transaction).createInvoice({
       ...request,
-      lines: [request.lines[0], { ...request.lines[0], line_number: 1 }],
+      lines: [requestLine, { ...requestLine, line_number: 2 }].map((line) => ({ ...line, line_number: 1 })),
     })).rejects.toThrow("duplicate line_number 1");
   });
 
   it("rejects a mismatched COGS amount before mutation", async () => {
+    const mismatchedLine: SalesTransactionLine = { ...requestLine, cogs_total: 7999 };
     await expect(new SalesTransactionService(transaction).createInvoice({
       ...request,
-      lines: [{ ...request.lines[0], cogs_total: 7999 }],
+      lines: [mismatchedLine],
     })).rejects.toThrow("cogs_total mismatch on line 1");
   });
 });
