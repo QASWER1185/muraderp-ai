@@ -52,7 +52,20 @@ revoke all on table public.purchase_idempotency_keys from anon, authenticated;
 grant select, insert, update, delete on table public.purchase_idempotency_keys to service_role;
 grant usage, select on sequence public.purchase_idempotency_keys_id_seq to service_role;
 
-create or replace function public.record_purchase(
+-- Replace the legacy eight-argument purchase function rather than leaving two
+-- overloaded record_purchase contracts in the production schema.
+drop function if exists public.record_purchase(
+  bigint,
+  bigint,
+  jsonb,
+  date,
+  text,
+  numeric,
+  numeric,
+  text
+);
+
+create function public.record_purchase(
   p_vendor_id bigint,
   p_warehouse_id bigint,
   p_items jsonb,
@@ -110,9 +123,6 @@ begin
       using errcode = '22023';
   end if;
 
-  -- The idempotency row is created inside this same transaction. A concurrent
-  -- request with the same scope/key waits on the unique index until this
-  -- transaction commits or rolls back, preventing duplicate purchases.
   insert into public.purchase_idempotency_keys (
     principal_scope,
     operation,
@@ -253,7 +263,6 @@ begin
 
   v_normalized_invoice := nullif(btrim(p_invoice_number), '');
 
-  -- Lock products in a stable order so concurrent purchases cannot deadlock.
   perform product.id
   from public.products as product
   where product.id in (
