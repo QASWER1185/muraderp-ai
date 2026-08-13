@@ -16,7 +16,7 @@ export interface EstimatePricingSelection {
 export function assertEstimatePricingSelection(selection: EstimatePricingSelection): void {
   if (selection.mode === "RATE_LIST") {
     const rateListId = selection.rate_list_id;
-    if (!Number.isInteger(rateListId) || rateListId <= 0) {
+    if (typeof rateListId !== "number" || !Number.isInteger(rateListId) || rateListId <= 0) {
       throw new Error("rate_list_id is required when price mode is RATE_LIST");
     }
     if (selection.manual_unit_price !== undefined && selection.manual_unit_price !== null) {
