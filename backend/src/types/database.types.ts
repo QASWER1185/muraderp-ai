@@ -149,6 +149,59 @@ export type Database = {
           },
         ];
       };
+      purchase_idempotency_keys: {
+        Row: {
+          completed_at: string | null;
+          created_at: string;
+          expires_at: string;
+          id: number;
+          idempotency_key: string;
+          operation: string;
+          principal_scope: string;
+          purchase_id: number | null;
+          request_fingerprint: string;
+          response_body: Json | null;
+          response_status: number | null;
+          status: string;
+        };
+        Insert: {
+          completed_at?: string | null;
+          created_at?: string;
+          expires_at?: string;
+          id?: never;
+          idempotency_key: string;
+          operation: string;
+          principal_scope: string;
+          purchase_id?: number | null;
+          request_fingerprint: string;
+          response_body?: Json | null;
+          response_status?: number | null;
+          status?: string;
+        };
+        Update: {
+          completed_at?: string | null;
+          created_at?: string;
+          expires_at?: string;
+          id?: never;
+          idempotency_key?: string;
+          operation?: string;
+          principal_scope?: string;
+          purchase_id?: number | null;
+          request_fingerprint?: string;
+          response_body?: Json | null;
+          response_status?: number | null;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "purchase_idempotency_keys_purchase_id_fkey";
+            columns: ["purchase_id"];
+            isOneToOne: false;
+            referencedRelation: "purchases";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       purchase_items: {
         Row: {
           created_at: string;
@@ -348,14 +401,14 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
-          id?: number;
+          id?: never;
           location?: string | null;
           name: string;
           updated_at?: string;
         };
         Update: {
           created_at?: string;
-          id?: number;
+          id?: never;
           location?: string | null;
           name?: string;
           updated_at?: string;
@@ -368,15 +421,19 @@ export type Database = {
       record_purchase: {
         Args: {
           p_discount?: number;
+          p_idempotency_key: string;
+          p_idempotency_operation: string;
+          p_idempotency_principal: string;
           p_invoice_number?: string;
           p_items: Json;
           p_notes?: string;
           p_purchase_date?: string;
+          p_request_fingerprint: string;
           p_tax?: number;
           p_vendor_id: number;
           p_warehouse_id: number;
         };
-        Returns: number;
+        Returns: Json;
       };
     };
     Enums: Record<never, never>;
