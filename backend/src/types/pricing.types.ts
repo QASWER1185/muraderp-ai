@@ -4,6 +4,12 @@ export type RateListScopeType = "GLOBAL" | "VENDOR" | "CUSTOMER";
 
 export type RateListVersionStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
 
+export type RateListSelectionSource =
+  | "ESTIMATE_DEFAULT"
+  | "LINE_OVERRIDE"
+  | "OCR_BRAND_MATCH"
+  | "MANUAL_OVERRIDE";
+
 export interface RateListDefinition {
   name: string;
   code: string;
@@ -38,6 +44,8 @@ export interface PriceResolutionContext {
   as_of: string;
   vendor_id?: number | null | undefined;
   customer_id?: number | null | undefined;
+  /** When present, pricing must be resolved from this exact rate list. */
+  rate_list_id?: number | null | undefined;
 }
 
 export interface ResolvedPrice {
