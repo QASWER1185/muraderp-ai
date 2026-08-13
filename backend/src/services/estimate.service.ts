@@ -12,13 +12,21 @@ function assertPositiveInteger(value: number, field: string): void {
   }
 }
 
-function calculateTotals(lines: PricedEstimateLine[]): EstimateTotals {
+function calculateTotals(lines: PricedEstimateLine[], passThroughRent = 0): EstimateTotals {
+  if (!Number.isFinite(passThroughRent) || passThroughRent < 0) {
+    throw new Error("pass_through_rent must be zero or greater");
+  }
+
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
   const discount_total = 0;
+  const grand_total = subtotal - discount_total;
+
   return {
     subtotal,
     discount_total,
-    grand_total: subtotal - discount_total,
+    grand_total,
+    customer_payable_total: grand_total + passThroughRent,
+    pass_through_rent: passThroughRent,
   };
 }
 
@@ -57,12 +65,17 @@ export class DefaultEstimateService implements EstimateService {
       throw new Error("issue_date must be a valid date");
     }
     if (!draft.definition.currency_code.trim()) throw new Error("currency_code is required");
+    if (draft.definition.pass_through_rent !== undefined && draft.definition.pass_through_rent < 0) {
+      throw new Error("pass_through_rent must be zero or greater");
+    }
+    if (draft.definition.pass_through_rent && !draft.definition.pass_through_rent_payee?.trim()) {
+      throw new Error("pass_through_rent_payee is required when pass_through_rent is provided");
+    }
     validateLines(draft.lines);
 
     const record = await this.repository.createEstimate({ definition: draft.definition, ...source, lines: draft.lines });
-    const persistedLines = [];
     for (const line of draft.lines) {
-      persistedLines.push(await this.repository.createEstimateItem(record.id, line));
+      await this.repository.createEstimateItem(record.id, line);
     }
 
     return {
@@ -70,7 +83,7 @@ export class DefaultEstimateService implements EstimateService {
       status: record.status,
       definition: draft.definition,
       lines: draft.lines,
-      totals: calculateTotals(draft.lines),
+      totals: calculateTotals(draft.lines, draft.definition.pass_through_rent ?? 0),
     };
   }
 }
