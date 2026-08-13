@@ -73,12 +73,7 @@ export class DefaultInvoiceService {
 
     const pricedLines: PricedEstimateLine[] = [];
     for (const line of lines) {
-      pricedLines.push(await pricing.priceLine(line, {
-        ...context,
-        product_id: line.product_id,
-        quantity: line.quantity,
-        line_number: line.line_number,
-      }));
+      pricedLines.push(await pricing.priceLine(line, context));
     }
 
     return this.transaction.execute(
