@@ -32,11 +32,12 @@ export interface RateListItemRecord extends RateListItemDefinition {
   updated_at: string;
 }
 
-/** Repository contract for rate-list authoring operations. */
+/** Repository contract for rate-list authoring and picker operations. */
 export interface RateListRepository {
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+  listActiveSaleRateLists(): Promise<RateListRecord[]>;
 }
 
 /** Separate lifecycle boundary for publication/archive operations. */
@@ -91,6 +92,17 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
     }).select().single();
     if (error) throw error;
     return data as RateListItemRecord;
+  }
+
+  async listActiveSaleRateLists(): Promise<RateListRecord[]> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const { data, error } = await client.from("rate_lists")
+      .select("id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active, created_at, updated_at")
+      .eq("price_type", "SALE")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as RateListRecord[];
   }
 
   async getVersion(versionId: number): Promise<RateListVersionRecord> {
