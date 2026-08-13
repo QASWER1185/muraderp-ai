@@ -1,6 +1,5 @@
 -- MuradERP-AI Estimate foundation.
--- The estimate follows a conventional accounting/ERP document model while
--- retaining source metadata for future AI/OCR/voice-assisted entry.
+-- Conventional accounting/ERP document model with optional AI-assisted source metadata.
 
 create table if not exists public.estimates (
   id bigint generated always as identity primary key,
@@ -14,6 +13,10 @@ create table if not exists public.estimates (
   source_type text not null default 'MANUAL'
     check (source_type in ('MANUAL', 'OCR', 'VOICE', 'IMPORT', 'AI_ASSISTED')),
   source_reference text,
+  layout_key text not null default 'CLASSIC_PAKISTAN'
+    check (layout_key in ('CLASSIC_PAKISTAN', 'MODERN_PAKISTAN', 'COMPACT_TRADE', 'DETAILED_COMMERCIAL', 'MINIMAL_CLEAN')),
+  pass_through_rent numeric not null default 0 check (pass_through_rent >= 0),
+  pass_through_rent_payee text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint estimates_number_unique unique (estimate_number)
