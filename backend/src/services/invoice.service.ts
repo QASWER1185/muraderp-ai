@@ -1,9 +1,7 @@
 import type { EstimateDocument } from "../types/estimate-document.types.js";
-import type { QuotationDocument } from "../types/quotation.types.js";
 import {
   buildDirectInvoice,
   buildInvoiceFromEstimate,
-  buildInvoiceFromQuotation,
   type InvoiceDefinition,
   type InvoiceDocument,
   type InvoiceTransactionResult,
@@ -11,7 +9,7 @@ import {
 import type { PricedEstimateLine } from "../types/estimate.types.js";
 
 /**
- * The application treats Invoice creation as the user-facing sales action.
+ * Invoice creation is the user-facing sales action.
  * The transaction port performs all authoritative business effects atomically.
  */
 export interface InvoiceTransactionPort {
@@ -30,17 +28,6 @@ export class DefaultInvoiceService {
     }
     if (estimate.id <= 0) throw new Error("estimate must have a persisted id");
     return this.transaction.execute(buildInvoiceFromEstimate(estimate, definition));
-  }
-
-  async createFromQuotation(
-    quotation: QuotationDocument,
-    definition: InvoiceDefinition,
-  ): Promise<InvoiceTransactionResult> {
-    if (quotation.status !== "ACCEPTED") {
-      throw new Error("only ACCEPTED quotations can be converted to invoice");
-    }
-    if (quotation.id <= 0) throw new Error("quotation must have a persisted id");
-    return this.transaction.execute(buildInvoiceFromQuotation(quotation, definition));
   }
 
   async createDirect(
