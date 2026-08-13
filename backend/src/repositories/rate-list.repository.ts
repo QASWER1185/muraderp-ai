@@ -32,16 +32,21 @@ export interface RateListItemRecord extends RateListItemDefinition {
   updated_at: string;
 }
 
+/** Repository contract for rate-list authoring operations. */
 export interface RateListRepository {
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+}
+
+/** Separate lifecycle boundary for publication/archive operations. */
+export interface RateListLifecycleRepository {
   getVersion(versionId: number): Promise<RateListVersionRecord>;
   activateVersion(versionId: number): Promise<RateListVersionRecord>;
   archiveVersion(versionId: number): Promise<RateListVersionRecord>;
 }
 
-export class SupabaseRateListRepository implements RateListRepository {
+export class SupabaseRateListRepository implements RateListRepository, RateListLifecycleRepository {
   constructor(
     private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient,
   ) {}
