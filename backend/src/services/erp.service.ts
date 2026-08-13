@@ -60,6 +60,13 @@ export interface RecordPurchaseInput {
   notes?: string | undefined;
 }
 
+export interface PurchaseIdempotencyContext {
+  principalScope: string;
+  operation: "purchase.create";
+  idempotencyKey: string;
+  requestFingerprint: string;
+}
+
 export interface PurchaseDetail {
   purchase: Purchase;
   items: PurchaseItem[];
@@ -100,7 +107,7 @@ export interface ErpService {
   listStockMovements(page: InventoryRequest): Promise<PageResult<StockMovement>>;
   listPurchases(page: PageRequest): Promise<PageResult<Purchase>>;
   getPurchase(id: number): Promise<PurchaseDetail | null>;
-  recordPurchase(input: RecordPurchaseInput): Promise<PurchaseDetail>;
+  recordPurchase(input: RecordPurchaseInput, idempotency: PurchaseIdempotencyContext): Promise<PurchaseDetail>;
 }
 
 function pageResult<T extends { id: number }>(rows: T[], requestedLimit: number): PageResult<T> {
@@ -115,6 +122,12 @@ function pageResult<T extends { id: number }>(rows: T[], requestedLimit: number)
 
 function databaseError(error: PostgrestError, operation: string): ApiError {
   switch (error.code) {
+    case "P0001":
+      return new ApiError(409, "IDEMPOTENCY_KEY_REUSED", "The Idempotency-Key was already used for a different purchase request");
+    case "P0002":
+      return new ApiError(409, "DUPLICATE_INVOICE", "The vendor invoice number already exists");
+    case "P0003":
+      return new ApiError(409, "IDEMPOTENCY_REQUEST_IN_PROGRESS", "The Idempotency-Key is currently being processed; retry shortly");
     case "23503":
       return new ApiError(409, "REFERENCE_CONFLICT", "A related record prevents this operation");
     case "23505":
@@ -389,11 +402,18 @@ export class SupabaseErpService implements ErpService {
     return { purchase: purchaseResult.data, items: itemsResult.data };
   }
 
-  async recordPurchase(input: RecordPurchaseInput): Promise<PurchaseDetail> {
-    const { data: purchaseId, error } = await this.client.rpc("record_purchase", {
+  async recordPurchase(
+    input: RecordPurchaseInput,
+    idempotency: PurchaseIdempotencyContext,
+  ): Promise<PurchaseDetail> {
+    const { data, error } = await this.client.rpc("record_purchase", {
       p_vendor_id: input.vendor_id,
       p_warehouse_id: input.warehouse_id,
       p_items: input.items as unknown as Json,
+      p_idempotency_principal: idempotency.principalScope,
+      p_idempotency_operation: idempotency.operation,
+      p_idempotency_key: idempotency.idempotencyKey,
+      p_request_fingerprint: idempotency.requestFingerprint,
       ...(input.purchase_date === undefined ? {} : { p_purchase_date: input.purchase_date }),
       ...(input.invoice_number === undefined ? {} : { p_invoice_number: input.invoice_number }),
       ...(input.discount === undefined ? {} : { p_discount: input.discount }),
@@ -403,11 +423,29 @@ export class SupabaseErpService implements ErpService {
 
     if (error) throw databaseError(error, "Purchase creation");
 
-    const purchase = await this.getPurchase(purchaseId);
-    if (!purchase) {
-      throw new ApiError(502, "DATABASE_OPERATION_FAILED", "Created purchase could not be read back");
+    const result = data as unknown as {
+      replayed: boolean;
+      response_status: number;
+      response_body: Json;
+    };
+    const responseBody = result.response_body as {
+      data?: {
+        purchase?: Purchase;
+        items?: PurchaseItem[];
+      };
+    };
+
+    if (
+      !responseBody.data?.purchase ||
+      !Array.isArray(responseBody.data.items) ||
+      result.response_status !== 201
+    ) {
+      throw new ApiError(502, "DATABASE_OPERATION_FAILED", "Purchase response could not be reconstructed");
     }
 
-    return purchase;
+    return {
+      purchase: responseBody.data.purchase,
+      items: responseBody.data.items,
+    };
   }
 }
