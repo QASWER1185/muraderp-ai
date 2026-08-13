@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
@@ -12,6 +13,7 @@ import {
   type Patch,
   type Product,
   type ProductInput,
+  type RecordPurchaseInput,
   type Vendor,
   type VendorInput,
   type Warehouse,
@@ -129,8 +131,37 @@ function registerCrud<CreateInput, UpdateInput, Entity extends { id: number }>(
   });
 }
 
+function effectivePurchaseDate(input: RecordPurchaseInput): string {
+  return input.purchase_date ?? new Date().toISOString().slice(0, 10);
+}
+
+function normalizedPurchaseForFingerprint(input: RecordPurchaseInput): RecordPurchaseInput {
+  return {
+    vendor_id: input.vendor_id,
+    warehouse_id: input.warehouse_id,
+    items: input.items.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_cost: item.unit_cost,
+    })),
+    purchase_date: effectivePurchaseDate(input),
+    invoice_number: input.invoice_number?.trim().toLowerCase(),
+    discount: input.discount ?? 0,
+    tax: input.tax ?? 0,
+    notes: input.notes?.trim(),
+  };
+}
+
+function purchaseFingerprint(input: RecordPurchaseInput): string {
+  const normalized = normalizedPurchaseForFingerprint(input);
+  return createHash("sha256")
+    .update(JSON.stringify(normalized), "utf8")
+    .digest("hex");
+}
+
 export function createErpRouter(
   internalApiToken?: string,
+  internalApiPrincipalId = "internal-system",
   service: ErpService = new SupabaseErpService(),
 ) {
   const router = Router();
@@ -237,7 +268,20 @@ export function createErpRouter(
   });
 
   router.post("/purchases", authorize, async (request, response) => {
-    const purchase = await service.recordPurchase(purchaseSchema.parse(request.body));
+    const idempotencyKey = request.header("Idempotency-Key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255) {
+      throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
+    }
+
+    const parsedInput = purchaseSchema.parse(request.body);
+    const normalizedInput = normalizedPurchaseForFingerprint(parsedInput);
+    const purchase = await service.recordPurchase(normalizedInput, {
+      principalScope: internalApiPrincipalId,
+      operation: "purchase.create",
+      idempotencyKey,
+      requestFingerprint: purchaseFingerprint(parsedInput),
+    });
+
     response.status(201).json({ data: purchase });
   });
 
