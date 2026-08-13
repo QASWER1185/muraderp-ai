@@ -1,4 +1,4 @@
-import type { PriceResolutionContext, ResolvedPrice } from "../types/pricing.types.js";
+import type { PriceResolutionContext, RateListSelectionSource, ResolvedPrice } from "../types/pricing.types.js";
 import type {
   EstimateLineDraft,
   EstimateLinePricingContext,
@@ -37,13 +37,19 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
         unit: line.unit.trim(),
         unit_price: line.unit_price,
         pricing_source: "MANUAL_OVERRIDE",
+        rate_list_selection_source: "MANUAL_OVERRIDE",
       };
     }
+
+    const selectedRateListId = line.rate_list_id ?? context.rate_list_id ?? null;
+    const selectionSource: RateListSelectionSource =
+      line.rate_list_id != null ? (line.rate_list_selection_source ?? "LINE_OVERRIDE") : "ESTIMATE_DEFAULT";
 
     const resolutionContext: PriceResolutionContext = {
       ...context,
       product_id: line.product_id,
       quantity: line.quantity,
+      rate_list_id: selectedRateListId,
     };
     const resolved: ResolvedPrice | null = await this.pricingService.resolvePrice(resolutionContext);
 
@@ -56,6 +62,8 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
       unit: resolved.unit,
       unit_price: resolved.unit_price,
       pricing_source: "RESOLVED_RATE",
+      rate_list_id: resolved.rate_list_id,
+      rate_list_selection_source: selectionSource,
       resolved_price: resolved,
     };
   }
