@@ -1,4 +1,4 @@
-import type { PriceResolutionContext, ResolvedPrice } from "./pricing.types.js";
+import type { PriceResolutionContext, RateListSelectionSource, ResolvedPrice } from "./pricing.types.js";
 
 export interface EstimateLinePricingContext extends PriceResolutionContext {
   line_number: number;
@@ -11,6 +11,11 @@ export interface EstimateLineDraft {
   unit: string;
   unit_price?: number;
   pricing_source?: "RESOLVED_RATE" | "MANUAL_OVERRIDE";
+  /** Explicit rate-list choice for mixed-brand estimates. */
+  rate_list_id?: number | null;
+  rate_list_selection_source?: RateListSelectionSource;
+  /** OCR/AI may capture the brand text; matching remains a controlled pricing decision. */
+  brand_hint?: string | null;
 }
 
 export interface PricedEstimateLine extends EstimateLineDraft {
