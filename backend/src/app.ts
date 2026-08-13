@@ -11,6 +11,7 @@ import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
 export interface AppOptions {
   erpService?: ErpService;
   internalApiToken?: string;
+  internalApiPrincipalId?: string;
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -41,6 +42,7 @@ export function createApp(options: AppOptions = {}) {
     "/api/v1",
     createErpRouter(
       options.internalApiToken ?? env.INTERNAL_API_TOKEN,
+      options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID,
       options.erpService ?? new SupabaseErpService(),
     ),
   );
