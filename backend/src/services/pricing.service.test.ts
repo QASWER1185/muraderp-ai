@@ -6,7 +6,6 @@ import {
 } from "./pricing.service.js";
 import type {
   PriceResolutionContext,
-  RateListDefinition,
   RateListItemDefinition,
   RateListVersionDefinition,
   ResolvedPrice,
