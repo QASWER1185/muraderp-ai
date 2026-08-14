@@ -35,6 +35,7 @@ function repository(): RateListRepository {
       updated_at: "2026-08-13T00:00:00Z",
     }),
     listActiveSaleRateLists: async () => [],
+    findBestRateListItem: async () => null,
   };
 }
 
@@ -50,8 +51,17 @@ describe("DefaultRateListService", () => {
   it("normalizes identity fields before persistence", async () => {
     const service = new DefaultRateListService(repository());
     await expect(
-      service.createRateList({ ...valid, name: "  Sale Rates ", code: " SALE-001 ", currency_code: " pkr " }),
-    ).resolves.toMatchObject({ name: "Sale Rates", code: "SALE-001", currency_code: "PKR" });
+      service.createRateList({
+        ...valid,
+        name: "  Sale Rates ",
+        code: " SALE-001 ",
+        currency_code: " pkr ",
+      }),
+    ).resolves.toMatchObject({
+      name: "Sale Rates",
+      code: "SALE-001",
+      currency_code: "PKR",
+    });
   });
 
   it("rejects an invalid scope owner combination", async () => {
