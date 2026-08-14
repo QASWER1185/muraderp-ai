@@ -23,9 +23,7 @@ const request: SalesTransactionRequest = {
 describe("SupabaseSalesTransactionRepository", () => {
   it("calls the atomic database transaction with the configured principal", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: 101, error: null });
-    const client = { rpc };
-    const repository = new SupabaseSalesTransactionRepository("internal-system", () => client as never);
-
+    const repository = new SupabaseSalesTransactionRepository("internal-system", () => ({ rpc }) as never);
     const result = await repository.execute(request);
 
     expect(result.invoice.id).toBe(101);
@@ -43,6 +41,6 @@ describe("SupabaseSalesTransactionRepository", () => {
   it("maps insufficient stock to a conflict error", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "P0004" } });
     const repository = new SupabaseSalesTransactionRepository("internal-system", () => ({ rpc }) as never);
-    await expect(repository.execute(request)).rejects.toMatchObject({ statusCode: 409, code: "INSUFFICIENT_STOCK" });
+    await expect(repository.execute(request)).rejects.toMatchObject({ status: 409, code: "INSUFFICIENT_STOCK" });
   });
 });
