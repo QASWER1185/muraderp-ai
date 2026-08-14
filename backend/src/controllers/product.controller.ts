@@ -5,12 +5,12 @@ export class ProductController {
   constructor(private readonly service: ProductService) {}
 
   list = async (request: Request, response: Response): Promise<void> => {
-    const brandId = request.query.brand_id === undefined ? undefined : Number(request.query.brand_id);
-    const products = await this.service.list({
-      search: typeof request.query.search === "string" ? request.query.search : undefined,
-      category: typeof request.query.category === "string" ? request.query.category : undefined,
-      brand_id: brandId,
-    });
+    const filter: { search?: string; category?: string; brand_id?: number } = {};
+    if (typeof request.query.search === "string" && request.query.search.trim() !== "") filter.search = request.query.search;
+    if (typeof request.query.category === "string" && request.query.category.trim() !== "") filter.category = request.query.category;
+    if (request.query.brand_id !== undefined) filter.brand_id = Number(request.query.brand_id);
+
+    const products = await this.service.list(filter);
     response.status(200).json({ success: true, data: products });
   };
 
