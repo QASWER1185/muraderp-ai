@@ -9,10 +9,16 @@ import { healthRouter } from "./routes/health.js";
 import { createInventoryRouter } from "./routes/inventory.routes.js";
 import { createProductRouter } from "./routes/product.routes.js";
 import { createSalesRouter } from "./routes/sales.routes.js";
+import { createCustomerPaymentRouter } from "./routes/customer-payment.routes.js";
+import {
+  SupabaseCustomerPaymentService,
+  type CustomerPaymentService,
+} from "./services/customer-payment.service.js";
 import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
 
 export interface AppOptions {
   erpService?: ErpService;
+  customerPaymentService?: CustomerPaymentService;
   internalApiToken?: string;
   internalApiPrincipalId?: string;
 }
@@ -38,6 +44,14 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api/v1/products", createProductRouter(internalApiToken));
   app.use("/api/v1/inventory", createInventoryRouter(internalApiToken));
   app.use("/api/v1/sales", createSalesRouter(internalApiToken, internalApiPrincipalId));
+  app.use(
+    "/api/v1/customer-payments",
+    createCustomerPaymentRouter(
+      internalApiToken,
+      internalApiPrincipalId,
+      options.customerPaymentService ?? new SupabaseCustomerPaymentService(),
+    ),
+  );
 
   // Temporary, in-memory compatibility paths for the pre-versioned prototype API.
   app.use("/api/health", healthRouter);
