@@ -34,11 +34,7 @@ const invoiceSchema = z.strictObject({
   grand_total: z.number().finite().nonnegative(),
   pass_through_rent: z.number().finite().nonnegative(),
 });
-const requestSchema = z.strictObject({
-  invoice: invoiceSchema,
-  warehouse_id: id,
-  lines: z.array(lineSchema).min(1).max(500),
-});
+const requestSchema = z.strictObject({ invoice: invoiceSchema, warehouse_id: id, lines: z.array(lineSchema).min(1).max(500) });
 
 export function createSalesRouter(internalApiToken: string | undefined, principalId: string | undefined): Router {
   const router = Router();
@@ -63,6 +59,7 @@ export function createSalesRouter(internalApiToken: string | undefined, principa
         definition: {
           ...body.invoice.definition,
           salesperson_id: body.invoice.definition.salesperson_id ?? null,
+          notes: body.invoice.definition.notes ?? null,
         },
       },
       idempotency_key: idempotencyKey,
@@ -70,6 +67,5 @@ export function createSalesRouter(internalApiToken: string | undefined, principa
     const result = await service.createInvoice(normalized);
     response.status(201).json({ success: true, data: result });
   });
-
   return router;
 }
