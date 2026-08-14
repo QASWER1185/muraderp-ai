@@ -40,7 +40,7 @@ export class ProductService {
 
   list(filter: ProductListFilter = {}): Promise<ProductRecord[]> {
     if (filter.brand_id != null && (!Number.isInteger(filter.brand_id) || filter.brand_id <= 0)) throw new Error("brand_id must be a positive integer");
-    const normalizedFilter: ProductListFilter = { };
+    const normalizedFilter: ProductListFilter = {};
     if (filter.search?.trim()) normalizedFilter.search = filter.search.trim();
     if (filter.category?.trim()) normalizedFilter.category = filter.category.trim();
     if (filter.brand_id !== undefined) normalizedFilter.brand_id = filter.brand_id;
@@ -67,7 +67,7 @@ export class ProductService {
     if (input.unit !== undefined) partial.unit = normalized.unit;
     if (input.purchase_price !== undefined) partial.purchase_price = normalized.purchase_price;
     if (input.sale_price !== undefined) partial.sale_price = normalized.sale_price;
-    if (input.brand_id !== undefined) partial.brand_id = normalized.brand_id;
+    if (input.brand_id !== undefined) partial.brand_id = input.brand_id;
 
     return this.repository.update(id, partial);
   }
