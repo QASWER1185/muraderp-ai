@@ -3,11 +3,6 @@ import { getSupabaseAdminClient } from "../config/supabase.js";
 import type { Database } from "../types/database.types.js";
 import type { PriceResolutionContext, ResolvedPrice } from "../types/pricing.types.js";
 
-/**
- * The pricing tables are introduced by the Phase 3 migration. Keeping this
- * adapter isolated allows generated database types to be refreshed separately
- * without weakening the rest of the ERP service typing.
- */
 type PricingDatabaseClient = SupabaseClient<Database> & {
   from(table: "rate_lists" | "rate_list_versions" | "rate_list_items"): any;
 };
@@ -24,10 +19,7 @@ export class SupabasePricingRepository implements PricingRepository {
   async findBestRateListItem(context: PriceResolutionContext): Promise<ResolvedPrice | null> {
     const client = this.clientFactory() as PricingDatabaseClient;
 
-    // Deterministic precedence:
-    // CUSTOMER > VENDOR > GLOBAL, then newest effective version, then the
-    // highest quantity tier that does not exceed the requested quantity.
-    const { data, error } = await client
+    const query = client
       .from("rate_list_items")
       .select(`
         id,
@@ -60,7 +52,13 @@ export class SupabasePricingRepository implements PricingRepository {
       .or(
         `effective_to.is.null,effective_to.gt.${context.as_of}`,
         { referencedTable: "rate_list_versions" },
-      )
+      );
+
+    if (context.rate_list_id != null) {
+      query.eq("rate_list_versions.rate_lists.id", context.rate_list_id);
+    }
+
+    const { data, error } = await query
       .order("minimum_quantity", { ascending: false })
       .limit(50);
 
@@ -91,6 +89,7 @@ export class SupabasePricingRepository implements PricingRepository {
 
     const applicable = candidates.filter((candidate) => {
       const list = candidate.rate_list_versions.rate_lists;
+      if (context.rate_list_id != null) return list.id === context.rate_list_id;
       if (list.scope_type === "CUSTOMER") return list.customer_id === context.customer_id;
       if (list.scope_type === "VENDOR") return list.vendor_id === context.vendor_id;
       return true;
@@ -100,13 +99,11 @@ export class SupabasePricingRepository implements PricingRepository {
       const scopeRank = (scope: string) =>
         scope === "CUSTOMER" ? 3 : scope === "VENDOR" ? 2 : 1;
       const scopeDifference =
-        scopeRank(b.rate_list_versions.rate_lists.scope_type) -
-        scopeRank(a.rate_list_versions.rate_lists.scope_type);
+        scopeRank(b.rate_list_versions.rate_lists.scope_type) - scopeRank(a.rate_list_versions.rate_lists.scope_type);
       if (scopeDifference !== 0) return scopeDifference;
 
       const effectiveDifference =
-        Date.parse(b.rate_list_versions.effective_from) -
-        Date.parse(a.rate_list_versions.effective_from);
+        Date.parse(b.rate_list_versions.effective_from) - Date.parse(a.rate_list_versions.effective_from);
       if (effectiveDifference !== 0) return effectiveDifference;
 
       return b.minimum_quantity - a.minimum_quantity;
