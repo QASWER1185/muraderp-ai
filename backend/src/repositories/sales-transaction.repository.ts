@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdminClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
 import type { Database } from "../types/database.types.js";
-import type { InvoiceDocument, InvoiceTransactionResult } from "../types/invoice.types.js";
+import type { InvoiceTransactionResult } from "../types/invoice.types.js";
 import type { SalesTransactionPort, SalesTransactionRequest } from "../types/sales-transaction.types.js";
 
 type RpcClient = SupabaseClient<Database> & { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }> };
