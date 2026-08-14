@@ -52,6 +52,31 @@ describe("DefaultEstimatePricingService", () => {
     });
   });
 
+  it("uses a line-level rate-list selection for mixed-brand estimates", async () => {
+    const service = new DefaultEstimatePricingService(pricingService(resolved));
+    const line = {
+      ...baseLine,
+      rate_list_id: 44,
+      rate_list_selection_source: "LINE_OVERRIDE" as const,
+    };
+
+    await expect(service.priceLine(line, { ...context, rate_list_id: 11 })).resolves.toMatchObject({
+      rate_list_id: 1,
+      rate_list_selection_source: "LINE_OVERRIDE",
+      pricing_source: "RESOLVED_RATE",
+    });
+  });
+
+  it("uses the estimate-level rate-list when no line override is supplied", async () => {
+    const service = new DefaultEstimatePricingService(pricingService(resolved));
+    const pricing = service.priceLine(baseLine, { ...context, rate_list_id: 22 });
+
+    await expect(pricing).resolves.toMatchObject({
+      rate_list_selection_source: "ESTIMATE_DEFAULT",
+      pricing_source: "RESOLVED_RATE",
+    });
+  });
+
   it("fails safely when no applicable rate exists", async () => {
     const service = new DefaultEstimatePricingService(pricingService(null));
     await expect(service.priceLine(baseLine, context)).rejects.toThrow(
