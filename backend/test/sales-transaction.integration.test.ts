@@ -39,7 +39,6 @@ const request: SalesTransactionRequest = {
       quantity: 2,
       unit: "piece",
       unit_price: 1500,
-      line_total: 3000,
       unit_cost: 900,
       cogs_total: 1800,
     },
