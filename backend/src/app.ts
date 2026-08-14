@@ -6,6 +6,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import customerRoutes from "./routes/customer.routes.js";
 import { createErpRouter } from "./routes/erp.routes.js";
 import { healthRouter } from "./routes/health.js";
+import { createInventoryRouter } from "./routes/inventory.routes.js";
 import { createProductRouter } from "./routes/product.routes.js";
 import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
 
@@ -47,7 +48,9 @@ export function createApp(options: AppOptions = {}) {
       options.erpService ?? new SupabaseErpService(),
     ),
   );
-  app.use("/api/v1/products", createProductRouter(options.internalApiToken ?? env.INTERNAL_API_TOKEN));
+  const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
+  app.use("/api/v1/products", createProductRouter(internalApiToken));
+  app.use("/api/v1/inventory", createInventoryRouter(internalApiToken));
 
   // Temporary, in-memory compatibility paths for the pre-versioned prototype API.
   app.use("/api/health", healthRouter);
