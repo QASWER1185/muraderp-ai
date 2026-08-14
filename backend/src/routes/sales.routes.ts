@@ -56,7 +56,18 @@ export function createSalesRouter(internalApiToken: string | undefined, principa
       return;
     }
     const body = requestSchema.parse(request.body);
-    const result = await service.createInvoice({ ...body, idempotency_key: idempotencyKey });
+    const normalized = {
+      ...body,
+      invoice: {
+        ...body.invoice,
+        definition: {
+          ...body.invoice.definition,
+          salesperson_id: body.invoice.definition.salesperson_id ?? null,
+        },
+      },
+      idempotency_key: idempotencyKey,
+    };
+    const result = await service.createInvoice(normalized);
     response.status(201).json({ success: true, data: result });
   });
 
