@@ -25,9 +25,7 @@ const resolved: ResolvedPrice = {
 
 describe("DefaultPricingService", () => {
   it("delegates valid resolution requests to the repository", async () => {
-    const repository = {
-      findBestRateListItem: vi.fn().mockResolvedValue(resolved),
-    };
+    const repository = { findBestRateListItem: vi.fn().mockResolvedValue(resolved) };
     const service = new DefaultPricingService(repository);
 
     await expect(service.resolvePrice(validContext)).resolves.toEqual(resolved);
@@ -35,9 +33,7 @@ describe("DefaultPricingService", () => {
   });
 
   it("returns null when the repository has no applicable price", async () => {
-    const repository = {
-      findBestRateListItem: vi.fn().mockResolvedValue(null),
-    };
+    const repository = { findBestRateListItem: vi.fn().mockResolvedValue(null) };
     const service = new DefaultPricingService(repository);
 
     await expect(service.resolvePrice(validContext)).resolves.toBeNull();
@@ -51,9 +47,7 @@ describe("DefaultPricingService", () => {
     [{ ...validContext, as_of: "not-a-date" }, "as_of must be a valid date/time"],
     [{ ...validContext, rate_list_id: 0 }, "rate_list_id must be a positive integer when provided"],
   ] as const)("rejects invalid context: %s", async (context, message) => {
-    const repository = {
-      findBestRateListItem: vi.fn(),
-    };
+    const repository = { findBestRateListItem: vi.fn() };
     const service = new DefaultPricingService(repository);
 
     await expect(service.resolvePrice(context)).rejects.toThrow(message);
@@ -61,13 +55,21 @@ describe("DefaultPricingService", () => {
   });
 
   it("passes an explicit rate-list selection through unchanged", async () => {
-    const repository = {
-      findBestRateListItem: vi.fn().mockResolvedValue(resolved),
-    };
+    const repository = { findBestRateListItem: vi.fn().mockResolvedValue(resolved) };
+    const service = new DefaultPricingService(repository);
+    const context = { ...validContext, rate_list_id: 1 };
+
+    await expect(service.resolvePrice(context)).resolves.toEqual(resolved);
+    expect(repository.findBestRateListItem).toHaveBeenCalledWith(context);
+  });
+
+  it("rejects a repository result from a different explicit rate list", async () => {
+    const repository = { findBestRateListItem: vi.fn().mockResolvedValue(resolved) };
     const service = new DefaultPricingService(repository);
     const context = { ...validContext, rate_list_id: 99 };
 
-    await service.resolvePrice(context);
-    expect(repository.findBestRateListItem).toHaveBeenCalledWith(context);
+    await expect(service.resolvePrice(context)).rejects.toThrow(
+      "resolved price does not belong to the requested rate list",
+    );
   });
 });
