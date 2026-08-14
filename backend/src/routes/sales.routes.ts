@@ -28,13 +28,12 @@ const invoiceSchema = z.strictObject({
     currency_code: z.string().trim().min(1).max(10),
     notes: z.string().trim().max(2_000).nullable().optional(),
   }),
-  lines: z.array(z.unknown()),
+  lines: z.array(z.any()),
   subtotal: z.number().finite().nonnegative(),
   discount_total: z.number().finite().nonnegative(),
   grand_total: z.number().finite().nonnegative(),
   pass_through_rent: z.number().finite().nonnegative(),
 });
-
 const requestSchema = z.strictObject({
   invoice: invoiceSchema,
   warehouse_id: id,
@@ -44,9 +43,7 @@ const requestSchema = z.strictObject({
 export function createSalesRouter(internalApiToken: string | undefined, principalId: string | undefined): Router {
   const router = Router();
   const authorize = createInternalApiAuth(internalApiToken);
-  const service = principalId
-    ? new SalesTransactionService(new SupabaseSalesTransactionRepository(principalId))
-    : null;
+  const service = principalId ? new SalesTransactionService(new SupabaseSalesTransactionRepository(principalId)) : null;
 
   router.post("/invoices", authorize, async (request, response) => {
     if (!service) {
