@@ -46,7 +46,7 @@ describe("SupabaseSalesReturnService", () => {
       operation: "sales-return.create",
       idempotencyKey: "key-1",
       requestFingerprint: "fingerprint-1",
-    })).rejects.toMatchObject({ statusCode: 409, code: "RETURN_QUANTITY_EXCEEDED" });
+    })).rejects.toMatchObject({ status: 409, code: "RETURN_QUANTITY_EXCEEDED" });
   });
 
   it("maps idempotency fingerprint conflicts", async () => {
@@ -58,6 +58,6 @@ describe("SupabaseSalesReturnService", () => {
       operation: "sales-return.create",
       idempotencyKey: "key-1",
       requestFingerprint: "fingerprint-2",
-    })).rejects.toMatchObject({ statusCode: 409, code: "IDEMPOTENCY_KEY_REUSED" });
+    })).rejects.toMatchObject({ status: 409, code: "IDEMPOTENCY_KEY_REUSED" });
   });
 });
