@@ -87,7 +87,7 @@ function requireValidDate(value: string, field: string): void {
 export class DefaultRateListAuthoringService implements RateListAuthoringService {
   constructor(
     private readonly repository: RateListRepository,
-    private readonly lifecycleRepository: RateListLifecycleRepository = repository,
+    private readonly lifecycleRepository: RateListLifecycleRepository,
   ) {}
 
   async createRateList(input: RateListDefinition): Promise<RateListRecord> {
