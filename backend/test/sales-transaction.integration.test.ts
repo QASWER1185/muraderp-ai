@@ -7,7 +7,7 @@ import type { SalesTransactionRequest } from "../src/types/sales-transaction.typ
 const request: SalesTransactionRequest = {
   invoice: buildDirectInvoice({ invoice_number: "INV-E2E-001", customer_id: 7, salesperson_id: 3, issue_date: "2026-08-14", currency_code: "PKR", notes: "verification" }, [{ line_number: 1, product_id: 10, quantity: 2, unit: "piece", unit_price: 1500, pricing_source: "RESOLVED_RATE", rate_list_id: 4, rate_list_selection_source: "MANUAL_OVERRIDE" }], 3000, 0, 3000, 200),
   warehouse_id: 2,
-  lines: [{ line_number: 1, product_id: 10, quantity: 2, unit: "piece", unit_price: 1500, unit_cost: 900, cogs_total: 1800 }],
+  lines: [{ line_number: 1, product_id: 10, quantity: 2, unit: "piece", unit_price: 1500, line_total: 3000, unit_cost: 900, cogs_total: 1800 }],
   idempotency_key: "invoice-e2e-001",
 };
 
