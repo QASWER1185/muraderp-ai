@@ -10,6 +10,7 @@ import { createInventoryRouter } from "./routes/inventory.routes.js";
 import { createProductRouter } from "./routes/product.routes.js";
 import { createSalesRouter } from "./routes/sales.routes.js";
 import { createCustomerPaymentRouter } from "./routes/customer-payment.routes.js";
+import { createSalesReturnRouter } from "./routes/sales-return.routes.js";
 import {
   SupabaseCustomerPaymentService,
   type CustomerPaymentService,
@@ -52,6 +53,7 @@ export function createApp(options: AppOptions = {}) {
       options.customerPaymentService ?? new SupabaseCustomerPaymentService(),
     ),
   );
+  app.use("/api/v1/sales-returns", createSalesReturnRouter(internalApiToken, internalApiPrincipalId));
 
   // Temporary, in-memory compatibility paths for the pre-versioned prototype API.
   app.use("/api/health", healthRouter);
