@@ -18,9 +18,8 @@ export interface PricingService {
  * Deterministic pricing application service.
  *
  * When a rate_list_id is supplied, the repository must resolve only from that
- * rate list. When it is omitted, normal precedence may choose the best active
- * applicable list. This supports both whole-estimate selection and mixed-brand
- * line-level overrides without allowing AI/OCR to silently mutate prices.
+ * rate list. This service also verifies the returned authority so a faulty
+ * adapter can never silently substitute another rate list.
  */
 export class DefaultPricingService implements PricingService {
   constructor(private readonly repository: PricingRepository) {}
@@ -42,7 +41,13 @@ export class DefaultPricingService implements PricingService {
       throw new Error("rate_list_id must be a positive integer when provided");
     }
 
-    return this.repository.findBestRateListItem(context);
+    const resolved = await this.repository.findBestRateListItem(context);
+
+    if (resolved && context.rate_list_id != null && resolved.rate_list_id !== context.rate_list_id) {
+      throw new Error("resolved price does not belong to the requested rate list");
+    }
+
+    return resolved;
   }
 }
 
