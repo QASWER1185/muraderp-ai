@@ -5,6 +5,13 @@ import type {
   RateListVersionDefinition,
   ResolvedPrice,
 } from "../types/pricing.types.js";
+import type {
+  RateListItemRecord,
+  RateListRecord,
+  RateListRepository,
+  RateListVersionRecord,
+  RateListLifecycleRepository,
+} from "../repositories/rate-list.repository.js";
 
 export interface PricingRepository {
   findBestRateListItem(context: PriceResolutionContext): Promise<ResolvedPrice | null>;
@@ -48,6 +55,107 @@ export class DefaultPricingService implements PricingService {
     }
 
     return resolved;
+  }
+}
+
+export interface RateListAuthoringService {
+  createRateList(input: RateListDefinition): Promise<RateListRecord>;
+  createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
+  createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+  listActiveSaleRateLists(): Promise<RateListRecord[]>;
+  activateVersion(versionId: number): Promise<RateListVersionRecord>;
+  archiveVersion(versionId: number): Promise<RateListVersionRecord>;
+}
+
+function requirePositiveInteger(value: number, field: string): void {
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${field} must be a positive integer`);
+}
+
+function requireNonBlank(value: string, field: string): void {
+  if (!value.trim()) throw new Error(`${field} is required`);
+}
+
+function requireValidDate(value: string, field: string): void {
+  if (!value || Number.isNaN(Date.parse(value))) throw new Error(`${field} must be a valid date/time`);
+}
+
+/**
+ * Authoring/lifecycle application service. It owns validation and lifecycle
+ * invariants while the repository owns persistence. Image/OCR/voice adapters
+ * can target this contract without coupling to Supabase.
+ */
+export class DefaultRateListAuthoringService implements RateListAuthoringService {
+  constructor(
+    private readonly repository: RateListRepository,
+    private readonly lifecycleRepository: RateListLifecycleRepository = repository,
+  ) {}
+
+  async createRateList(input: RateListDefinition): Promise<RateListRecord> {
+    requireNonBlank(input.name, "name");
+    requireNonBlank(input.code, "code");
+    requireNonBlank(input.currency_code, "currency_code");
+
+    if (input.scope_type === "VENDOR") requirePositiveInteger(input.vendor_id ?? 0, "vendor_id");
+    if (input.scope_type === "CUSTOMER") requirePositiveInteger(input.customer_id ?? 0, "customer_id");
+    if (input.scope_type === "GLOBAL" && (input.vendor_id != null || input.customer_id != null)) {
+      throw new Error("GLOBAL rate lists cannot target a vendor or customer");
+    }
+
+    return this.repository.createRateList({
+      ...input,
+      name: input.name.trim(),
+      code: input.code.trim(),
+      currency_code: input.currency_code.trim().toUpperCase(),
+    });
+  }
+
+  async createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord> {
+    requirePositiveInteger(input.rate_list_id, "rate_list_id");
+    requirePositiveInteger(input.version_number, "version_number");
+    requireValidDate(input.effective_from, "effective_from");
+    if (input.effective_to != null) {
+      requireValidDate(input.effective_to, "effective_to");
+      if (Date.parse(input.effective_to) <= Date.parse(input.effective_from)) {
+        throw new Error("effective_to must be later than effective_from");
+      }
+    }
+    return this.repository.createVersion({ ...input, status: input.status ?? "DRAFT" });
+  }
+
+  async createItem(input: RateListItemDefinition): Promise<RateListItemRecord> {
+    requirePositiveInteger(input.rate_list_version_id, "rate_list_version_id");
+    requirePositiveInteger(input.product_id, "product_id");
+    const minimumQuantity = input.minimum_quantity ?? 1;
+    if (!Number.isFinite(minimumQuantity) || minimumQuantity <= 0) {
+      throw new Error("minimum_quantity must be greater than zero");
+    }
+    if (!Number.isFinite(input.unit_price) || input.unit_price < 0) {
+      throw new Error("unit_price must be zero or greater");
+    }
+    requireNonBlank(input.unit, "unit");
+    return this.repository.createItem({
+      ...input,
+      minimum_quantity: minimumQuantity,
+      unit: input.unit.trim(),
+    });
+  }
+
+  listActiveSaleRateLists(): Promise<RateListRecord[]> {
+    return this.repository.listActiveSaleRateLists();
+  }
+
+  async activateVersion(versionId: number): Promise<RateListVersionRecord> {
+    requirePositiveInteger(versionId, "versionId");
+    const version = await this.lifecycleRepository.getVersion(versionId);
+    if (version.status !== "DRAFT") throw new Error("only DRAFT rate-list versions can be activated");
+    return this.lifecycleRepository.activateVersion(versionId);
+  }
+
+  async archiveVersion(versionId: number): Promise<RateListVersionRecord> {
+    requirePositiveInteger(versionId, "versionId");
+    const version = await this.lifecycleRepository.getVersion(versionId);
+    if (version.status !== "ACTIVE") throw new Error("only ACTIVE rate-list versions can be archived");
+    return this.lifecycleRepository.archiveVersion(versionId);
   }
 }
 
