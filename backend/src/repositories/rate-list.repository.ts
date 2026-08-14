@@ -124,3 +124,5 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
     return data as RateListVersionRecord;
   }
 }
+
+// CI verification trigger: deterministic pricing resolution contract remains unchanged.
