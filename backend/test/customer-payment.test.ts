@@ -27,13 +27,7 @@ const payment: CustomerPaymentResult = {
     updated_at: "2026-08-14T00:00:00.000Z",
   },
   allocations: [
-    {
-      id: 801,
-      payment_id: 701,
-      invoice_id: 501,
-      amount: 100,
-      created_at: "2026-08-14T00:00:00.000Z",
-    },
+    { id: 801, payment_id: 701, invoice_id: 501, amount: 100, created_at: "2026-08-14T00:00:00.000Z" },
   ],
 };
 
@@ -44,7 +38,7 @@ describe("customer payments API", () => {
       customerPaymentService: serviceStub({ recordPayment }),
       internalApiToken: internalToken,
       internalApiPrincipalId: principalId,
-    } as never);
+    });
 
     const response = await request(app)
       .post("/api/v1/customer-payments")
@@ -56,11 +50,7 @@ describe("customer payments API", () => {
 
   it("requires Idempotency-Key before payment persistence", async () => {
     const recordPayment = vi.fn();
-    const app = createApp({
-      customerPaymentService: serviceStub({ recordPayment }),
-      internalApiToken: internalToken,
-      internalApiPrincipalId: principalId,
-    } as never);
+    const app = createApp({ customerPaymentService: serviceStub({ recordPayment }), internalApiToken: internalToken, internalApiPrincipalId: principalId });
 
     const response = await request(app)
       .post("/api/v1/customer-payments")
@@ -74,11 +64,7 @@ describe("customer payments API", () => {
 
   it("rejects allocation totals that do not equal the payment amount", async () => {
     const recordPayment = vi.fn();
-    const app = createApp({
-      customerPaymentService: serviceStub({ recordPayment }),
-      internalApiToken: internalToken,
-      internalApiPrincipalId: principalId,
-    } as never);
+    const app = createApp({ customerPaymentService: serviceStub({ recordPayment }), internalApiToken: internalToken, internalApiPrincipalId: principalId });
 
     const response = await request(app)
       .post("/api/v1/customer-payments")
@@ -93,11 +79,7 @@ describe("customer payments API", () => {
 
   it("passes principal, idempotency key, normalized input, and fingerprint to the transaction service", async () => {
     const recordPayment = vi.fn().mockResolvedValue(payment);
-    const app = createApp({
-      customerPaymentService: serviceStub({ recordPayment }),
-      internalApiToken: internalToken,
-      internalApiPrincipalId: principalId,
-    } as never);
+    const app = createApp({ customerPaymentService: serviceStub({ recordPayment }), internalApiToken: internalToken, internalApiPrincipalId: principalId });
 
     const response = await request(app)
       .post("/api/v1/customer-payments")
@@ -127,28 +109,19 @@ describe("customer payments API", () => {
       notes: "test receipt",
       allocations: [{ invoice_id: 501, amount: 100 }],
     });
-    expect(recordPayment.mock.calls[0]![1]).toMatchObject({
-      principalScope: principalId,
-      operation: "customer-payment.create",
-      idempotencyKey: "payment-key-701",
-    });
+    expect(recordPayment.mock.calls[0]![1]).toMatchObject({ principalScope: principalId, operation: "customer-payment.create", idempotencyKey: "payment-key-701" });
     expect(recordPayment.mock.calls[0]![1].requestFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("produces the same fingerprint when allocation order changes", async () => {
     const recordPayment = vi.fn().mockResolvedValue(payment);
-    const app = createApp({
-      customerPaymentService: serviceStub({ recordPayment }),
-      internalApiToken: internalToken,
-      internalApiPrincipalId: principalId,
-    } as never);
-
+    const app = createApp({ customerPaymentService: serviceStub({ recordPayment }), internalApiToken: internalToken, internalApiPrincipalId: principalId });
     const base = {
       customer_id: 11,
       payment_date: "2026-08-14",
       amount: 150,
       currency_code: "PKR",
-      payment_method: "BANK_TRANSFER",
+      payment_method: "BANK_TRANSFER" as const,
       allocations: [{ invoice_id: 501, amount: 100 }, { invoice_id: 502, amount: 50 }],
     };
 
