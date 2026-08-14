@@ -24,7 +24,7 @@ const request: SalesTransactionRequest = {
         line_total: 3000,
         pricing_source: "RESOLVED_RATE",
         rate_list_id: 4,
-        rate_list_selection_source: "MANUAL",
+        rate_list_selection_source: "MANUAL_OVERRIDE",
       },
     ],
     3000,
