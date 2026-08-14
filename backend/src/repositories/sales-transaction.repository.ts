@@ -9,11 +9,7 @@ import type { SalesTransactionPort, SalesTransactionRequest } from "../types/sal
 type RpcClient = SupabaseClient<Database> & { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }> };
 
 function fingerprint(request: SalesTransactionRequest): string {
-  const canonical = JSON.stringify({
-    invoice: request.invoice,
-    warehouse_id: request.warehouse_id,
-    lines: request.lines,
-  });
+  const canonical = JSON.stringify({ invoice: request.invoice, warehouse_id: request.warehouse_id, lines: request.lines });
   return createHash("sha256").update(canonical).digest("hex");
 }
 
@@ -29,12 +25,15 @@ function mapDatabaseError(error: { code?: string; message?: string }): ApiError 
 }
 
 export class SupabaseSalesTransactionRepository implements SalesTransactionPort {
-  constructor(private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient) {}
+  constructor(
+    private readonly principalId: string,
+    private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient,
+  ) {}
 
   async execute(request: SalesTransactionRequest): Promise<InvoiceTransactionResult> {
     const client = this.clientFactory() as RpcClient;
     const { data, error } = await client.rpc("record_sales_transaction", {
-      p_principal_id: request.invoice.definition.customer_id.toString(),
+      p_principal_id: this.principalId,
       p_idempotency_key: request.idempotency_key,
       p_request_fingerprint: fingerprint(request),
       p_invoice_number: request.invoice.definition.invoice_number,
@@ -56,13 +55,12 @@ export class SupabaseSalesTransactionRepository implements SalesTransactionPort 
     const invoiceId = Number(data);
     if (!Number.isInteger(invoiceId) || invoiceId <= 0) throw new ApiError(502, "SALES_TRANSACTION_FAILED", "The database did not return a valid invoice id");
 
-    const invoice: InvoiceDocument = { ...request.invoice, id: invoiceId, status: "POSTED" };
     return {
-      invoice,
+      invoice: { ...request.invoice, id: invoiceId, status: "POSTED" },
       inventory_decreased: true,
       customer_receivable_updated: true,
       revenue_recorded: true,
-      cogs_recorded: request.lines.some((line) => line.quantity > 0),
+      cogs_recorded: request.lines.length > 0,
       profit_loss_recorded: true,
       pass_through_rent_recorded: request.invoice.pass_through_rent > 0,
     };
