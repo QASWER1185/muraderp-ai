@@ -21,7 +21,6 @@ const request: SalesTransactionRequest = {
         quantity: 2,
         unit: "piece",
         unit_price: 1500,
-        line_total: 3000,
         pricing_source: "RESOLVED_RATE",
         rate_list_id: 4,
         rate_list_selection_source: "MANUAL_OVERRIDE",
