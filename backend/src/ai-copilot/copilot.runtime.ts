@@ -18,60 +18,15 @@ import type { AiDraft } from "../ai-input/contracts.js";
 import type { CopilotActionPlan } from "./copilot.types.js";
 import { createCopilotPlanFromDraft, assertCopilotDraftExecution } from "./copilot.service.js";
 
-const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> = {
-  estimate: "sales.create",
-  invoice: "sales.create",
-  customer_return: "returns.create",
-  supplier_bill: "purchases.create",
-  inventory_adjustment: "inventory.adjust",
-};
-
+const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> = { estimate: "sales.create", invoice: "sales.create", customer_return: "returns.create", supplier_bill: "purchases.create", inventory_adjustment: "inventory.adjust" };
 function client() { return getSupabaseAdminClient() as any; }
-
-function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, stableValue(item)]));
-  }
-  return value;
-}
-
-export function copilotFingerprint(plan: CopilotActionPlan): string {
-  return createHash("sha256").update(JSON.stringify(stableValue(plan)), "utf8").digest("hex");
-}
-
-function positiveId(value: string | undefined, field: string): number {
-  if (!value) throw new Error(`${field} is required`);
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${field} must be a positive integer`);
-  return parsed;
-}
-
-function isoDate(value?: string): string {
-  const date = value ?? new Date().toISOString().slice(0, 10);
-  if (Number.isNaN(Date.parse(date))) throw new Error("documentDate must be a valid date");
-  return date.slice(0, 10);
-}
-
+function stableValue(value: unknown): unknown { if (Array.isArray(value)) return value.map(stableValue); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, stableValue(item)])); return value; }
+export function copilotFingerprint(plan: CopilotActionPlan): string { return createHash("sha256").update(JSON.stringify(stableValue(plan)), "utf8").digest("hex"); }
+function positiveId(value: string | undefined, field: string): number { if (!value) throw new Error(`${field} is required`); const parsed = Number(value); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${field} must be a positive integer`); return parsed; }
+function isoDate(value?: string): string { const date = value ?? new Date().toISOString().slice(0, 10); if (Number.isNaN(Date.parse(date))) throw new Error("documentDate must be a valid date"); return date.slice(0, 10); }
 type RuntimeLine = { productId: number; quantity: number; unit?: string; rate?: number; rateListId?: number; sourceItemId?: number };
-
-function requireLineProducts(plan: CopilotActionPlan): RuntimeLine[] {
-  return plan.lines.map((line) => {
-    if (line.productId === undefined) throw new Error(`product resolution is required for ${line.productName}`);
-    const result: RuntimeLine = { productId: line.productId, quantity: line.quantity };
-    if (line.unit !== undefined) result.unit = line.unit;
-    if (line.explicitUnitRate !== undefined) result.rate = line.explicitUnitRate;
-    if (line.pricingSelection?.mode === "RATE_LIST") result.rateListId = line.pricingSelection.rate_list_id;
-    if (line.sourceItemId !== undefined) result.sourceItemId = line.sourceItemId;
-    return result;
-  });
-}
-
-function sourceType(source: CopilotActionPlan["source"]): "VOICE" | "OCR" | "AI_ASSISTED" {
-  if (source === "voice") return "VOICE";
-  if (source === "image" || source === "camera") return "OCR";
-  return "AI_ASSISTED";
-}
+function requireLineProducts(plan: CopilotActionPlan): RuntimeLine[] { return plan.lines.map((line) => { if (line.productId === undefined) throw new Error(`product resolution is required for ${line.productName}`); const result: RuntimeLine = { productId: line.productId, quantity: line.quantity }; if (line.unit !== undefined) result.unit = line.unit; if (line.explicitUnitRate !== undefined) result.rate = line.explicitUnitRate; if (line.pricingSelection?.mode === "RATE_LIST") result.rateListId = line.pricingSelection.rate_list_id; if (line.sourceItemId !== undefined) result.sourceItemId = line.sourceItemId; return result; }); }
+function sourceType(source: CopilotActionPlan["source"]): "VOICE" | "OCR" | "AI_ASSISTED" { if (source === "voice") return "VOICE"; if (source === "image" || source === "camera") return "OCR"; return "AI_ASSISTED"; }
 
 export class CopilotRuntime {
   private readonly authorization: AuthorizationService;
@@ -81,11 +36,7 @@ export class CopilotRuntime {
   private readonly salesTransaction = new SupabaseSalesTransactionAdapter(getSupabaseAdminClient, "ai-copilot");
   private readonly returns = new SupabaseSalesReturnService();
 
-  constructor(erp: ErpService = new SupabaseErpService()) {
-    this.erp = erp;
-    const authClient = createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
-    this.authorization = new AuthorizationService(new SupabaseAuthorizationGateway(authClient));
-  }
+  constructor(erp: ErpService = new SupabaseErpService()) { this.erp = erp; const authClient = createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY); this.authorization = new AuthorizationService(new SupabaseAuthorizationGateway(authClient)); }
 
   async createDraft(draft: AiDraft, context: { userId: string; warehouseId?: number; rateListId?: number; documentNumber?: string; documentDate?: string; currencyCode?: string; reason?: string }, idempotencyKey: string) {
     const plan = createCopilotPlanFromDraft(draft, context).plan;
@@ -94,10 +45,7 @@ export class CopilotRuntime {
     const db = client();
     const { data: existing, error: existingError } = await db.from("ai_copilot_actions").select("*").eq("organization_id", plan.organizationId).eq("idempotency_key", idempotencyKey).maybeSingle();
     if (existingError) throw existingError;
-    if (existing) {
-      if (existing.request_fingerprint !== fingerprint) throw new Error("Idempotency-Key was reused for a different Copilot action");
-      return existing;
-    }
+    if (existing) { if (existing.request_fingerprint !== fingerprint) throw new Error("Idempotency-Key was reused for a different Copilot action"); return existing; }
     const { data, error } = await db.from("ai_copilot_actions").insert({ organization_id: plan.organizationId, user_id: plan.userId, intent: plan.target, status: "DRAFT", idempotency_key: idempotencyKey, request_fingerprint: fingerprint, action_plan: plan }).select("*").single();
     if (error) throw error;
     return data;
@@ -165,7 +113,15 @@ export class CopilotRuntime {
         }
         return { product_id: line.productId, quantity: line.quantity, unit_cost: unitCost };
       }));
-      return this.erp.recordPurchase({ vendor_id: vendorId, warehouse_id: plan.warehouseId, items: purchaseLines, purchase_date: date, invoice_number: plan.documentNumber, notes: plan.reason }, { principalScope: plan.organizationId, operation: "purchase.create", idempotencyKey, requestFingerprint: copilotFingerprint(plan) });
+      const purchaseInput = {
+        vendor_id: vendorId,
+        warehouse_id: plan.warehouseId,
+        items: purchaseLines,
+        purchase_date: date,
+        ...(plan.documentNumber !== undefined ? { invoice_number: plan.documentNumber } : {}),
+        ...(plan.reason !== undefined ? { notes: plan.reason } : {}),
+      };
+      return this.erp.recordPurchase(purchaseInput, { principalScope: plan.organizationId, operation: "purchase.create", idempotencyKey, requestFingerprint: copilotFingerprint(plan) });
     }
 
     if (plan.target === "customer_return") {
