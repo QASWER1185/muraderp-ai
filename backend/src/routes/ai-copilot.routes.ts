@@ -1,0 +1,98 @@
+import { Router } from "express";
+import { z } from "zod";
+import { ApiError } from "../errors/api-error.js";
+import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
+import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
+
+const idSchema = z.coerce.number().int().positive();
+const draftLineSchema = z.strictObject({
+  productName: z.string().trim().min(1).max(200),
+  productId: z.union([z.number(), z.string()]).optional(),
+  quantity: z.number().finite().positive(),
+  unit: z.string().trim().min(1).max(50).optional(),
+  unitRate: z.number().finite().nonnegative().optional(),
+  sourceItemId: idSchema.optional(),
+  brandHint: z.string().trim().min(1).max(100).optional(),
+});
+
+const draftSchema = z.strictObject({
+  organizationId: z.string().uuid(),
+  userId: z.string().uuid(),
+  intent: z.enum(["estimate", "invoice", "customer_return", "supplier_bill", "inventory_adjustment"]),
+  source: z.enum(["text", "image", "camera", "voice"]),
+  customerId: z.string().optional(),
+  vendorId: z.string().optional(),
+  documentNumber: z.string().trim().min(1).max(100).optional(),
+  documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  currencyCode: z.string().trim().min(3).max(10).optional(),
+  warehouseId: idSchema.optional(),
+  rateListId: idSchema.optional(),
+  reason: z.string().trim().min(1).max(2_000).optional(),
+  lines: z.array(draftLineSchema).min(1).max(500),
+  confidence: z.number().finite().min(0).max(1).default(1),
+});
+
+function toAiDraft(input: z.output<typeof draftSchema>) {
+  return {
+    organizationId: input.organizationId,
+    intent: input.intent,
+    source: input.source,
+    ...(input.customerId ? { customerId: { value: input.customerId, confidence: input.confidence, source: input.source } } : {}),
+    ...(input.vendorId ? { vendorId: { value: input.vendorId, confidence: input.confidence, source: input.source } } : {}),
+    ...(input.documentNumber ? { documentNumber: { value: input.documentNumber, confidence: input.confidence, source: input.source } } : {}),
+    lines: input.lines.map((line) => ({
+      productName: { value: line.productName, confidence: input.confidence, source: input.source, ...(line.brandHint ? { rawText: line.brandHint } : {}) },
+      ...(line.productId !== undefined ? { productId: { value: line.productId, confidence: input.confidence, source: input.source } } : {}),
+      quantity: { value: line.quantity, confidence: input.confidence, source: input.source },
+      ...(line.unit ? { unit: { value: line.unit, confidence: input.confidence, source: input.source } } : {}),
+      ...(line.unitRate !== undefined ? { unitRate: { value: line.unitRate, confidence: input.confidence, source: input.source } } : {}),
+      ...(line.sourceItemId !== undefined ? { sourceItemId: { value: line.sourceItemId, confidence: input.confidence, source: input.source } } : {}),
+    })),
+    confidence: input.confidence,
+    requiresHumanConfirmation: true as const,
+  };
+}
+
+export function createAiCopilotRouter(internalApiToken?: string, runtime = new CopilotRuntime()) {
+  const router = Router();
+  const authorize = createInternalApiAuth(internalApiToken);
+
+  router.post("/drafts", authorize, async (request, response) => {
+    const parsed = draftSchema.parse(request.body);
+    const idempotencyKey = request.header("Idempotency-Key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255) {
+      throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
+    }
+
+    const action = await runtime.createDraft(
+      toAiDraft(parsed),
+      {
+        userId: parsed.userId,
+        warehouseId: parsed.warehouseId,
+        rateListId: parsed.rateListId,
+        documentNumber: parsed.documentNumber,
+        documentDate: parsed.documentDate,
+        currencyCode: parsed.currencyCode,
+        reason: parsed.reason,
+      },
+      idempotencyKey,
+    );
+    response.status(201).json({ data: action, requiresConfirmation: true });
+  });
+
+  router.post("/drafts/:id/confirm", authorize, async (request, response) => {
+    const id = request.params.id;
+    if (!z.string().uuid().safeParse(id).success) throw new ApiError(400, "VALIDATION_ERROR", "A valid Copilot draft id is required");
+    const organizationId = z.string().uuid().parse(request.header("X-Organization-Id"));
+    const userId = z.string().uuid().parse(request.header("X-User-Id"));
+    const idempotencyKey = request.header("Idempotency-Key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255) {
+      throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
+    }
+
+    const action = await runtime.confirmAndExecute(id, organizationId, userId, idempotencyKey);
+    response.status(200).json({ data: action, executed: action.status === "EXECUTED" });
+  });
+
+  return router;
+}
