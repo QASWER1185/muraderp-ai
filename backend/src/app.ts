@@ -11,15 +11,15 @@ import { createProductRouter } from "./routes/product.routes.js";
 import { createSalesRouter } from "./routes/sales.routes.js";
 import { createCustomerPaymentRouter } from "./routes/customer-payment.routes.js";
 import { createSalesReturnRouter } from "./routes/sales-return.routes.js";
-import {
-  SupabaseCustomerPaymentService,
-  type CustomerPaymentService,
-} from "./services/customer-payment.service.js";
+import { createVendorPaymentRouter } from "./routes/vendor-payment.routes.js";
+import { SupabaseCustomerPaymentService, type CustomerPaymentService } from "./services/customer-payment.service.js";
+import { SupabaseVendorPaymentService, type VendorPaymentService } from "./services/vendor-payment.service.js";
 import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
 
 export interface AppOptions {
   erpService?: ErpService;
   customerPaymentService?: CustomerPaymentService;
+  vendorPaymentService?: VendorPaymentService;
   internalApiToken?: string;
   internalApiPrincipalId?: string;
 }
@@ -53,9 +53,13 @@ export function createApp(options: AppOptions = {}) {
       options.customerPaymentService ?? new SupabaseCustomerPaymentService(),
     ),
   );
+  app.use("/api/v1/vendor-payments", createVendorPaymentRouter(
+    internalApiToken,
+    internalApiPrincipalId,
+    options.vendorPaymentService ?? new SupabaseVendorPaymentService(),
+  ));
   app.use("/api/v1/sales-returns", createSalesReturnRouter(internalApiToken, internalApiPrincipalId));
 
-  // Temporary, in-memory compatibility paths for the pre-versioned prototype API.
   app.use("/api/health", healthRouter);
   app.use("/api", customerRoutes);
 
