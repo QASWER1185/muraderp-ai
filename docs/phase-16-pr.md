@@ -1,0 +1,1 @@
+PR scope: close bank reconciliation remediation gaps, add Supabase persistence schema, repository integration, reconciliation lifecycle, explicit confirmation boundary, and focused automated tests. Final closure requires CI, merge, and post-merge develop CI.
