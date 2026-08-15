@@ -51,7 +51,22 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
       quantity: line.quantity,
       rate_list_id: selectedRateListId,
     };
-    const resolved: ResolvedPrice | null = await this.pricingService.resolvePrice(resolutionContext);
+
+    const resolved: ResolvedPrice | null = line.brand_hint?.trim()
+      ? await this.pricingService.resolveCandidate(
+          {
+            product_id: line.product_id,
+            quantity: line.quantity,
+            selected_rate_list_id: selectedRateListId,
+            rate_list_hint: line.brand_hint.trim(),
+            selection_source:
+              line.rate_list_selection_source === "VOICE_BRAND_MATCH"
+                ? "VOICE_BRAND_MATCH"
+                : "OCR_BRAND_MATCH",
+          },
+          context,
+        )
+      : await this.pricingService.resolvePrice(resolutionContext);
 
     if (!resolved) {
       throw new Error(`no applicable price found for product_id ${line.product_id}`);
@@ -63,7 +78,9 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
       unit_price: resolved.unit_price,
       pricing_source: "RESOLVED_RATE",
       rate_list_id: resolved.rate_list_id,
-      rate_list_selection_source: selectionSource,
+      rate_list_selection_source: line.brand_hint?.trim()
+        ? (line.rate_list_selection_source === "VOICE_BRAND_MATCH" ? "VOICE_BRAND_MATCH" : "OCR_BRAND_MATCH")
+        : selectionSource,
       resolved_price: resolved,
     };
   }
