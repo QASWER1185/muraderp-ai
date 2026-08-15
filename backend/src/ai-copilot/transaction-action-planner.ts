@@ -10,7 +10,6 @@ function resolvePricing(line: CopilotPlannerInput["lines"][number]): {
     if (!Number.isFinite(line.explicitUnitRate) || line.explicitUnitRate < 0) {
       throw new Error("explicitUnitRate must be zero or greater");
     }
-
     const selection: EstimatePricingSelection = {
       mode: "MANUAL",
       manual_unit_price: line.explicitUnitRate,
@@ -24,7 +23,6 @@ function resolvePricing(line: CopilotPlannerInput["lines"][number]): {
     if (!Number.isInteger(line.rateListId) || line.rateListId <= 0) {
       throw new Error("rateListId must be a positive integer");
     }
-
     const selection: EstimatePricingSelection = {
       mode: "RATE_LIST",
       rate_list_id: line.rateListId,
@@ -34,10 +32,7 @@ function resolvePricing(line: CopilotPlannerInput["lines"][number]): {
     return { rateSource: "SELECTED_RATE_LIST", pricingSelection: selection };
   }
 
-  if (line.brandHint?.trim()) {
-    return { rateSource: "UNRESOLVED_BRAND_HINT" };
-  }
-
+  if (line.brandHint?.trim()) return { rateSource: "UNRESOLVED_BRAND_HINT" };
   return { rateSource: "UNRESOLVED" };
 }
 
@@ -51,6 +46,12 @@ export function createTransactionActionPlan(input: CopilotPlannerInput): Copilot
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
       throw new Error("quantity must be greater than zero");
     }
+    if (line.productId !== undefined && (!Number.isInteger(line.productId) || line.productId <= 0)) {
+      throw new Error("productId must be a positive integer");
+    }
+    if (line.sourceItemId !== undefined && (!Number.isInteger(line.sourceItemId) || line.sourceItemId <= 0)) {
+      throw new Error("sourceItemId must be a positive integer");
+    }
 
     const pricing = resolvePricing(line);
     const candidate: CopilotLineCandidate = {
@@ -58,12 +59,12 @@ export function createTransactionActionPlan(input: CopilotPlannerInput): Copilot
       quantity: line.quantity,
       rateSource: pricing.rateSource,
     };
-
+    if (line.productId !== undefined) candidate.productId = line.productId;
     if (line.brandHint?.trim()) candidate.brandHint = line.brandHint.trim();
     if (line.unit?.trim()) candidate.unit = line.unit.trim();
     if (line.explicitUnitRate !== undefined) candidate.explicitUnitRate = line.explicitUnitRate;
+    if (line.sourceItemId !== undefined) candidate.sourceItemId = line.sourceItemId;
     if (pricing.pricingSelection !== undefined) candidate.pricingSelection = pricing.pricingSelection;
-
     return candidate;
   });
 
@@ -75,9 +76,12 @@ export function createTransactionActionPlan(input: CopilotPlannerInput): Copilot
     lines,
     requiresConfirmation: true,
   };
-
   if (input.customerId?.trim()) plan.customerId = input.customerId.trim();
   if (input.vendorId?.trim()) plan.vendorId = input.vendorId.trim();
-
+  if (input.warehouseId !== undefined) plan.warehouseId = input.warehouseId;
+  if (input.documentNumber?.trim()) plan.documentNumber = input.documentNumber.trim();
+  if (input.documentDate?.trim()) plan.documentDate = input.documentDate.trim();
+  if (input.currencyCode?.trim()) plan.currencyCode = input.currencyCode.trim();
+  if (input.reason?.trim()) plan.reason = input.reason.trim();
   return plan;
 }
