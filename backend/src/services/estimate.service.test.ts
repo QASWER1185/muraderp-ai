@@ -80,7 +80,14 @@ function pricingService(value: ResolvedPrice | null): PricingService {
       expect(context.customer_id).toBe(7);
       return value;
     },
-    resolveCandidate: async () => value,
+    resolveCandidate: async (candidate, context) => {
+      expect(candidate.product_id).toBe(10);
+      expect(candidate.quantity).toBe(50);
+      expect(candidate.rate_list_hint).toBe("Popular");
+      expect(candidate.selection_source).toBe("OCR_BRAND_MATCH");
+      expect(context.price_type).toBe("SALE");
+      return value;
+    },
   };
 }
 
@@ -135,6 +142,33 @@ describe("DefaultEstimateService", () => {
       resolved_price: resolvedPrice,
     });
     expect(result.totals.subtotal).toBe(72500);
+  });
+
+  it("uses an explicit brand/rate-list hint from AI or OCR through the canonical resolver", async () => {
+    const service = new DefaultEstimateService(repository(), pricingService(resolvedPrice));
+
+    const result = await service.createDraft({
+      definition: {
+        customer_id: 7,
+        estimate_number: "EST-0007",
+        issue_date: "2026-08-13",
+        currency_code: "PKR",
+      },
+      lines: [{
+        line_number: 1,
+        product_id: 10,
+        quantity: 50,
+        unit: "bag",
+        brand_hint: "Popular",
+      }],
+    });
+
+    expect(result.lines[0]).toMatchObject({
+      unit_price: 1450,
+      pricing_source: "RESOLVED_RATE",
+      rate_list_selection_source: "OCR_BRAND_MATCH",
+      rate_list_id: 22,
+    });
   });
 
   it("keeps manual line rates as explicit overrides", async () => {
