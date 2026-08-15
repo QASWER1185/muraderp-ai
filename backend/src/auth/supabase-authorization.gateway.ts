@@ -13,11 +13,14 @@ export class SupabaseAuthorizationGateway implements AuthorizationGateway {
   ): Promise<boolean> {
     if (!userId.trim()) return false;
 
-    const { data, error } = await this.client.rpc("has_permission_for_user", {
-      p_user_id: userId,
-      p_organization_id: organizationId,
-      p_permission_code: permission,
-    });
+    const { data, error } = (await this.client.rpc(
+      "has_permission_for_user" as never,
+      {
+        p_user_id: userId,
+        p_organization_id: organizationId,
+        p_permission_code: permission,
+      } as never,
+    )) as { data: boolean | null; error: { message: string } | null };
 
     if (error) {
       throw new Error(`Authorization lookup failed: ${error.message}`);
