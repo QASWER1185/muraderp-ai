@@ -1,0 +1,1 @@
+Phase 18 AI input module. The review policy implementation must keep all AI-derived drafts behind explicit human confirmation and must not grant AI direct financial mutation authority.
