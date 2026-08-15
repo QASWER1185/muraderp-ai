@@ -1,0 +1,1 @@
+Phase 16 scope is limited to bank feed persistence, reconciliation lifecycle, repository integration, and tests. No duplicate accounting ledger or AI mutation path is introduced.
