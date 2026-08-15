@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="MuradERP-AI business management workspace" />
+  <title>MuradERP-AI</title>
+  <link rel="stylesheet" href="/frontend/styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand"><span class="brand-mark">M</span><span>MuradERP-AI</span></div>
+      <nav id="nav" class="nav-list"></nav>
+      <div class="sidebar-footer">ERP Product Completion · Phase 21</div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <button id="menu" class="icon-button" aria-label="Toggle navigation">☰</button>
+        <div>
+          <p class="eyebrow">Business workspace</p>
+          <h1 id="page-title">Dashboard</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="button secondary" id="copilot-button">AI Copilot</button>
+          <button class="avatar" aria-label="Account">QH</button>
+        </div>
+      </header>
+      <section id="content" class="content" aria-live="polite"></section>
+    </main>
+  </div>
+  <dialog id="copilot" class="copilot-dialog" aria-labelledby="copilot-title">
+    <div class="dialog-head"><div><p class="eyebrow">AI Business Copilot</p><h2 id="copilot-title">What do you want to do?</h2></div><button id="copilot-close" class="icon-button" aria-label="Close">×</button></div>
+    <textarea id="copilot-input" rows="5" placeholder="e.g. Create an estimate for Ali Traders: 50 Popular 25mm pipes at the selected rate list rate."></textarea>
+    <div class="dialog-actions"><span class="muted">AI proposes; authoritative ERP services execute after confirmation.</span><button id="copilot-run" class="button primary">Prepare draft</button></div>
+    <pre id="copilot-result" class="result" hidden></pre>
+  </dialog>
+  <script type="module" src="/frontend/app.js"></script>
+</body>
+</html>
