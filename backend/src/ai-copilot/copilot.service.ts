@@ -18,6 +18,13 @@ export interface CopilotDraftResult {
   requiresConfirmation: true;
 }
 
+function positiveInteger(value: string | number | undefined, field: string): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${field} must be a positive integer`);
+  return parsed;
+}
+
 function toPlannerLine(line: AiDraftLine, defaultRateListId?: number) {
   const productName = line.productName?.value?.trim();
   if (!productName) throw new Error("AI draft line is missing productName");
@@ -35,15 +42,16 @@ function toPlannerLine(line: AiDraftLine, defaultRateListId?: number) {
     sourceItemId?: number;
   } = { productName, quantity };
 
-  if (line.productId?.value !== undefined) result.productId = line.productId.value;
+  const productId = positiveInteger(line.productId?.value, "productId");
+  if (productId !== undefined) result.productId = productId;
+  const sourceItemId = positiveInteger(line.sourceItemId?.value, "sourceItemId");
+  if (sourceItemId !== undefined) result.sourceItemId = sourceItemId;
+
   const brandHint = line.productName?.rawText?.trim();
   if (brandHint && brandHint !== productName) result.brandHint = brandHint;
   if (line.unit?.value?.trim()) result.unit = line.unit.value.trim();
   if (line.unitRate?.value !== undefined) result.explicitUnitRate = line.unitRate.value;
   else if (defaultRateListId !== undefined) result.rateListId = defaultRateListId;
-
-  const sourceItemId = (line as AiDraftLine & { sourceItemId?: { value?: number } }).sourceItemId?.value;
-  if (sourceItemId !== undefined) result.sourceItemId = sourceItemId;
   return result;
 }
 
@@ -58,6 +66,7 @@ export function createCopilotPlanFromDraft(
   }
 
   const lines = draft.lines.map((line) => toPlannerLine(line, context.rateListId));
+  const documentNumber = context.documentNumber ?? draft.documentNumber?.value;
   const plan = createTransactionActionPlan({
     organizationId: draft.organizationId,
     userId: context.userId,
@@ -66,7 +75,7 @@ export function createCopilotPlanFromDraft(
     ...(draft.customerId?.value ? { customerId: draft.customerId.value } : {}),
     ...(draft.vendorId?.value ? { vendorId: draft.vendorId.value } : {}),
     ...(context.warehouseId !== undefined ? { warehouseId: context.warehouseId } : {}),
-    ...(context.documentNumber ?? draft.documentNumber?.value ? { documentNumber: context.documentNumber ?? draft.documentNumber?.value } : {}),
+    ...(documentNumber ? { documentNumber } : {}),
     ...(context.documentDate ? { documentDate: context.documentDate } : {}),
     ...(context.currencyCode ? { currencyCode: context.currencyCode } : {}),
     ...(context.reason ? { reason: context.reason } : {}),
