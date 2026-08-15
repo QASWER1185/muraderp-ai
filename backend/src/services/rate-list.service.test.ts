@@ -36,6 +36,7 @@ function repository(): RateListRepository {
     }),
     listActiveSaleRateLists: async () => [],
     findBestRateListItem: async () => null,
+    findRateListsByHint: async () => [],
   };
 }
 
