@@ -31,14 +31,23 @@ export function normalizeDraftLines(draft: AiInputDraft): NormalizedLine[] {
       return typeof value === "string" ? (normalizeText(value) as T) : (value as T | undefined);
     };
 
-    return {
-      productName: read<string>("productName"),
-      productId: read<string>("productId"),
-      quantity: read<number>("quantity"),
-      unit: read<string>("unit"),
-      brandHint: read<string>("brandHint"),
-      rateListHint: read<string>("rateListHint"),
-      unitRate: read<number>("unitRate"),
-    };
+    const normalized: NormalizedLine = {};
+    const productName = read<string>("productName");
+    const productId = read<string>("productId");
+    const quantity = read<number>("quantity");
+    const unit = read<string>("unit");
+    const brandHint = read<string>("brandHint");
+    const rateListHint = read<string>("rateListHint");
+    const unitRate = read<number>("unitRate");
+
+    if (productName !== undefined) normalized.productName = productName;
+    if (productId !== undefined) normalized.productId = productId;
+    if (quantity !== undefined) normalized.quantity = quantity;
+    if (unit !== undefined) normalized.unit = unit;
+    if (brandHint !== undefined) normalized.brandHint = brandHint;
+    if (rateListHint !== undefined) normalized.rateListHint = rateListHint;
+    if (unitRate !== undefined) normalized.unitRate = unitRate;
+
+    return normalized;
   });
 }
