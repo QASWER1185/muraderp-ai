@@ -1,6 +1,8 @@
 import type { EstimateDraft, EstimateDocument, EstimateTotals } from "../types/estimate-document.types.js";
-import type { PricedEstimateLine } from "../types/estimate.types.js";
+import type { EstimateLineDraft, PricedEstimateLine } from "../types/estimate.types.js";
 import type { CreateEstimateInput, EstimateRepository } from "../repositories/estimate.repository.js";
+import type { PricingService } from "./pricing.service.js";
+import { DefaultEstimatePricingService } from "./estimate-pricing.service.js";
 
 export interface EstimateService {
   createDraft(draft: EstimateDraft, source?: Pick<CreateEstimateInput, "source_type" | "source_reference">): Promise<EstimateDocument>;
@@ -30,7 +32,7 @@ function calculateTotals(lines: PricedEstimateLine[], passThroughRent = 0): Esti
   };
 }
 
-function validateLines(lines: PricedEstimateLine[]): void {
+function validateLines(lines: EstimateLineDraft[]): void {
   if (lines.length === 0) throw new Error("estimate must contain at least one line");
 
   const lineNumbers = new Set<number>();
@@ -45,7 +47,7 @@ function validateLines(lines: PricedEstimateLine[]): void {
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
       throw new Error("quantity must be greater than zero");
     }
-    if (!Number.isFinite(line.unit_price) || line.unit_price < 0) {
+    if (!Number.isFinite(line.unit_price ?? 0) || (line.unit_price ?? 0) < 0) {
       throw new Error("unit_price must be zero or greater");
     }
     if (!line.unit.trim()) throw new Error("unit is required");
@@ -53,7 +55,14 @@ function validateLines(lines: PricedEstimateLine[]): void {
 }
 
 export class DefaultEstimateService implements EstimateService {
-  constructor(private readonly repository: EstimateRepository) {}
+  private readonly estimatePricingService?: DefaultEstimatePricingService;
+
+  constructor(
+    private readonly repository: EstimateRepository,
+    pricingService?: PricingService,
+  ) {
+    this.estimatePricingService = pricingService ? new DefaultEstimatePricingService(pricingService) : undefined;
+  }
 
   async createDraft(
     draft: EstimateDraft,
@@ -65,6 +74,9 @@ export class DefaultEstimateService implements EstimateService {
       throw new Error("issue_date must be a valid date");
     }
     if (!draft.definition.currency_code.trim()) throw new Error("currency_code is required");
+    if (draft.definition.default_rate_list_id != null) {
+      assertPositiveInteger(draft.definition.default_rate_list_id, "default_rate_list_id");
+    }
     if (draft.definition.pass_through_rent !== undefined && draft.definition.pass_through_rent < 0) {
       throw new Error("pass_through_rent must be zero or greater");
     }
@@ -73,8 +85,31 @@ export class DefaultEstimateService implements EstimateService {
     }
     validateLines(draft.lines);
 
-    const record = await this.repository.createEstimate({ definition: draft.definition, ...source, lines: draft.lines });
+    const lines: PricedEstimateLine[] = [];
     for (const line of draft.lines) {
+      if (!this.estimatePricingService) {
+        if (line.unit_price === undefined) {
+          throw new Error(`unit_price is required when pricing service is not configured for line ${line.line_number}`);
+        }
+        lines.push({
+          ...line,
+          unit: line.unit.trim(),
+          unit_price: line.unit_price,
+          pricing_source: line.pricing_source ?? "MANUAL_OVERRIDE",
+        });
+        continue;
+      }
+
+      lines.push(await this.estimatePricingService.priceLine(line, {
+        price_type: "SALE",
+        as_of: draft.definition.issue_date,
+        customer_id: draft.definition.customer_id,
+        rate_list_id: draft.definition.default_rate_list_id ?? null,
+      }));
+    }
+
+    const record = await this.repository.createEstimate({ definition: draft.definition, ...source, lines });
+    for (const line of lines) {
       await this.repository.createEstimateItem(record.id, line);
     }
 
@@ -82,8 +117,8 @@ export class DefaultEstimateService implements EstimateService {
       id: record.id,
       status: record.status,
       definition: draft.definition,
-      lines: draft.lines,
-      totals: calculateTotals(draft.lines, draft.definition.pass_through_rent ?? 0),
+      lines,
+      totals: calculateTotals(lines, draft.definition.pass_through_rent ?? 0),
     };
   }
 }
