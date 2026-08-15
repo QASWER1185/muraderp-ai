@@ -1,5 +1,5 @@
 import type { EstimateDraft, EstimateDocument, EstimateTotals } from "../types/estimate-document.types.js";
-import type { PricedEstimateLine } from "../types/estimate.types.js";
+import type { EstimateLineDraft, PricedEstimateLine, EstimatePricingService } from "../types/estimate.types.js";
 import type { CreateEstimateInput, EstimateRepository } from "../repositories/estimate.repository.js";
 
 export interface EstimateService {
@@ -7,53 +7,33 @@ export interface EstimateService {
 }
 
 function assertPositiveInteger(value: number, field: string): void {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${field} must be a positive integer`);
-  }
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${field} must be a positive integer`);
 }
 
 function calculateTotals(lines: PricedEstimateLine[], passThroughRent = 0): EstimateTotals {
-  if (!Number.isFinite(passThroughRent) || passThroughRent < 0) {
-    throw new Error("pass_through_rent must be zero or greater");
-  }
-
+  if (!Number.isFinite(passThroughRent) || passThroughRent < 0) throw new Error("pass_through_rent must be zero or greater");
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
   const discount_total = 0;
   const grand_total = subtotal - discount_total;
-
-  return {
-    subtotal,
-    discount_total,
-    grand_total,
-    customer_payable_total: grand_total + passThroughRent,
-    pass_through_rent: passThroughRent,
-  };
+  return { subtotal, discount_total, grand_total, customer_payable_total: grand_total + passThroughRent, pass_through_rent: passThroughRent };
 }
 
 function validateLines(lines: PricedEstimateLine[]): void {
   if (lines.length === 0) throw new Error("estimate must contain at least one line");
-
   const lineNumbers = new Set<number>();
   for (const line of lines) {
     assertPositiveInteger(line.line_number, "line_number");
-    if (lineNumbers.has(line.line_number)) {
-      throw new Error(`duplicate line_number ${line.line_number}`);
-    }
+    if (lineNumbers.has(line.line_number)) throw new Error(`duplicate line_number ${line.line_number}`);
     lineNumbers.add(line.line_number);
-
     assertPositiveInteger(line.product_id, "product_id");
-    if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
-      throw new Error("quantity must be greater than zero");
-    }
-    if (!Number.isFinite(line.unit_price) || line.unit_price < 0) {
-      throw new Error("unit_price must be zero or greater");
-    }
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("quantity must be greater than zero");
+    if (!Number.isFinite(line.unit_price) || line.unit_price < 0) throw new Error("unit_price must be zero or greater");
     if (!line.unit.trim()) throw new Error("unit is required");
   }
 }
 
 export class DefaultEstimateService implements EstimateService {
-  constructor(private readonly repository: EstimateRepository) {}
+  constructor(private readonly repository: EstimateRepository, private readonly pricingService?: EstimatePricingService) {}
 
   async createDraft(
     draft: EstimateDraft,
@@ -61,29 +41,38 @@ export class DefaultEstimateService implements EstimateService {
   ): Promise<EstimateDocument> {
     assertPositiveInteger(draft.definition.customer_id, "customer_id");
     if (!draft.definition.estimate_number.trim()) throw new Error("estimate_number is required");
-    if (!draft.definition.issue_date || Number.isNaN(Date.parse(draft.definition.issue_date))) {
-      throw new Error("issue_date must be a valid date");
-    }
+    if (!draft.definition.issue_date || Number.isNaN(Date.parse(draft.definition.issue_date))) throw new Error("issue_date must be a valid date");
     if (!draft.definition.currency_code.trim()) throw new Error("currency_code is required");
-    if (draft.definition.pass_through_rent !== undefined && draft.definition.pass_through_rent < 0) {
-      throw new Error("pass_through_rent must be zero or greater");
-    }
-    if (draft.definition.pass_through_rent && !draft.definition.pass_through_rent_payee?.trim()) {
-      throw new Error("pass_through_rent_payee is required when pass_through_rent is provided");
-    }
-    validateLines(draft.lines);
+    if (draft.definition.pass_through_rent !== undefined && draft.definition.pass_through_rent < 0) throw new Error("pass_through_rent must be zero or greater");
+    if (draft.definition.pass_through_rent && !draft.definition.pass_through_rent_payee?.trim()) throw new Error("pass_through_rent_payee is required when pass_through_rent is provided");
 
-    const record = await this.repository.createEstimate({ definition: draft.definition, ...source, lines: draft.lines });
-    for (const line of draft.lines) {
-      await this.repository.createEstimateItem(record.id, line);
+    let pricedLines: PricedEstimateLine[] = draft.lines;
+    if (this.pricingService) {
+      pricedLines = await Promise.all(draft.lines.map(async (line) => {
+        const candidate: EstimateLineDraft = {
+          ...line,
+          rate_list_id: line.rate_list_id ?? draft.definition.default_rate_list_id ?? null,
+          rate_list_selection_source: line.rate_list_selection_source ??
+            ((line.rate_list_id ?? draft.definition.default_rate_list_id) != null ? "ESTIMATE_DEFAULT" : undefined),
+        };
+        return this.pricingService!.priceLine(candidate, {
+          price_type: "SALE",
+          as_of: draft.definition.issue_date,
+          customer_id: draft.definition.customer_id,
+        });
+      }));
     }
+
+    validateLines(pricedLines);
+    const record = await this.repository.createEstimate({ definition: draft.definition, ...source, lines: pricedLines });
+    for (const line of pricedLines) await this.repository.createEstimateItem(record.id, line);
 
     return {
       id: record.id,
       status: record.status,
       definition: draft.definition,
-      lines: draft.lines,
-      totals: calculateTotals(draft.lines, draft.definition.pass_through_rent ?? 0),
+      lines: pricedLines,
+      totals: calculateTotals(pricedLines, draft.definition.pass_through_rent ?? 0),
     };
   }
 }
