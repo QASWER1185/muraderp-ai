@@ -1,0 +1,1 @@
+Phase 10 CI must verify the authorization unit tests and all existing regression suites before merge.
