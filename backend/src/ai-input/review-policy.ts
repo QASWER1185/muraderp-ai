@@ -12,7 +12,7 @@ export function evaluateDraftForReview(draft: AiInputDraft): AiReviewDecision {
   if (draft.status === "draft") reasons.push("draft-not-yet-validated");
   if (!draft.fields.lines) reasons.push("no-extracted-lines");
 
-  const confidence = draft.confidence?.value;
+  const confidence = draft.fields.confidence?.value;
   if (typeof confidence === "number" && confidence < 0.8) reasons.push("low-document-confidence");
 
   return { requiresHumanConfirmation: true, blockingReasons: reasons };
