@@ -17,7 +17,10 @@ const resolved: ResolvedPrice = {
 };
 
 function pricingService(value: ResolvedPrice | null): PricingService {
-  return { resolvePrice: async () => value };
+  return {
+    resolvePrice: async () => value,
+    resolveCandidate: async () => value,
+  };
 }
 
 const baseLine = {
