@@ -26,15 +26,15 @@ const plan: CopilotActionPlan = {
 describe("Phase 20 Copilot runtime fingerprint", () => {
   it("is deterministic regardless of object key insertion order", () => {
     const reordered: CopilotActionPlan = {
-      organizationId: plan.organizationId,
-      userId: plan.userId,
-      source: plan.source,
-      target: plan.target,
-      customerId: plan.customerId,
-      warehouseId: plan.warehouseId,
-      documentNumber: plan.documentNumber,
-      lines: plan.lines,
       requiresConfirmation: true,
+      lines: plan.lines,
+      ...(plan.documentNumber !== undefined ? { documentNumber: plan.documentNumber } : {}),
+      ...(plan.warehouseId !== undefined ? { warehouseId: plan.warehouseId } : {}),
+      ...(plan.customerId !== undefined ? { customerId: plan.customerId } : {}),
+      target: plan.target,
+      source: plan.source,
+      userId: plan.userId,
+      organizationId: plan.organizationId,
     };
 
     expect(copilotFingerprint(plan)).toMatch(/^[0-9a-f]{64}$/);
