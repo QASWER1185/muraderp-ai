@@ -47,7 +47,7 @@ function validateLines(lines: EstimateLineDraft[]): void {
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
       throw new Error("quantity must be greater than zero");
     }
-    if (!Number.isFinite(line.unit_price ?? 0) || (line.unit_price ?? 0) < 0) {
+    if (line.unit_price !== undefined && (!Number.isFinite(line.unit_price) || line.unit_price < 0)) {
       throw new Error("unit_price must be zero or greater");
     }
     if (!line.unit.trim()) throw new Error("unit is required");
@@ -55,7 +55,7 @@ function validateLines(lines: EstimateLineDraft[]): void {
 }
 
 export class DefaultEstimateService implements EstimateService {
-  private readonly estimatePricingService?: DefaultEstimatePricingService;
+  private readonly estimatePricingService: DefaultEstimatePricingService | undefined;
 
   constructor(
     private readonly repository: EstimateRepository,
