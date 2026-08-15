@@ -26,18 +26,12 @@ const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> 
   inventory_adjustment: "inventory.adjust",
 };
 
-function client() {
-  return getSupabaseAdminClient() as any;
-}
+function client() { return getSupabaseAdminClient() as any; }
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, item]) => [key, stableValue(item)]),
-    );
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, stableValue(item)]));
   }
   return value;
 }
@@ -93,11 +87,7 @@ export class CopilotRuntime {
     this.authorization = new AuthorizationService(new SupabaseAuthorizationGateway(authClient));
   }
 
-  async createDraft(
-    draft: AiDraft,
-    context: { userId: string; warehouseId?: number; rateListId?: number; documentNumber?: string; documentDate?: string; currencyCode?: string; reason?: string },
-    idempotencyKey: string,
-  ) {
+  async createDraft(draft: AiDraft, context: { userId: string; warehouseId?: number; rateListId?: number; documentNumber?: string; documentDate?: string; currencyCode?: string; reason?: string }, idempotencyKey: string) {
     const plan = createCopilotPlanFromDraft(draft, context).plan;
     await this.authorization.assertPermission(plan.userId, plan.organizationId, PERMISSION_BY_INTENT[plan.target]);
     const fingerprint = copilotFingerprint(plan);
@@ -108,16 +98,7 @@ export class CopilotRuntime {
       if (existing.request_fingerprint !== fingerprint) throw new Error("Idempotency-Key was reused for a different Copilot action");
       return existing;
     }
-
-    const { data, error } = await db.from("ai_copilot_actions").insert({
-      organization_id: plan.organizationId,
-      user_id: plan.userId,
-      intent: plan.target,
-      status: "DRAFT",
-      idempotency_key: idempotencyKey,
-      request_fingerprint: fingerprint,
-      action_plan: plan,
-    }).select("*").single();
+    const { data, error } = await db.from("ai_copilot_actions").insert({ organization_id: plan.organizationId, user_id: plan.userId, intent: plan.target, status: "DRAFT", idempotency_key: idempotencyKey, request_fingerprint: fingerprint, action_plan: plan }).select("*").single();
     if (error) throw error;
     return data;
   }
@@ -130,36 +111,24 @@ export class CopilotRuntime {
     if (action.organization_id !== organizationId) throw new Error("copilot action organization mismatch");
     if (action.user_id !== userId) throw new Error("copilot action user mismatch");
     if (action.idempotency_key !== idempotencyKey) throw new Error("copilot confirmation idempotency mismatch");
-
     const plan = action.action_plan as CopilotActionPlan;
     assertCopilotDraftExecution(plan, organizationId, userId, plan.target);
     await this.authorization.assertPermission(userId, organizationId, PERMISSION_BY_INTENT[plan.target]);
-
     if (action.status === "EXECUTED") return action;
     if (action.status === "CONFIRMED") throw new Error("Copilot action is already being executed");
     if (action.status !== "DRAFT") throw new Error(`Copilot action cannot be confirmed from ${action.status}`);
-
-    const { data: claimed, error: claimError } = await db.from("ai_copilot_actions")
-      .update({ status: "CONFIRMED", confirmed_at: new Date().toISOString() })
-      .eq("id", actionId).eq("status", "DRAFT").select("*").maybeSingle();
+    const { data: claimed, error: claimError } = await db.from("ai_copilot_actions").update({ status: "CONFIRMED", confirmed_at: new Date().toISOString() }).eq("id", actionId).eq("status", "DRAFT").select("*").maybeSingle();
     if (claimError) throw claimError;
     if (!claimed) throw new Error("Copilot action was already claimed by another request");
-
     try {
       const result = await this.execute(plan, idempotencyKey);
-      const { data: completed, error: completeError } = await db.from("ai_copilot_actions")
-        .update({ status: "EXECUTED", result, executed_at: new Date().toISOString() })
-        .eq("id", actionId).eq("status", "CONFIRMED").select("*").single();
+      const { data: completed, error: completeError } = await db.from("ai_copilot_actions").update({ status: "EXECUTED", result, executed_at: new Date().toISOString() }).eq("id", actionId).eq("status", "CONFIRMED").select("*").single();
       if (completeError) throw completeError;
       return completed;
     } catch (error) {
       await db.from("ai_copilot_actions").update({ status: "FAILED", error_code: error instanceof Error ? error.message : "COPILOT_EXECUTION_FAILED" }).eq("id", actionId).eq("status", "CONFIRMED");
       throw error;
     }
-  }
-
-  private async priceSaleLines(plan: CopilotActionPlan, lines: RuntimeLine, _unused?: never): Promise<never> {
-    throw new Error("unreachable");
   }
 
   private async execute(plan: CopilotActionPlan, idempotencyKey: string): Promise<unknown> {
@@ -170,31 +139,14 @@ export class CopilotRuntime {
 
     if (plan.target === "estimate") {
       const customerId = positiveId(plan.customerId, "customerId");
-      const pricedLines = await Promise.all(lines.map((line, index) => estimatePricing.priceLine({
-        line_number: index + 1,
-        product_id: line.productId,
-        quantity: line.quantity,
-        unit: line.unit ?? "unit",
-        ...(line.rate !== undefined ? { unit_price: line.rate } : {}),
-        ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, rate_list_selection_source: "LINE_OVERRIDE" as const } : {}),
-      }, { price_type: "SALE", as_of: date, customer_id: customerId })));
-      return this.estimate.createDraft({
-        definition: { customer_id: customerId, estimate_number: plan.documentNumber ?? `AI-${Date.now()}`, issue_date: date, currency_code: currency, notes: plan.reason ?? null },
-        lines: pricedLines,
-      }, { source_type: sourceType(plan.source), source_reference: `ai-copilot:${idempotencyKey}` });
+      const pricedLines = await Promise.all(lines.map((line, index) => estimatePricing.priceLine({ line_number: index + 1, product_id: line.productId, quantity: line.quantity, unit: line.unit ?? "unit", ...(line.rate !== undefined ? { unit_price: line.rate } : {}), ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, rate_list_selection_source: "LINE_OVERRIDE" as const } : {}) }, { price_type: "SALE", as_of: date, customer_id: customerId })));
+      return this.estimate.createDraft({ definition: { customer_id: customerId, estimate_number: plan.documentNumber ?? `AI-${Date.now()}`, issue_date: date, currency_code: currency, notes: plan.reason ?? null }, lines: pricedLines }, { source_type: sourceType(plan.source), source_reference: `ai-copilot:${idempotencyKey}` });
     }
 
     if (plan.target === "invoice") {
       const customerId = positiveId(plan.customerId, "customerId");
       if (!plan.warehouseId) throw new Error("warehouseId is required for invoice");
-      const pricedLines = await Promise.all(lines.map((line, index) => estimatePricing.priceLine({
-        line_number: index + 1,
-        product_id: line.productId,
-        quantity: line.quantity,
-        unit: line.unit ?? "unit",
-        ...(line.rate !== undefined ? { unit_price: line.rate } : {}),
-        ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, rate_list_selection_source: "LINE_OVERRIDE" as const } : {}),
-      }, { price_type: "SALE", as_of: date, customer_id: customerId })));
+      const pricedLines = await Promise.all(lines.map((line, index) => estimatePricing.priceLine({ line_number: index + 1, product_id: line.productId, quantity: line.quantity, unit: line.unit ?? "unit", ...(line.rate !== undefined ? { unit_price: line.rate } : {}), ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, rate_list_selection_source: "LINE_OVERRIDE" as const } : {}) }, { price_type: "SALE", as_of: date, customer_id: customerId })));
       const subtotal = pricedLines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
       const invoice: InvoiceDocument = buildDirectInvoice({ invoice_number: plan.documentNumber ?? `AI-${Date.now()}`, customer_id: customerId, issue_date: date, currency_code: currency, notes: plan.reason ?? null }, pricedLines, subtotal, 0, subtotal, 0);
       const transactionLines: SalesTransactionLine[] = pricedLines.map((line, index) => ({ line_number: index + 1, product_id: line.product_id, quantity: line.quantity, unit: line.unit, unit_price: line.unit_price, line_total: line.quantity * line.unit_price, unit_cost: null, cogs_total: null }));
@@ -235,7 +187,6 @@ export class CopilotRuntime {
       if (error) throw error;
       return data;
     }
-
     throw new Error(`Unsupported Copilot intent: ${plan.target}`);
   }
 }
