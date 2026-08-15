@@ -32,6 +32,11 @@ const draftSchema = z.strictObject({
   confidence: z.number().finite().min(0).max(1).default(1),
 });
 
+function headerValue(request: { header(name: string): string | string[] | undefined }, name: string): string | undefined {
+  const value = request.header(name);
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function toAiDraft(input: z.output<typeof draftSchema>) {
   return {
     organizationId: input.organizationId,
@@ -59,36 +64,30 @@ export function createAiCopilotRouter(internalApiToken?: string, runtime = new C
 
   router.post("/drafts", authorize, async (request, response) => {
     const parsed = draftSchema.parse(request.body);
-    const idempotencyKey = request.header("Idempotency-Key")?.trim();
-    if (!idempotencyKey || idempotencyKey.length > 255) {
-      throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
-    }
+    const idempotencyKey = headerValue(request, "Idempotency-Key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
 
-    const action = await runtime.createDraft(
-      toAiDraft(parsed),
-      {
-        userId: parsed.userId,
-        warehouseId: parsed.warehouseId,
-        rateListId: parsed.rateListId,
-        documentNumber: parsed.documentNumber,
-        documentDate: parsed.documentDate,
-        currencyCode: parsed.currencyCode,
-        reason: parsed.reason,
-      },
-      idempotencyKey,
-    );
+    const context = {
+      userId: parsed.userId,
+      ...(parsed.warehouseId !== undefined ? { warehouseId: parsed.warehouseId } : {}),
+      ...(parsed.rateListId !== undefined ? { rateListId: parsed.rateListId } : {}),
+      ...(parsed.documentNumber !== undefined ? { documentNumber: parsed.documentNumber } : {}),
+      ...(parsed.documentDate !== undefined ? { documentDate: parsed.documentDate } : {}),
+      ...(parsed.currencyCode !== undefined ? { currencyCode: parsed.currencyCode } : {}),
+      ...(parsed.reason !== undefined ? { reason: parsed.reason } : {}),
+    };
+
+    const action = await runtime.createDraft(toAiDraft(parsed), context, idempotencyKey);
     response.status(201).json({ data: action, requiresConfirmation: true });
   });
 
   router.post("/drafts/:id/confirm", authorize, async (request, response) => {
     const id = request.params.id;
     if (!z.string().uuid().safeParse(id).success) throw new ApiError(400, "VALIDATION_ERROR", "A valid Copilot draft id is required");
-    const organizationId = z.string().uuid().parse(request.header("X-Organization-Id"));
-    const userId = z.string().uuid().parse(request.header("X-User-Id"));
-    const idempotencyKey = request.header("Idempotency-Key")?.trim();
-    if (!idempotencyKey || idempotencyKey.length > 255) {
-      throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
-    }
+    const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
+    const userId = z.string().uuid().parse(headerValue(request, "X-User-Id"));
+    const idempotencyKey = headerValue(request, "Idempotency-Key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
 
     const action = await runtime.confirmAndExecute(id, organizationId, userId, idempotencyKey);
     response.status(200).json({ data: action, executed: action.status === "EXECUTED" });
