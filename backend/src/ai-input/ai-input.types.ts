@@ -1,0 +1,49 @@
+export type AiInputSource = "text" | "image" | "camera" | "voice";
+
+export type AiInputIntent =
+  | "estimate.create"
+  | "invoice.create"
+  | "customer_return.create"
+  | "supplier_bill.create"
+  | "inventory.adjust";
+
+export type AiInputStatus = "draft" | "validated" | "confirmed" | "rejected";
+
+export interface AiInputRequest {
+  source: AiInputSource;
+  intent: AiInputIntent;
+  organizationId: string;
+  userId: string;
+  text?: string;
+  mediaReference?: string;
+  locale?: string;
+}
+
+export interface ExtractedField<T = unknown> {
+  value: T;
+  confidence: number;
+  source: AiInputSource;
+}
+
+export interface AiInputDraft {
+  draftId: string;
+  source: AiInputSource;
+  intent: AiInputIntent;
+  organizationId: string;
+  status: AiInputStatus;
+  fields: Record<string, ExtractedField>;
+  requiresConfirmation: true;
+}
+
+export interface AiInputProvider {
+  extract(request: AiInputRequest): Promise<AiInputDraft>;
+}
+
+export interface AiInputGateway {
+  saveDraft(draft: AiInputDraft): Promise<AiInputDraft>;
+}
+
+export interface AiInputServiceContract {
+  createDraft(request: AiInputRequest): Promise<AiInputDraft>;
+  confirmDraft(draftId: string, organizationId: string, userId: string): Promise<void>;
+}
