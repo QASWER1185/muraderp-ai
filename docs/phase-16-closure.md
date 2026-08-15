@@ -1,0 +1,1 @@
+Phase 16 closure gate: CI, PR merge, and post-merge develop CI must all be green before final certification.
