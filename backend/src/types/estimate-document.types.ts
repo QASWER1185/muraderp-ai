@@ -1,4 +1,4 @@
-import type { PricedEstimateLine } from "./estimate.types.js";
+import type { EstimateLineDraft, PricedEstimateLine } from "./estimate.types.js";
 import type { EstimateLayoutKey } from "./estimate-layout.types.js";
 
 export type EstimateStatus = "DRAFT" | "READY" | "CONVERTED" | "CANCELLED";
@@ -18,7 +18,8 @@ export interface EstimateDefinition {
 
 export interface EstimateDraft {
   definition: EstimateDefinition;
-  lines: PricedEstimateLine[];
+  /** Raw/manual/AI/OCR/voice line candidates; pricing is applied by EstimateService. */
+  lines: EstimateLineDraft[];
 }
 
 export interface EstimateTotals {
