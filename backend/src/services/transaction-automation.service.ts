@@ -5,7 +5,6 @@ import type { DocumentDraft } from "../types/document-intelligence.types.js";
 import {
   expectedDocumentType,
   isConfirmedDraft,
-  type AutomatedTransactionType,
   type TransactionAutomationRequest,
   type TransactionAutomationResult,
   type TransactionCommand,
