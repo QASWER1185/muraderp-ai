@@ -12,12 +12,14 @@ export type CopilotRateSource =
 
 export interface CopilotLineCandidate {
   productName: string;
+  productId?: number;
   brandHint?: string;
   quantity: number;
   unit?: string;
   explicitUnitRate?: number;
   rateSource: CopilotRateSource;
   pricingSelection?: EstimatePricingSelection;
+  sourceItemId?: number;
 }
 
 export interface CopilotActionPlan {
@@ -27,6 +29,11 @@ export interface CopilotActionPlan {
   target: CopilotTarget;
   customerId?: string;
   vendorId?: string;
+  warehouseId?: number;
+  documentNumber?: string;
+  documentDate?: string;
+  currencyCode?: string;
+  reason?: string;
   lines: CopilotLineCandidate[];
   requiresConfirmation: true;
 }
@@ -38,12 +45,19 @@ export interface CopilotPlannerInput {
   target: CopilotTarget;
   customerId?: string;
   vendorId?: string;
+  warehouseId?: number;
+  documentNumber?: string;
+  documentDate?: string;
+  currencyCode?: string;
+  reason?: string;
   lines: Array<{
     productName: string;
+    productId?: number;
     brandHint?: string;
     quantity: number;
     unit?: string;
     explicitUnitRate?: number;
     rateListId?: number;
+    sourceItemId?: number;
   }>;
 }
