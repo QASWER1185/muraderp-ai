@@ -8,6 +8,7 @@ export type RateListSelectionSource =
   | "ESTIMATE_DEFAULT"
   | "LINE_OVERRIDE"
   | "OCR_BRAND_MATCH"
+  | "VOICE_BRAND_MATCH"
   | "MANUAL_OVERRIDE";
 
 export interface RateListDefinition {
@@ -44,8 +45,16 @@ export interface PriceResolutionContext {
   as_of: string;
   vendor_id?: number | null | undefined;
   customer_id?: number | null | undefined;
-  /** When present, pricing must be resolved from this exact rate list. */
   rate_list_id?: number | null | undefined;
+}
+
+export interface PricingCandidate {
+  product_id: number;
+  quantity: number;
+  unit?: string | null;
+  selected_rate_list_id?: number | null | undefined;
+  rate_list_hint?: string | null | undefined;
+  selection_source: RateListSelectionSource;
 }
 
 export interface ResolvedPrice {
