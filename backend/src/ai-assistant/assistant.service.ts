@@ -1,6 +1,7 @@
 import type { AuthorizationService } from "../auth/authorization.service.js";
 import type { PermissionCode } from "../auth/authorization.types.js";
 import type { AssistantActionGateway, AssistantIntent, AssistantIntentResolver, AssistantRequest, AssistantResponse } from "./assistant.types.js";
+import { validateAssistantRequest } from "./assistant.validation.js";
 
 const INTENT_PERMISSION: Record<AssistantIntent, PermissionCode> = {
   "reporting.query": "reports.view",
@@ -28,6 +29,7 @@ export class AssistantService {
   ) {}
 
   async handle(request: AssistantRequest): Promise<AssistantResponse> {
+    validateAssistantRequest(request);
     const resolved = this.resolver.resolve(request.message);
 
     if (!resolved.intent) {
