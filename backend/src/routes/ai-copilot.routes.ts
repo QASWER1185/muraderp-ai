@@ -66,7 +66,6 @@ export function createAiCopilotRouter(internalApiToken?: string, runtime = new C
     const parsed = draftSchema.parse(request.body);
     const idempotencyKey = headerValue(request, "Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
-
     const context = {
       userId: parsed.userId,
       ...(parsed.warehouseId !== undefined ? { warehouseId: parsed.warehouseId } : {}),
@@ -76,19 +75,18 @@ export function createAiCopilotRouter(internalApiToken?: string, runtime = new C
       ...(parsed.currencyCode !== undefined ? { currencyCode: parsed.currencyCode } : {}),
       ...(parsed.reason !== undefined ? { reason: parsed.reason } : {}),
     };
-
     const action = await runtime.createDraft(toAiDraft(parsed), context, idempotencyKey);
     response.status(201).json({ data: action, requiresConfirmation: true });
   });
 
   router.post("/drafts/:id/confirm", authorize, async (request, response) => {
-    const id = request.params.id;
-    if (!z.string().uuid().safeParse(id).success) throw new ApiError(400, "VALIDATION_ERROR", "A valid Copilot draft id is required");
+    const rawId = request.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id || !z.string().uuid().safeParse(id).success) throw new ApiError(400, "VALIDATION_ERROR", "A valid Copilot draft id is required");
     const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
     const userId = z.string().uuid().parse(headerValue(request, "X-User-Id"));
     const idempotencyKey = headerValue(request, "Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
-
     const action = await runtime.confirmAndExecute(id, organizationId, userId, idempotencyKey);
     response.status(200).json({ data: action, executed: action.status === "EXECUTED" });
   });
