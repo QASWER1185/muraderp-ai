@@ -1,11 +1,11 @@
-export type AiInputSource = 'text' | 'image' | 'camera' | 'voice';
+export type AiInputSource = "text" | "image" | "camera" | "voice";
 
 export type AiInputIntent =
-  | 'estimate'
-  | 'invoice'
-  | 'customer_return'
-  | 'supplier_bill'
-  | 'inventory_adjustment';
+  | "estimate"
+  | "invoice"
+  | "customer_return"
+  | "supplier_bill"
+  | "inventory_adjustment";
 
 export interface AiInputRequest {
   organizationId: string;
@@ -25,10 +25,11 @@ export interface ExtractedField<T = unknown> {
 
 export interface AiDraftLine {
   productName?: ExtractedField<string>;
-  productId?: ExtractedField<string>;
+  productId?: ExtractedField<string | number>;
   quantity?: ExtractedField<number>;
   unit?: ExtractedField<string>;
   unitRate?: ExtractedField<number>;
+  sourceItemId?: ExtractedField<number>;
 }
 
 export interface AiDraft {
