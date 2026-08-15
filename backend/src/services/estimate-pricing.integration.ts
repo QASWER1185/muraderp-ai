@@ -14,13 +14,17 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
       return { ...line, unit_price: line.unit_price, pricing_source: "MANUAL_OVERRIDE" };
     }
 
+    const selectedRateListId = line.rate_list_id ?? null;
+    const selectionSource = line.rate_list_selection_source ??
+      (selectedRateListId != null ? "ESTIMATE_DEFAULT" : "MANUAL_OVERRIDE");
+
     const resolved = await this.pricingService.resolveCandidate(
       {
         product_id: line.product_id,
         quantity: line.quantity,
-        selected_rate_list_id: line.rate_list_id ?? null,
+        selected_rate_list_id: selectedRateListId,
         rate_list_hint: line.brand_hint ?? null,
-        selection_source: line.rate_list_selection_source ?? "SYSTEM_DEFAULT",
+        selection_source: selectionSource,
       } satisfies PricingCandidate,
       context,
     );
@@ -29,6 +33,8 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
 
     return {
       ...line,
+      rate_list_id: selectedRateListId,
+      rate_list_selection_source: selectionSource,
       unit_price: resolved.unit_price,
       pricing_source: "RESOLVED_RATE",
       resolved_price: resolved,
