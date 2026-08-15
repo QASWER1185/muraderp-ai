@@ -49,12 +49,12 @@ export class DefaultEstimateService implements EstimateService {
     let pricedLines: PricedEstimateLine[] = draft.lines;
     if (this.pricingService) {
       pricedLines = await Promise.all(draft.lines.map(async (line) => {
-        const candidate: EstimateLineDraft = {
-          ...line,
-          rate_list_id: line.rate_list_id ?? draft.definition.default_rate_list_id ?? null,
-          rate_list_selection_source: line.rate_list_selection_source ??
-            ((line.rate_list_id ?? draft.definition.default_rate_list_id) != null ? "ESTIMATE_DEFAULT" : undefined),
-        };
+        const selectedRateListId = line.rate_list_id ?? draft.definition.default_rate_list_id ?? null;
+        const candidate: EstimateLineDraft = selectedRateListId != null && line.rate_list_selection_source == null
+          ? { ...line, rate_list_id: selectedRateListId, rate_list_selection_source: "ESTIMATE_DEFAULT" }
+          : selectedRateListId != null
+            ? { ...line, rate_list_id: selectedRateListId }
+            : { ...line };
         return this.pricingService!.priceLine(candidate, {
           price_type: "SALE",
           as_of: draft.definition.issue_date,
