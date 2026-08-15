@@ -12,6 +12,7 @@ import { createSalesRouter } from "./routes/sales.routes.js";
 import { createCustomerPaymentRouter } from "./routes/customer-payment.routes.js";
 import { createSalesReturnRouter } from "./routes/sales-return.routes.js";
 import { createVendorPaymentRouter } from "./routes/vendor-payment.routes.js";
+import { createAiCopilotRouter } from "./routes/ai-copilot.routes.js";
 import { SupabaseCustomerPaymentService, type CustomerPaymentService } from "./services/customer-payment.service.js";
 import { SupabaseVendorPaymentService, type VendorPaymentService } from "./services/vendor-payment.service.js";
 import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
@@ -42,6 +43,7 @@ export function createApp(options: AppOptions = {}) {
   ));
   const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
   const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
+  app.use("/api/v1/ai/copilot", createAiCopilotRouter(internalApiToken));
   app.use("/api/v1/products", createProductRouter(internalApiToken));
   app.use("/api/v1/inventory", createInventoryRouter(internalApiToken));
   app.use("/api/v1/sales", createSalesRouter(internalApiToken, internalApiPrincipalId));
