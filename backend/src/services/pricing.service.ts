@@ -56,7 +56,8 @@ export class DefaultPricingService implements PricingService {
       if (!this.rateListHintResolver) throw new Error("rate-list hint resolver is required when a rate_list_hint is provided");
       const matches = await this.rateListHintResolver.findRateListsByHint(candidate.rate_list_hint.trim(), base);
       if (matches.length > 1) return null;
-      if (matches.length === 1) rateListId = matches[0].id;
+      const match = matches[0];
+      if (match) rateListId = match.id;
       if (matches.length === 0 && rateListId == null) return null;
     }
 
