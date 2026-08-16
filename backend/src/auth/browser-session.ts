@@ -5,11 +5,13 @@ import { env } from "../config/env.js";
 
 const COOKIE_NAME = "muraderp_session";
 const SESSION_TTL_SECONDS = 60 * 60;
+const TEST_SIGNING_SECRET = "muraderp-phase23-test-session-secret";
 type SessionPayload = { userId: string; exp: number };
 
 function signingSecret(): string {
-  if (!env.INTERNAL_API_TOKEN) throw new Error("INTERNAL_API_TOKEN is required for browser sessions");
-  return env.INTERNAL_API_TOKEN;
+  if (env.INTERNAL_API_TOKEN) return env.INTERNAL_API_TOKEN;
+  if (env.NODE_ENV === "test") return TEST_SIGNING_SECRET;
+  throw new Error("INTERNAL_API_TOKEN is required for browser sessions");
 }
 function sign(value: string): string { return createHmac("sha256", signingSecret()).update(value).digest("base64url"); }
 function encode(payload: SessionPayload): string { const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url"); return `${body}.${sign(body)}`; }
