@@ -1,0 +1,51 @@
+name: Phase 23 Production Closure
+
+on:
+  push:
+    branches:
+      - feature/phase-23-final-production-closure
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "supabase/**"
+      - ".github/workflows/phase23-closure.yml"
+      - "docs/PHASE-23-*"
+      - "architecture/adr/ADR-027-*"
+
+jobs:
+  production-closure:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Backend typecheck
+        run: npm run typecheck
+      - name: Backend tests
+        run: npm test
+      - name: Backend production build
+        run: npm run build
+      - name: Production secret hygiene scan
+        working-directory: .
+        run: |
+          ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE|INTERNAL_API_TOKEN[[:space:]]*=' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
+      - name: Frontend syntax verification
+        working-directory: frontend
+        run: |
+          node --check app.js
+          node --check auth.js
+          node --check copilot-api.js
+          node --check ai-experience.js
