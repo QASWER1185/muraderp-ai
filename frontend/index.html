@@ -1,31 +1,23 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MuradERP-AI</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>MuradERP-AI</title><link rel="stylesheet" href="/styles.css" /></head>
 <body>
-  <div class="app-shell">
-    <header class="topbar"><button id="menu" class="icon-button" type="button" aria-label="Menu">☰</button><strong>MuradERP-AI</strong><span id="page-title">Dashboard</span><button id="copilot-button" class="button primary" type="button">AI Copilot</button></header>
-    <aside id="nav" class="sidebar" aria-label="ERP navigation"></aside>
-    <main id="content" class="content"></main>
-  </div>
-  <dialog id="copilot" class="copilot-dialog">
-    <form method="dialog" class="copilot-card">
-      <div class="section-head"><div><p class="eyebrow">AI business copilot</p><h2>Prepare an ERP action</h2></div><button id="copilot-close" class="icon-button" type="submit" aria-label="Close">×</button></div>
-      <label for="copilot-action">Action</label>
-      <select id="copilot-action"><option value="estimate">Estimate</option><option value="invoice">Invoice</option><option value="purchase">Purchase</option><option value="return">Return</option><option value="inventory_adjustment">Inventory adjustment</option></select>
-      <label for="copilot-rate-list">Selected Rate List (optional)</label>
-      <input id="copilot-rate-list" placeholder="e.g. popular-rate-list" autocomplete="off" />
-      <label for="copilot-input">Instruction</label>
-      <textarea id="copilot-input" rows="6" placeholder="e.g. 25mm Popular pipe 50 pcs; use the selected Rate List"></textarea>
-      <div class="dialog-actions"><button id="copilot-run" class="button primary" type="button">Prepare review</button></div>
-      <pre id="copilot-result" class="result" hidden></pre>
-      <p class="muted">AI prepares a review only. Pricing, permissions and transaction execution remain authoritative backend responsibilities.</p>
-    </form>
-  </dialog>
+  <div class="app-shell"><header class="topbar"><button id="menu" class="icon-button" type="button" aria-label="Menu">☰</button><strong>MuradERP-AI</strong><span id="page-title">Dashboard</span><button id="auth-button" class="button secondary" type="button">Sign in</button><button id="copilot-button" class="button primary" type="button">AI Copilot</button></header><aside id="nav" class="sidebar" aria-label="ERP navigation"></aside><main id="content" class="content"></main></div>
+  <dialog id="auth-dialog" class="copilot-dialog"><form method="dialog" class="copilot-card" id="auth-form"><div class="section-head"><div><p class="eyebrow">Secure ERP session</p><h2>Sign in</h2></div><button id="auth-close" class="icon-button" type="submit" aria-label="Close">×</button></div><label for="auth-email">Email</label><input id="auth-email" type="email" autocomplete="username" required /><label for="auth-password">Password</label><input id="auth-password" type="password" autocomplete="current-password" required /><div class="dialog-actions"><button id="auth-submit" class="button primary" type="button">Sign in</button><button id="auth-signout" class="button secondary" type="button" hidden>Sign out</button></div><pre id="auth-result" class="result" hidden></pre></form></dialog>
+  <dialog id="copilot" class="copilot-dialog"><form method="dialog" class="copilot-card"><div class="section-head"><div><p class="eyebrow">AI business copilot</p><h2>Prepare and execute an ERP action</h2></div><button id="copilot-close" class="icon-button" type="submit" aria-label="Close">×</button></div>
+    <label for="copilot-action">Action</label><select id="copilot-action"><option value="estimate">Estimate</option><option value="invoice">Invoice</option><option value="purchase">Purchase</option><option value="return">Return</option><option value="inventory_adjustment">Inventory adjustment</option></select>
+    <label for="copilot-organization">Organization ID</label><input id="copilot-organization" placeholder="UUID" autocomplete="off" required />
+    <label for="copilot-customer">Customer ID</label><input id="copilot-customer" inputmode="numeric" autocomplete="off" />
+    <label for="copilot-vendor">Vendor ID</label><input id="copilot-vendor" inputmode="numeric" autocomplete="off" />
+    <label for="copilot-warehouse">Warehouse ID</label><input id="copilot-warehouse" inputmode="numeric" autocomplete="off" />
+    <label for="copilot-rate-list">Selected Rate List ID (optional)</label><input id="copilot-rate-list" inputmode="numeric" placeholder="e.g. 7" autocomplete="off" />
+    <label for="copilot-product">Product ID</label><input id="copilot-product" inputmode="numeric" placeholder="e.g. 25" autocomplete="off" required />
+    <label for="copilot-quantity">Quantity</label><input id="copilot-quantity" type="number" min="0.000001" step="any" value="1" required />
+    <label for="copilot-rate">Explicit rate (optional)</label><input id="copilot-rate" type="number" min="0" step="any" placeholder="Leave empty to resolve from Rate List" />
+    <label for="copilot-document">Document / source invoice number (optional)</label><input id="copilot-document" autocomplete="off" />
+    <label for="copilot-reason">Reason (required for returns)</label><input id="copilot-reason" autocomplete="off" />
+    <label for="copilot-input">Instruction / product name</label><textarea id="copilot-input" rows="4" placeholder="e.g. 25mm Popular pipe — 50 pcs"></textarea>
+    <div class="dialog-actions"><button id="copilot-run" class="button primary" type="button">Create draft</button><button id="copilot-confirm" class="button primary" type="button" hidden>Confirm & Execute</button></div><pre id="copilot-result" class="result" hidden></pre><p class="muted">The browser uses an HttpOnly ERP session cookie. Internal API secrets never enter browser code. Pricing, permissions, idempotency and transaction execution remain authoritative backend responsibilities.</p>
+  </form></dialog>
   <script type="module" src="/app.js"></script>
-</body>
-</html>
+</body></html>
