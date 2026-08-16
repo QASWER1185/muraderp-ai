@@ -39,86 +39,32 @@ function clientFor(dataByTable: Record<string, unknown[]>) {
 describe("Phase 23 Stage 5 — deterministic pricing regression", () => {
   it("uses CUSTOMER > VENDOR > GLOBAL precedence and the newest effective version with the highest quantity tier", async () => {
     const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: rateLists, rate_list_versions: versions, rate_list_items: items }) as never);
-    const resolved = await repository.findBestRateListItem({
-      price_type: "SALE",
-      product_id: 500,
-      quantity: 10,
-      as_of: "2026-08-16T12:00:00Z",
-      vendor_id: 20,
-      customer_id: 30,
-    });
-
-    expect(resolved).toMatchObject({
-      rate_list_id: 3,
-      rate_list_version_id: 302,
-      rate_list_item_id: 3003,
-      unit_price: 99,
-      minimum_quantity: 10,
-      scope_type: "CUSTOMER",
-    });
+    const resolved = await repository.findBestRateListItem({ price_type: "SALE", product_id: 500, quantity: 10, as_of: "2026-08-16T12:00:00Z", vendor_id: 20, customer_id: 30 });
+    expect(resolved).toMatchObject({ rate_list_id: 3, rate_list_version_id: 302, rate_list_item_id: 3003, unit_price: 99, minimum_quantity: 10, scope_type: "CUSTOMER" });
   });
 
   it("honors an explicitly selected rate list instead of falling back to contextual pricing", async () => {
     const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: rateLists, rate_list_versions: versions, rate_list_items: items }) as never);
-    const resolved = await repository.findBestRateListItem({
-      price_type: "SALE",
-      product_id: 500,
-      quantity: 1,
-      as_of: "2026-08-16T12:00:00Z",
-      vendor_id: 20,
-      customer_id: 30,
-      rate_list_id: 2,
-    });
-
+    const resolved = await repository.findBestRateListItem({ price_type: "SALE", product_id: 500, quantity: 1, as_of: "2026-08-16T12:00:00Z", vendor_id: 20, customer_id: 30, rate_list_id: 2 });
     expect(resolved).toMatchObject({ rate_list_id: 2, unit_price: 110, scope_type: "VENDOR" });
   });
 
   it("rejects ambiguous winning-scope pricing instead of silently choosing one list", async () => {
     const ambiguousCustomer = { ...rateLists[2], id: 4, name: "Customer Sale 2", code: "CUSTOMER-30-B" };
     const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: [...rateLists, ambiguousCustomer], rate_list_versions: versions, rate_list_items: items }) as never);
-
-    await expect(repository.findBestRateListItem({
-      price_type: "SALE",
-      product_id: 500,
-      quantity: 1,
-      as_of: "2026-08-16T12:00:00Z",
-      customer_id: 30,
-    })).rejects.toThrow("Ambiguous pricing");
+    await expect(repository.findBestRateListItem({ price_type: "SALE", product_id: 500, quantity: 1, as_of: "2026-08-16T12:00:00Z", customer_id: 30 })).rejects.toThrow("Ambiguous pricing");
   });
 
   it("returns null when no deterministic product price exists", async () => {
-    const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: rateLists, rate_list_versions: versions, rate_list_items: items }) as never);
-    const resolved = await repository.findBestRateListItem({
-      price_type: "SALE",
-      product_id: 999,
-      quantity: 1,
-      as_of: "2026-08-16T12:00:00Z",
-    });
-
+    const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: rateLists, rate_list_versions: versions, rate_list_items: [] }) as never);
+    const resolved = await repository.findBestRateListItem({ price_type: "SALE", product_id: 999, quantity: 1, as_of: "2026-08-16T12:00:00Z" });
     expect(resolved).toBeNull();
   });
 
   it("keeps AI/voice/OCR candidate handling limited to deterministic rate-list context", async () => {
-    const repository = {
-      findBestRateListItem: async (context: any) => ({
-        rate_list_id: context.rate_list_id ?? 3,
-        rate_list_version_id: 302,
-        rate_list_item_id: 3003,
-        product_id: context.product_id,
-        unit_price: 99,
-        unit: "bag",
-        currency_code: "PKR",
-        minimum_quantity: 10,
-        scope_type: "CUSTOMER" as const,
-        effective_from: "2026-07-01T00:00:00Z",
-      }),
-    };
+    const repository = { findBestRateListItem: async (context: any) => ({ rate_list_id: context.rate_list_id ?? 3, rate_list_version_id: 302, rate_list_item_id: 3003, product_id: context.product_id, unit_price: 99, unit: "bag", currency_code: "PKR", minimum_quantity: 10, scope_type: "CUSTOMER" as const, effective_from: "2026-07-01T00:00:00Z" }) };
     const service = new DefaultPricingService(repository);
-    const resolved = await service.resolveCandidate(
-      { product_id: 500, quantity: 10, selection_source: "OCR_BRAND_MATCH", selected_rate_list_id: 3 },
-      { price_type: "SALE", as_of: "2026-08-16T12:00:00Z", customer_id: 30, vendor_id: 20 },
-    );
-
+    const resolved = await service.resolveCandidate({ product_id: 500, quantity: 10, selection_source: "OCR_BRAND_MATCH", selected_rate_list_id: 3 }, { price_type: "SALE", as_of: "2026-08-16T12:00:00Z", customer_id: 30, vendor_id: 20 });
     expect(resolved?.unit_price).toBe(99);
     expect(resolved?.rate_list_id).toBe(3);
   });
