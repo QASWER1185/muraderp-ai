@@ -34,7 +34,7 @@ describe("Phase 22 Copilot functional contract", () => {
     expect(result.plan.target).toBe("estimate");
     expect(result.plan.lines[0]?.productId).toBe(25);
     expect(result.plan.lines[0]?.quantity).toBe(50);
-    expect(result.plan.lines[0]?.pricingSelection).toEqual({ mode: "RATE_LIST", rate_list_id: 7 });
+    expect(result.plan.lines[0]?.pricingSelection).toEqual({ mode: "RATE_LIST", rate_list_id: 7, source: "INHERITED" });
   });
 
   it("preserves an explicit user rate instead of replacing it with a Rate List", () => {
@@ -43,7 +43,7 @@ describe("Phase 22 Copilot functional contract", () => {
       lines: [{ productName: field("25mm Popular pipe"), productId: field("25"), quantity: field(50), unit: field("pcs"), unitRate: field(120) }],
     } as any, { userId: USER_ID, rateListId: 7 });
     expect(result.plan.lines[0]?.explicitUnitRate).toBe(120);
-    expect(result.plan.lines[0]?.pricingSelection).toEqual({ mode: "MANUAL_OVERRIDE", reason: "Explicit rate supplied by user" });
+    expect(result.plan.lines[0]?.pricingSelection).toEqual({ mode: "MANUAL", manual_unit_price: 120, source: "MANUAL" });
     expect(result.requiresConfirmation).toBe(true);
   });
 
