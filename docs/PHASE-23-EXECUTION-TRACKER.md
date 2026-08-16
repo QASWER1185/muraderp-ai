@@ -53,16 +53,23 @@ Work proceeds in order. A stage is only marked PASS after its evidence is actual
 - Detailed evidence: `docs/PHASE-23-STAGE-5-ACCEPTANCE.md`.
 
 ### Stage 6 — AI Copilot Safety / End-to-End Regression
-**Status: NEXT**
-- Text/voice/camera/document input path.
-- Extraction and entity matching.
-- Pricing context and validation/confidence.
-- Review → confirmation boundary.
-- Authoritative ERP service execution.
-- No arbitrary AI-to-SQL path.
+**Status: PASS — FINAL/CLOSED**
+- Text, voice, image/camera input provenance verified through the Copilot action-plan boundary.
+- AI drafts require human confirmation.
+- Deterministic product/entity resolution remains mandatory before execution.
+- Explicit user rate precedence and selected Rate List context are preserved.
+- Missing pricing remains unresolved; no arbitrary price invention occurs.
+- Customer-return source-item resolution remains explicit.
+- Organization/user execution context is enforced.
+- Review → confirmation boundary remains mandatory.
+- Authoritative ERP service execution boundary remains intact.
+- No arbitrary AI-to-SQL execution path introduced.
+- PR #44 merged into `develop` with merge commit `eceb8f0c643dd0d17f7e5aa1f149d4efbb974e33`.
+- Exact post-merge Backend CI, Production Closure, and Dependency/Secret Hygiene gates passed.
+- Detailed evidence: `docs/PHASE-23-STAGE-6-ACCEPTANCE.md`.
 
 ### Stage 7 — Error Handling / Observability / Operational Readiness
-**Status: PENDING**
+**Status: NEXT**
 - Structured logs.
 - Actionable error identifiers.
 - Health checks.
@@ -124,6 +131,6 @@ Deliver:
 - Final Phase 23 acceptance report.
 
 ## Current Execution Position
-**Next action: Stage 6 — AI Copilot Safety / End-to-End Regression.**
+**Next action: Stage 7 — Error Handling / Observability / Operational Readiness.**
 
 No new product feature is to be introduced unless evidence from a closure stage identifies a real production defect or security requirement.
