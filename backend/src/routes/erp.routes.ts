@@ -67,7 +67,7 @@ const purchaseSchema = z.strictObject({
       z.strictObject({
         product_id: idSchema,
         quantity: z.number().finite().positive(),
-        unit_cost: z.number().finite().nonnegative(),
+        unit_cost: z.number().finite().positive(),
       }),
     )
     .min(1)
