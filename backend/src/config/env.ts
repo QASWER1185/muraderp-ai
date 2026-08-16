@@ -5,6 +5,7 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     SUPABASE_URL: z.url().optional(),
+    SUPABASE_PUBLISHABLE_KEY: z.string().startsWith("sb_publishable_").min(20).optional(),
     SUPABASE_SECRET_KEY: z.string().startsWith("sb_secret_").min(32).optional(),
     INTERNAL_API_TOKEN: z.string().min(32).optional(),
     INTERNAL_API_PRINCIPAL_ID: z.string().trim().min(1).max(200).default("internal-system"),
@@ -23,6 +24,13 @@ const envSchema = z
         code: "custom",
         message:
           "SUPABASE_URL, SUPABASE_SECRET_KEY, and INTERNAL_API_TOKEN must be configured together",
+      });
+    }
+
+    if (configuration.SUPABASE_PUBLISHABLE_KEY !== undefined && !configuration.SUPABASE_URL) {
+      context.addIssue({
+        code: "custom",
+        message: "SUPABASE_PUBLISHABLE_KEY requires SUPABASE_URL",
       });
     }
   });
