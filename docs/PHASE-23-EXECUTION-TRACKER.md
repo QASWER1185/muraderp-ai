@@ -14,32 +14,32 @@ Work proceeds in order. A stage is only marked PASS after its evidence is actual
 - Private-key material scan.
 - Concrete credential exposure scan.
 - Exact post-merge develop verification.
-- Result: Production Security Gate and Phase 23 Production Closure passed on `c686c137a1b355f56a581969cd636de37a797ab3`.
 
 ### Stage 2 — Authentication / Session / Organization / Branch / RBAC Verification
-**Status: NEXT**
-- Verify authenticated browser/session lifecycle.
-- Verify logout and expired/invalid session rejection.
-- Verify organization isolation server-side.
-- Verify branch isolation where applicable.
-- Verify sensitive reads and all protected mutations enforce authorization.
-- Add regression tests for any uncovered boundary.
+**Status: PASS**
+- Auth/session lifecycle verification completed.
+- Logout/session rejection and server-side organization/branch/RBAC boundaries verified.
+- Required regression coverage passed.
 
 ### Stage 3 — ERP Domain Integrity
-**Status: PENDING**
-- Verify customer/vendor/product/warehouse/inventory transaction boundaries.
-- Verify purchase/sales/payment/return consistency.
-- Verify accounting and inventory mutation atomicity where required.
-- Verify failed workflows do not leave partial financial or stock mutations.
+**Status: PASS — FINAL/CLOSED**
+- ERP domain transaction boundaries verified.
+- Purchase/sales/payment/return consistency verified.
+- Accounting and inventory mutation atomicity verified where required.
+- Failed workflows do not leave partial financial or stock mutations.
+- PR #40 merged into `develop` and exact post-merge required gates passed on merge commit `1e0b4018ed949279c32f8743d57fb18095b8b191`.
 
 ### Stage 4 — Idempotency / Duplicate Protection / Auditability
-**Status: PENDING**
-- Verify idempotency contract on protected transaction mutations.
-- Verify retries cannot create duplicate financial/inventory records.
-- Verify audit metadata survives successful and rejected protected actions.
+**Status: PASS — FINAL/CLOSED**
+- Idempotency contract on the protected purchase mutation verified.
+- Same-key retries verified to replay without creating duplicate purchases.
+- Same-key/different-request reuse verified to reject with the database idempotency conflict and preserve original audit metadata.
+- Idempotency storage is protected from browser roles by RLS and grants.
+- Transactional evidence was executed against the connected Supabase project inside explicit transactions and rolled back; no permanent test business data was retained.
+- Detailed evidence: `docs/PHASE-23-STAGE-4-ACCEPTANCE.md`.
 
 ### Stage 5 — Deterministic Rate List / Pricing Regression
-**Status: PENDING**
+**Status: NEXT**
 - Verify authoritative Rate List resolution.
 - Verify supplier/company-specific pricing precedence.
 - Verify explicit user-rate precedence.
@@ -118,6 +118,6 @@ Deliver:
 - Final Phase 23 acceptance report.
 
 ## Current Execution Position
-**Next action: Stage 2 — Authentication / Session / Organization / Branch / RBAC Verification.**
+**Next action: Stage 5 — Deterministic Rate List / Pricing Regression.**
 
 No new product feature is to be introduced unless evidence from a closure stage identifies a real production defect or security requirement.
