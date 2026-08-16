@@ -2,39 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="MuradERP-AI business management workspace" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MuradERP-AI</title>
-  <link rel="stylesheet" href="/frontend/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="app" class="app-shell">
-    <aside class="sidebar" aria-label="Primary navigation">
-      <div class="brand"><span class="brand-mark">M</span><span>MuradERP-AI</span></div>
-      <nav id="nav" class="nav-list"></nav>
-      <div class="sidebar-footer">ERP Product Completion · Phase 21</div>
-    </aside>
-    <main class="main">
-      <header class="topbar">
-        <button id="menu" class="icon-button" aria-label="Toggle navigation">☰</button>
-        <div>
-          <p class="eyebrow">Business workspace</p>
-          <h1 id="page-title">Dashboard</h1>
-        </div>
-        <div class="topbar-actions">
-          <button class="button secondary" id="copilot-button">AI Copilot</button>
-          <button class="avatar" aria-label="Account">QH</button>
-        </div>
-      </header>
-      <section id="content" class="content" aria-live="polite"></section>
-    </main>
+  <div class="app-shell">
+    <header class="topbar"><button id="menu" class="icon-button" type="button" aria-label="Menu">☰</button><strong>MuradERP-AI</strong><span id="page-title">Dashboard</span><button id="copilot-button" class="button primary" type="button">AI Copilot</button></header>
+    <aside id="nav" class="sidebar" aria-label="ERP navigation"></aside>
+    <main id="content" class="content"></main>
   </div>
-  <dialog id="copilot" class="copilot-dialog" aria-labelledby="copilot-title">
-    <div class="dialog-head"><div><p class="eyebrow">AI Business Copilot</p><h2 id="copilot-title">What do you want to do?</h2></div><button id="copilot-close" class="icon-button" aria-label="Close">×</button></div>
-    <textarea id="copilot-input" rows="5" placeholder="e.g. Create an estimate for Ali Traders: 50 Popular 25mm pipes at the selected rate list rate."></textarea>
-    <div class="dialog-actions"><span class="muted">AI proposes; authoritative ERP services execute after confirmation.</span><button id="copilot-run" class="button primary">Prepare draft</button></div>
-    <pre id="copilot-result" class="result" hidden></pre>
+  <dialog id="copilot" class="copilot-dialog">
+    <form method="dialog" class="copilot-card">
+      <div class="section-head"><div><p class="eyebrow">AI business copilot</p><h2>Prepare an ERP action</h2></div><button id="copilot-close" class="icon-button" type="submit" aria-label="Close">×</button></div>
+      <label for="copilot-action">Action</label>
+      <select id="copilot-action"><option value="estimate">Estimate</option><option value="invoice">Invoice</option><option value="purchase">Purchase</option><option value="return">Return</option><option value="inventory_adjustment">Inventory adjustment</option></select>
+      <label for="copilot-rate-list">Selected Rate List (optional)</label>
+      <input id="copilot-rate-list" placeholder="e.g. popular-rate-list" autocomplete="off" />
+      <label for="copilot-input">Instruction</label>
+      <textarea id="copilot-input" rows="6" placeholder="e.g. 25mm Popular pipe 50 pcs; use the selected Rate List"></textarea>
+      <div class="dialog-actions"><button id="copilot-run" class="button primary" type="button">Prepare review</button></div>
+      <pre id="copilot-result" class="result" hidden></pre>
+      <p class="muted">AI prepares a review only. Pricing, permissions and transaction execution remain authoritative backend responsibilities.</p>
+    </form>
   </dialog>
-  <script type="module" src="/frontend/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>
