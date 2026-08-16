@@ -39,15 +39,21 @@ Work proceeds in order. A stage is only marked PASS after its evidence is actual
 - Detailed evidence: `docs/PHASE-23-STAGE-4-ACCEPTANCE.md`.
 
 ### Stage 5 — Deterministic Rate List / Pricing Regression
-**Status: NEXT**
-- Verify authoritative Rate List resolution.
-- Verify supplier/company-specific pricing precedence.
-- Verify explicit user-rate precedence.
-- Verify AI cannot silently override deterministic pricing.
-- Verify ambiguous pricing/entity cases require resolution.
+**Status: PASS — FINAL/CLOSED**
+- Authoritative server-side pricing resolution verified.
+- Deterministic scope precedence verified: `CUSTOMER > VENDOR > GLOBAL`.
+- Explicit rate-list selection verified to override contextual supplier/customer pricing.
+- Effective-version selection and highest applicable quantity tier verified.
+- Ambiguous winning-scope pricing is rejected rather than silently selected.
+- Missing deterministic price returns `null`; no arbitrary fallback/invention occurs.
+- AI/OCR/voice candidate handling remains context-only; final price remains under the deterministic pricing service boundary.
+- PR #43 merged into `develop` with merge commit `91d07fdc470f8e1ebe196e3ba6b605c174fe52af`.
+- Exact post-merge `develop` SHA verified as `91d07fdc470f8e1ebe196e3ba6b605c174fe52af`.
+- Exact post-merge Backend CI, Production Closure, and Dependency/Secret Hygiene gates passed.
+- Detailed evidence: `docs/PHASE-23-STAGE-5-ACCEPTANCE.md`.
 
 ### Stage 6 — AI Copilot Safety / End-to-End Regression
-**Status: PENDING**
+**Status: NEXT**
 - Text/voice/camera/document input path.
 - Extraction and entity matching.
 - Pricing context and validation/confidence.
@@ -118,6 +124,6 @@ Deliver:
 - Final Phase 23 acceptance report.
 
 ## Current Execution Position
-**Next action: Stage 5 — Deterministic Rate List / Pricing Regression.**
+**Next action: Stage 6 — AI Copilot Safety / End-to-End Regression.**
 
 No new product feature is to be introduced unless evidence from a closure stage identifies a real production defect or security requirement.
