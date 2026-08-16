@@ -1,9 +1,1 @@
-{
-  "name": "@muraderp/frontend",
-  "private": true,
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "check": "node --check app.js"
-  }
-}
+{"name":"muraderp-ai-frontend","private":true,"type":"module","scripts":{"test":"vitest run ai-experience.test.js"},"devDependencies":{"vitest":"^3.2.4"}}
