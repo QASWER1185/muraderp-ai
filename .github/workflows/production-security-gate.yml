@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           if git grep -n -I -E -- \
             '-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----|-----BEGIN PGP PRIVATE KEY BLOCK-----' \
-            -- ':!backend/package-lock.json' ':!package-lock.json'; then
+            -- ':!backend/package-lock.json' ':!package-lock.json' ':!.github/workflows/production-security-gate.yml'; then
             echo 'Private key material detected in tracked files.' >&2
             exit 1
           fi
