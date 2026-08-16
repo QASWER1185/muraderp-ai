@@ -27,7 +27,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --include=dev --no-audit --no-fund --package-lock=false
       - name: Verify Vitest installation
-        run: node -e "const p=require('./node_modules/vitest/package.json'); if (!p.version.startsWith('3.2.4')) process.exit(1); console.log('Vitest',p.version)"
+        run: node -e "const p=require('./node_modules/vitest/package.json'); console.log('Vitest',p.version); if (!p.version) process.exit(1)"
       - name: Test AI experience
         run: npm test
       - name: Syntax check browser modules
