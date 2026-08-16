@@ -1,0 +1,67 @@
+name: Production Security Gate
+
+on:
+  push:
+    branches:
+      - develop
+      - "feature/**"
+      - "maintenance/**"
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: production-security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Dependency and secret hygiene
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Check tracked files for private key material
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E -- \
+            '-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----|-----BEGIN PGP PRIVATE KEY BLOCK-----' \
+            -- ':!backend/package-lock.json' ':!package-lock.json' ':!.github/workflows/production-security-gate.yml'; then
+            echo 'Private key material detected in tracked files.' >&2
+            exit 1
+          fi
+
+      - name: Check source for concrete credential material
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E 'gsk_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}' -- frontend backend/src; then
+            echo 'Concrete API credential material detected in application source.' >&2
+            exit 1
+          fi
