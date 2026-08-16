@@ -3,14 +3,14 @@ import { env } from "../config/env.js";
 
 export const healthRouter = Router();
 
-const buildHealthPayload = (requestId: string | undefined) => ({
+const buildHealthPayload = (requestId: string | number | undefined) => ({
   service: "muraderp-api",
   version: "0.1.0",
   timestamp: new Date().toISOString(),
   uptimeSeconds: Math.floor(process.uptime()),
   nodeVersion: process.version,
   environment: env.NODE_ENV,
-  ...(requestId === undefined ? {} : { requestId }),
+  ...(requestId === undefined ? {} : { requestId: String(requestId) }),
 });
 
 healthRouter.get("/", (request, response) => {
@@ -57,6 +57,6 @@ healthRouter.get("/diagnostics", (request, response) => {
       },
     },
     timestamp: new Date().toISOString(),
-    requestId: request.id,
+    requestId: String(request.id),
   });
 });
