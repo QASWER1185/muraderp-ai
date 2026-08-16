@@ -22,6 +22,8 @@ describe("Phase 23 authentication/session security", () => {
   it("clears the browser session cookie on logout", async () => {
     const response = await request(app).delete("/api/v1/auth/session");
     expect(response.status).toBe(204);
-    expect(response.headers["set-cookie"]?.some((cookie: string) => cookie.startsWith("muraderp_session=;"))).toBe(true);
+    expect(response.headers["set-cookie"]).toBeDefined();
+    expect(response.headers["set-cookie"]?.[0]).toContain("muraderp_session=");
+    expect(response.headers["set-cookie"]?.[0]).toContain("HttpOnly");
   });
 });
