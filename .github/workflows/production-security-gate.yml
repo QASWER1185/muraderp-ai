@@ -56,12 +56,12 @@ jobs:
             exit 1
           fi
 
-      - name: Check source for server credential exposure markers
+      - name: Check source for concrete credential material
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n -I -E '(SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY|INTERNAL_API_TOKEN)[[:space:]]*[:=][[:space:]]*[^$<{[:space:]]{8,}' -- frontend backend/src; then
-            echo 'Potential hard-coded server credential detected in application source.' >&2
+          if git grep -n -I -E 'gsk_[A-Za-z0-9]{20,}|sb_secret_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}' -- frontend backend/src; then
+            echo 'Concrete API credential material detected in application source.' >&2
             exit 1
           fi
