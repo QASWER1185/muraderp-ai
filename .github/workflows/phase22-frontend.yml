@@ -1,0 +1,32 @@
+name: Phase 22 Frontend AI Experience
+
+on:
+  push:
+    branches: ["feature/phase-22-ai-experience-completion"]
+  pull_request:
+    branches: ["develop"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/phase22-frontend.yml"
+
+jobs:
+  frontend-ai:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package.json
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test AI experience
+        run: npm test
+      - name: Syntax check browser modules
+        run: node --check app.js && node --check ai-experience.js
