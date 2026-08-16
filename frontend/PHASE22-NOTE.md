@@ -1,0 +1,1 @@
+Implementation note: browser AI requests are review-only. The frontend preserves the selected Rate List identifier and explicit user text; authoritative pricing, authorization, confirmation and transaction execution remain server-side.
