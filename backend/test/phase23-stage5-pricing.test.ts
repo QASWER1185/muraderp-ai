@@ -115,7 +115,7 @@ describe("Phase 23 Stage 5 — deterministic pricing regression", () => {
     };
     const service = new DefaultPricingService(repository);
     const resolved = await service.resolveCandidate(
-      { product_id: 500, quantity: 10, selection_source: "OCR_BRAND_MATCH", rate_list_hint: "CUSTOMER-30" },
+      { product_id: 500, quantity: 10, selection_source: "OCR_BRAND_MATCH", selected_rate_list_id: 3 },
       { price_type: "SALE", as_of: "2026-08-16T12:00:00Z", customer_id: 30, vendor_id: 20 },
     );
 
