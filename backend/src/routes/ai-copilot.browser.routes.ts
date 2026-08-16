@@ -4,6 +4,7 @@ import { ApiError } from "../errors/api-error.js";
 import { env } from "../config/env.js";
 import { createSupabaseBrowserAuth, getBrowserAuthPrincipal } from "../auth/supabase-user-auth.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
+import type { RequestHandler } from "express";
 
 const idSchema = z.coerce.number().int().positive();
 const lineSchema = z.strictObject({
@@ -62,9 +63,9 @@ function toAiDraft(input: z.output<typeof browserDraftSchema>, organizationId: s
   };
 }
 
-export function createBrowserCopilotRouter(runtime?: CopilotRuntime) {
+export function createBrowserCopilotRouter(runtime?: CopilotRuntime, authorizeMiddleware?: RequestHandler) {
   const router = Router();
-  const authorize = createSupabaseBrowserAuth(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+  const authorize = authorizeMiddleware ?? createSupabaseBrowserAuth(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
   let activeRuntime = runtime;
   const getRuntime = () => {
     activeRuntime ??= new CopilotRuntime();
@@ -89,11 +90,7 @@ export function createBrowserCopilotRouter(runtime?: CopilotRuntime) {
       ...(parsed.reason !== undefined ? { reason: parsed.reason } : {}),
     };
 
-    const action = await getRuntime().createDraft(
-      toAiDraft(parsed, principal.organizationId),
-      context,
-      idempotencyKey,
-    );
+    const action = await getRuntime().createDraft(toAiDraft(parsed, principal.organizationId), context, idempotencyKey);
     response.status(201).json({ data: action, requiresConfirmation: true, userId: principal.user.id, organizationId: principal.organizationId });
   });
 
@@ -109,12 +106,7 @@ export function createBrowserCopilotRouter(runtime?: CopilotRuntime) {
       throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
     }
 
-    const action = await getRuntime().confirmAndExecute(
-      id,
-      principal.organizationId,
-      principal.user.id,
-      idempotencyKey,
-    );
+    const action = await getRuntime().confirmAndExecute(id, principal.organizationId, principal.user.id, idempotencyKey);
     response.status(200).json({ data: action, executed: action.status === "EXECUTED" });
   });
 
