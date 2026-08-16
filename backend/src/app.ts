@@ -15,6 +15,8 @@ import { createCustomerPaymentRouter } from "./routes/customer-payment.routes.js
 import { createSalesReturnRouter } from "./routes/sales-return.routes.js";
 import { createVendorPaymentRouter } from "./routes/vendor-payment.routes.js";
 import { createAiCopilotRouter } from "./routes/ai-copilot.routes.js";
+import { createBrowserAuthRouter } from "./routes/browser-auth.routes.js";
+import { createBrowserCopilotRouter } from "./routes/ai-copilot.browser.routes.js";
 import { SupabaseCustomerPaymentService, type CustomerPaymentService } from "./services/customer-payment.service.js";
 import { SupabaseVendorPaymentService, type VendorPaymentService } from "./services/vendor-payment.service.js";
 import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
@@ -40,6 +42,8 @@ export function createApp(options: AppOptions = {}) {
   app.get("/api/test", (_request, response) => response.status(200).json({ success: true, message: "API Test Working" }));
 
   app.use("/api/v1/health", healthRouter);
+  app.use("/api/v1/auth", createBrowserAuthRouter(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_KEY, env.SUPABASE_SECRET_KEY));
+
   app.use("/api/v1", createErpRouter(
     options.internalApiToken ?? env.INTERNAL_API_TOKEN,
     options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID,
@@ -48,6 +52,7 @@ export function createApp(options: AppOptions = {}) {
   const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
   const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
   app.use("/api/v1/ai/copilot", createAiCopilotRouter(internalApiToken));
+  app.use("/api/v1/ai/copilot/browser", createBrowserCopilotRouter());
   app.use("/api/v1/products", createProductRouter(internalApiToken));
   app.use("/api/v1/inventory", createInventoryRouter(internalApiToken));
   app.use("/api/v1/sales", createSalesRouter(internalApiToken, internalApiPrincipalId));
