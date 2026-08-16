@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/phase-23-final-production-closure
+      - develop
   pull_request:
     branches:
       - develop
