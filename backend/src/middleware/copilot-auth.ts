@@ -8,7 +8,7 @@ function matches(provided: string, expected: string): boolean {
 }
 
 export function createCopilotAuth(internalToken?: string): RequestHandler {
-  const browserAuth = browserSessionHandler(false);
+  const browserAuth = browserSessionHandler(true);
   return (request, response, next) => {
     const authorization = request.header("authorization");
     const [scheme, token] = authorization?.split(" ", 2) ?? [];
