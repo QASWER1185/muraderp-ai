@@ -7,16 +7,20 @@ import { createCopilotPlanFromDraft } from "../src/ai-copilot/copilot.service.js
 const AUTH_TOKEN = "phase22-test-token-123456789012345678901234567890";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001";
 const USER_ID = "00000000-0000-4000-8000-000000000002";
+const SOURCE = "text" as const;
+
+function field<T>(value: T) {
+  return { value, confidence: 0.99, source: SOURCE };
+}
 
 function draft(overrides: Record<string, unknown> = {}) {
   return {
     organizationId: ORGANIZATION_ID,
     userId: USER_ID,
     intent: "estimate",
-    source: "text",
-    customerId: "101",
-    rateListId: 7,
-    lines: [{ productName: "25mm Popular pipe", productId: 25, quantity: 50, unit: "pcs" }],
+    source: SOURCE,
+    customerId: field("101"),
+    lines: [{ productName: field("25mm Popular pipe"), productId: field("25"), quantity: field(50), unit: field("pcs") }],
     confidence: 0.99,
     requiresHumanConfirmation: true,
     ...overrides,
@@ -36,7 +40,7 @@ describe("Phase 22 Copilot functional contract", () => {
   it("preserves an explicit user rate instead of replacing it with a Rate List", () => {
     const result = createCopilotPlanFromDraft({
       ...draft(),
-      lines: [{ productName: "25mm Popular pipe", productId: 25, quantity: 50, unit: "pcs", unitRate: 120 }],
+      lines: [{ productName: field("25mm Popular pipe"), productId: field("25"), quantity: field(50), unit: field("pcs"), unitRate: field(120) }],
     } as any, { userId: USER_ID, rateListId: 7 });
     expect(result.plan.lines[0]?.explicitUnitRate).toBe(120);
     expect(result.plan.lines[0]?.pricingSelection).toEqual({ mode: "MANUAL_OVERRIDE", reason: "Explicit rate supplied by user" });
@@ -61,7 +65,16 @@ describe("Phase 22 Copilot functional contract", () => {
       .post("/test-copilot/drafts")
       .set("Authorization", `Bearer ${AUTH_TOKEN}`)
       .set("Idempotency-Key", "phase22-copilot-draft-1")
-      .send(draft());
+      .send({
+        organizationId: ORGANIZATION_ID,
+        userId: USER_ID,
+        intent: "estimate",
+        source: SOURCE,
+        customerId: "101",
+        rateListId: 7,
+        lines: [{ productName: "25mm Popular pipe", productId: "25", quantity: 50, unit: "pcs" }],
+        confidence: 0.99,
+      });
     expect(draftResponse.status).toBe(201);
     expect(draftResponse.body.requiresConfirmation).toBe(true);
     expect(runtime.createDraft).toHaveBeenCalledOnce();
@@ -79,7 +92,15 @@ describe("Phase 22 Copilot functional contract", () => {
     const unauthorized = await request(app)
       .post("/test-copilot/drafts")
       .set("Idempotency-Key", "phase22-copilot-draft-2")
-      .send(draft());
+      .send({
+        organizationId: ORGANIZATION_ID,
+        userId: USER_ID,
+        intent: "estimate",
+        source: SOURCE,
+        customerId: "101",
+        lines: [{ productName: "25mm Popular pipe", productId: "25", quantity: 50, unit: "pcs" }],
+        confidence: 0.99,
+      });
     expect(unauthorized.status).toBe(401);
   });
 
@@ -87,7 +108,7 @@ describe("Phase 22 Copilot functional contract", () => {
     const start = performance.now();
     for (let index = 0; index < 1000; index += 1) {
       createCopilotPlanFromDraft(draft({
-        lines: [{ productName: `25mm pipe ${index}`, productId: 25, quantity: 50, unit: "pcs" }],
+        lines: [{ productName: field(`25mm pipe ${index}`), productId: field("25"), quantity: field(50), unit: field("pcs") }],
       }) as any, { userId: USER_ID, rateListId: 7 });
     }
     expect(performance.now() - start).toBeLessThan(2000);
