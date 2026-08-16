@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 
 export const healthRouter = Router();
 
-const buildHealthPayload = (requestId: string | number | undefined) => ({
+const buildHealthPayload = (requestId: unknown) => ({
   service: "muraderp-api",
   version: "0.1.0",
   timestamp: new Date().toISOString(),
