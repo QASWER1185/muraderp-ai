@@ -50,6 +50,15 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
     const rateLists = (rawRateLists ?? []) as RateListRecord[];
     const applicableRateLists = rateLists.filter((rateList) => { if (context.rate_list_id != null) return rateList.id === context.rate_list_id; if (rateList.scope_type === "CUSTOMER") return rateList.customer_id === context.customer_id; if (rateList.scope_type === "VENDOR") return rateList.vendor_id === context.vendor_id; return rateList.scope_type === "GLOBAL"; });
     if (applicableRateLists.length === 0) return null;
+
+    if (context.rate_list_id == null) {
+      const winningScopePriority = Math.max(...applicableRateLists.map((rateList) => scopePriority[rateList.scope_type]));
+      const winningScopeRateListIds = new Set(applicableRateLists.filter((rateList) => scopePriority[rateList.scope_type] === winningScopePriority).map((rateList) => rateList.id));
+      if (winningScopeRateListIds.size > 1) {
+        throw new Error("Ambiguous pricing: multiple active rate lists match the winning scope");
+      }
+    }
+
     const { data: rawVersions, error: versionError } = await client.from("rate_list_versions").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").in("rate_list_id", applicableRateLists.map((r) => r.id)).eq("status", "ACTIVE"); if (versionError) throw versionError;
     const versions = (rawVersions ?? []) as RateListVersionRecord[];
     const applicableVersions = versions.filter((version) => { const from = Date.parse(version.effective_from); const to = version.effective_to ? Date.parse(version.effective_to) : Number.POSITIVE_INFINITY; return from <= asOf && asOf < to; });
