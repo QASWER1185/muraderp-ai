@@ -1,6 +1,8 @@
 import express from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 import customerRoutes from "./routes/customer.routes.js";
@@ -24,6 +26,8 @@ export interface AppOptions {
   internalApiToken?: string;
   internalApiPrincipalId?: string;
 }
+
+const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../frontend");
 
 export function createApp(options: AppOptions = {}) {
   const app = express();
@@ -64,6 +68,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.use("/api/health", healthRouter);
   app.use("/api", customerRoutes);
+
+  app.use("/frontend", express.static(frontendRoot, { index: "index.html", fallthrough: false }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
