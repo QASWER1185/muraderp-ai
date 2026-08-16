@@ -1,0 +1,1 @@
+Stage 7 uses the existing optimized CI workflow structure. Required gates remain mandatory; duplicate work is reduced without bypassing verification.
