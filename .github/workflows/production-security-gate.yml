@@ -23,10 +23,6 @@ jobs:
     name: Dependency and secret hygiene
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,11 +34,9 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install backend dependencies
-        run: npm ci
-
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit production dependencies from lockfile
+        working-directory: backend
+        run: npm audit --package-lock-only --omit=dev --audit-level=high
 
       - name: Check tracked files for private key material
         working-directory: .
