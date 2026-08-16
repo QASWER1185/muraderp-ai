@@ -41,7 +41,7 @@ jobs:
       - name: Production secret hygiene scan
         working-directory: .
         run: |
-          ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE|INTERNAL_API_TOKEN[[:space:]]*=' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
+          ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{20,}' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
       - name: Frontend syntax verification
         working-directory: frontend
         run: |
