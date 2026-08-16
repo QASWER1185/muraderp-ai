@@ -26,22 +26,34 @@ function organizationIdFromUser(user: User): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+export type BrowserUserVerifier = (accessToken: string) => Promise<User | null>;
+
+export function createSupabaseUserVerifier(supabaseUrl: string, supabaseSecretKey: string): BrowserUserVerifier {
+  const client = createClient(supabaseUrl, supabaseSecretKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+
+  return async (accessToken) => {
+    const { data, error } = await client.auth.getUser(accessToken);
+    return error || !data.user ? null : data.user;
+  };
+}
+
 export function createSupabaseBrowserAuth(
   supabaseUrl?: string,
   supabaseSecretKey?: string,
+  verifyUser?: BrowserUserVerifier,
 ): RequestHandler {
-  const client = supabaseUrl && supabaseSecretKey
-    ? createClient(supabaseUrl, supabaseSecretKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false,
-        },
-      })
-    : null;
+  const verifier = verifyUser ?? (supabaseUrl && supabaseSecretKey
+    ? createSupabaseUserVerifier(supabaseUrl, supabaseSecretKey)
+    : null);
 
   return async (request, response, next) => {
-    if (!client) {
+    if (!verifier) {
       response.status(503).json({
         error: {
           code: "AUTH_NOT_CONFIGURED",
@@ -60,15 +72,15 @@ export function createSupabaseBrowserAuth(
     }
 
     try {
-      const { data, error } = await client.auth.getUser(token);
-      if (error || !data.user) {
+      const user = await verifier(token);
+      if (!user) {
         response.status(401).json({
           error: { code: "UNAUTHORIZED", message: "The authenticated user session is invalid or expired" },
         });
         return;
       }
 
-      const organizationId = organizationIdFromUser(data.user);
+      const organizationId = organizationIdFromUser(user);
       if (!organizationId) {
         response.status(403).json({
           error: {
@@ -79,7 +91,7 @@ export function createSupabaseBrowserAuth(
         return;
       }
 
-      request.browserAuth = { user: data.user, organizationId };
+      request.browserAuth = { user, organizationId };
       next();
     } catch {
       response.status(401).json({
