@@ -21,10 +21,11 @@ describe("MuradERP API foundation", () => {
     const response = await request(app).get("/api/v1/does-not-exist");
 
     expect(response.status).toBe(404);
-    expect(response.body).toEqual({
+    expect(response.body).toMatchObject({
       error: {
         code: "NOT_FOUND",
         message: "Route GET /api/v1/does-not-exist was not found",
+        requestId: expect.anything(),
       },
     });
   });
