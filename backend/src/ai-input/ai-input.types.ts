@@ -41,9 +41,11 @@ export interface AiInputProvider {
 
 export interface AiInputGateway {
   saveDraft(draft: AiInputDraft): Promise<AiInputDraft>;
+  getDraft(draftId: string): Promise<AiInputDraft | undefined>;
 }
 
 export interface AiInputServiceContract {
   createDraft(request: AiInputRequest): Promise<AiInputDraft>;
+  validateDraft(draftId: string, organizationId: string): Promise<AiInputDraft>;
   confirmDraft(draftId: string, organizationId: string, userId: string): Promise<void>;
 }
