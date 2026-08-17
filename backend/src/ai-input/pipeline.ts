@@ -10,7 +10,7 @@ import { assertDraftBelongsToContext, transitionDraftStatus } from "./draft-life
 import { validateAiInputRequest, validateExtractedFields } from "./ai-input.validation.js";
 
 export interface AiInputAuditEvent {
-  type: "draft.created" | "draft.confirmed" | "draft.rejected";
+  type: "draft.created" | "draft.confirmed";
   draftId: string;
   organizationId: string;
   userId: string;
@@ -25,11 +25,11 @@ export class InMemoryAiInputGateway implements AiInputGateway {
   private readonly drafts = new Map<string, AiInputDraft>();
 
   async saveDraft(draft: AiInputDraft): Promise<AiInputDraft> {
-    this.drafts.set(draft.draftId, draft);
+    this.drafts.set(draft.draftId, structuredClone(draft));
     return structuredClone(draft);
   }
 
-  get(draftId: string): AiInputDraft | undefined {
+  async getDraft(draftId: string): Promise<AiInputDraft | undefined> {
     const draft = this.drafts.get(draftId);
     return draft ? structuredClone(draft) : undefined;
   }
@@ -75,8 +75,7 @@ export class AiInputPipeline implements AiInputServiceContract {
   }
 
   async validateDraft(draftId: string, organizationId: string): Promise<AiInputDraft> {
-    const gateway = this.gateway as InMemoryAiInputGateway;
-    const current = gateway.get(draftId);
+    const current = await this.gateway.getDraft(draftId);
     if (!current) throw new Error("AI input draft not found");
     assertDraftBelongsToContext(current, organizationId);
     const validated = transitionDraftStatus(current, "validated");
@@ -84,8 +83,7 @@ export class AiInputPipeline implements AiInputServiceContract {
   }
 
   async confirmDraft(draftId: string, organizationId: string, userId: string): Promise<void> {
-    const gateway = this.gateway as InMemoryAiInputGateway;
-    const current = gateway.get(draftId);
+    const current = await this.gateway.getDraft(draftId);
     if (!current) throw new Error("AI input draft not found");
     assertDraftBelongsToContext(current, organizationId);
     if (current.status !== "validated") {
