@@ -1,0 +1,43 @@
+name: stage11-release-readiness
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+jobs:
+  release-readiness:
+    name: Stage 11 Release Readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Release readiness gate
+        working-directory: backend
+        run: npm run release:readiness
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Backend tests
+        working-directory: backend
+        run: npm test
+
+      - name: Production build
+        working-directory: backend
+        run: npm run build
