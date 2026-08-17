@@ -1,58 +1,27 @@
-export type AiInputSource = "text" | "image" | "camera" | "voice";
+export type {
+  AiInputGateway,
+  AiInputIntent,
+  AiInputProvider,
+  AiInputRequest,
+  AiInputServiceContract,
+  AiInputSource,
+  AiInputStatus,
+  AiInputDraft,
+  ExtractedField,
+} from "./ai-input.types.js";
 
-export type AiInputIntent =
-  | "estimate"
-  | "invoice"
-  | "customer_return"
-  | "supplier_bill"
-  | "inventory_adjustment";
-
-export interface AiInputRequest {
-  organizationId: string;
-  source: AiInputSource;
-  intent: AiInputIntent;
-  text?: string;
-  mediaReference?: string;
-  locale?: string;
+export interface AiInputValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
-export interface ExtractedField<T = unknown> {
-  value: T;
-  confidence: number;
-  source: AiInputSource;
-  rawText?: string;
-}
-
-export interface AiDraftLine {
-  productName?: ExtractedField<string>;
-  productId?: ExtractedField<string | number>;
-  quantity?: ExtractedField<number>;
-  unit?: ExtractedField<string>;
-  unitRate?: ExtractedField<number>;
-  sourceItemId?: ExtractedField<number>;
-}
-
-export interface AiDraft {
-  organizationId: string;
-  intent: AiInputIntent;
-  source: AiInputSource;
-  customerId?: ExtractedField<string>;
-  vendorId?: ExtractedField<string>;
-  documentNumber?: ExtractedField<string>;
-  lines: AiDraftLine[];
-  totalAmount?: ExtractedField<number>;
-  confidence: number;
-  requiresHumanConfirmation: true;
-}
-
-export interface AiInputProvider {
-  extract(request: AiInputRequest): Promise<AiDraft>;
-}
-
-export interface AiDraftValidator {
-  validate(draft: AiDraft): Promise<{
-    valid: boolean;
-    errors: string[];
-    warnings: string[];
-  }>;
+export interface AiInputPipeline {
+  createDraft(request: import("./ai-input.types.js").AiInputRequest): Promise<import("./ai-input.types.js").AiInputDraft>;
+  validateDraft(draft: import("./ai-input.types.js").AiInputDraft): AiInputValidationResult;
+  confirmDraft(
+    draft: import("./ai-input.types.js").AiInputDraft,
+    organizationId: string,
+    userId: string,
+  ): import("./ai-input.types.js").AiInputDraft;
 }
