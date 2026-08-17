@@ -3,20 +3,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const requiredFiles = [
+const requiredPaths = [
   "backend/package.json",
   "backend/tsconfig.build.json",
   ".github/workflows/backend-ci.yml",
   ".github/workflows/phase23-closure.yml",
   ".github/workflows/production-security-gate.yml",
-  "database",
+  "supabase",
 ];
 
 const failures = [];
 const pass = (message) => console.log(`PASS  ${message}`);
 const fail = (message) => failures.push(message);
 
-for (const relativePath of requiredFiles) {
+for (const relativePath of requiredPaths) {
   if (existsSync(resolve(root, relativePath))) pass(`required release asset exists: ${relativePath}`);
   else fail(`missing required release asset: ${relativePath}`);
 }
@@ -29,9 +29,9 @@ for (const script of ["typecheck", "test", "build", "check", "start"]) {
 
 const serverSource = readFileSync(resolve(root, "backend/src/server.ts"), "utf8");
 const appSource = readFileSync(resolve(root, "backend/src/app.ts"), "utf8");
-if (serverSource.includes('server.listen(env.PORT')) pass("server uses validated configured port");
+if (serverSource.includes("server.listen(env.PORT")) pass("server uses validated configured port");
 else fail("server does not use the validated configured port");
-if (appSource.includes('/api/v1/health') && appSource.includes('/api/health')) pass("health endpoints are registered");
+if (appSource.includes("/api/v1/health") && appSource.includes("/api/health")) pass("health endpoints are registered");
 else fail("health endpoints are not registered");
 
 let trackedFiles = "";
