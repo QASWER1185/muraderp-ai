@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AiInputDraft, AiInputProvider } from "./ai-input.types.js";
+import type { AiInputDraft, AiInputProvider, AiInputRequest } from "./ai-input.types.js";
 import { AiInputPipeline, InMemoryAiInputGateway } from "./pipeline.js";
 
 const provider: AiInputProvider = {
@@ -21,20 +21,25 @@ const provider: AiInputProvider = {
   },
 };
 
+function requestFor(source: AiInputRequest["source"]): AiInputRequest {
+  const request: AiInputRequest = {
+    source,
+    intent: "supplier_bill.create",
+    organizationId: "org-1",
+    userId: "user-1",
+  };
+  if (source === "text" || source === "voice") request.text = "10 bags";
+  if (source === "image" || source === "camera") request.mediaReference = "media-1";
+  return request;
+}
+
 describe("Phase 12 AI input pipeline", () => {
   it.each(["text", "image", "camera", "voice"] as const)(
     "creates a reviewable draft for %s input",
     async (source) => {
       const gateway = new InMemoryAiInputGateway();
       const pipeline = new AiInputPipeline(provider, gateway);
-      const draft = await pipeline.createDraft({
-        source,
-        intent: "supplier_bill.create",
-        organizationId: "org-1",
-        userId: "user-1",
-        text: source === "text" || source === "voice" ? "10 bags" : undefined,
-        mediaReference: source === "image" || source === "camera" ? "media-1" : undefined,
-      });
+      const draft = await pipeline.createDraft(requestFor(source));
 
       expect(draft.status).toBe("draft");
       expect(draft.requiresConfirmation).toBe(true);
@@ -83,13 +88,7 @@ describe("Phase 12 AI input pipeline", () => {
     const guardedProvider: AiInputProvider = {
       async extract() {
         called = true;
-        return provider.extract({
-          source: "text",
-          intent: "estimate.create",
-          organizationId: "org-1",
-          userId: "user-1",
-          text: "ok",
-        });
+        return provider.extract(requestFor("text"));
       },
     };
     const pipeline = new AiInputPipeline(guardedProvider, new InMemoryAiInputGateway());
