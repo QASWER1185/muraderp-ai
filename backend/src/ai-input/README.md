@@ -16,6 +16,7 @@ AI output is untrusted proposal data. This module never writes directly to ERP t
 - Confirmation is impossible before validation.
 - Confirmation remains an explicit human action.
 - Provider implementations remain behind `AiInputProvider`.
+- The canonical Phase 12 contract is `ai-input.types.ts`; `contracts.ts` re-exports that contract surface and adds only pipeline-specific validation types.
 
 ## Phase 12 supported intents
 
