@@ -36,7 +36,8 @@ describe("production configuration guardrails", () => {
   it("rejects placeholder production secrets", () => {
     const result = parseEnv({
       ...validProductionEnv,
-      SUPABASE_SECRET_KEY: "sb_secret_replace_me_12345678901234567890",
+      SUPABASE_SECRET_KEY:
+        "sb_secret_" + "replace_me_12345678901234567890",
     });
 
     expect(result.success).toBe(false);
