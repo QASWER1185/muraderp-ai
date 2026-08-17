@@ -10,18 +10,16 @@ export type {
   ExtractedField,
 } from "./ai-input.types.js";
 
+import type { AiInputDraft, AiInputRequest } from "./ai-input.types.js";
+
 export interface AiInputValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
 }
 
-export interface AiInputPipeline {
-  createDraft(request: import("./ai-input.types.js").AiInputRequest): Promise<import("./ai-input.types.js").AiInputDraft>;
-  validateDraft(draft: import("./ai-input.types.js").AiInputDraft): AiInputValidationResult;
-  confirmDraft(
-    draft: import("./ai-input.types.js").AiInputDraft,
-    organizationId: string,
-    userId: string,
-  ): import("./ai-input.types.js").AiInputDraft;
+export interface AiInputPipelineContract {
+  createDraft(request: AiInputRequest): Promise<AiInputDraft>;
+  validateDraft(draftId: string, organizationId: string): Promise<AiInputDraft>;
+  confirmDraft(draftId: string, organizationId: string, userId: string): Promise<void>;
 }
