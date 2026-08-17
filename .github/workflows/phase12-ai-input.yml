@@ -48,16 +48,17 @@ jobs:
           ! grep -R "supabase\|createClient\|record_purchase" src/ai-input/pipeline.ts src/ai-input/contracts.ts
 
       - name: Verify Phase 12 offline web foundation
-        working-directory: .
+        working-directory: ${{ github.workspace }}
         run: |
           test -f frontend/sw.js
           test -f frontend/offline-store.js
           test -f frontend/offline-sync.js
           test -f frontend/manifest.webmanifest
+          test -f frontend/index.html
           node --check frontend/app.js
           node --check frontend/offline-store.js
           node --check frontend/offline-sync.js
           node --check frontend/sw.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8')); console.log('manifest JSON valid')"
           grep -q 'serviceWorker' frontend/index.html
-          grep -q 'offline' frontend/index.html
+          grep -qi 'offline' frontend/index.html
