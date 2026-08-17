@@ -1,0 +1,48 @@
+name: Phase 12 AI Input Foundation
+
+on:
+  push:
+    branches:
+      - develop
+      - "feature/**"
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: phase12-ai-input-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phase12:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Typecheck, tests, and production build
+        run: npm run check
+
+      - name: Verify Phase 12 source boundaries
+        run: |
+          test -f src/ai-input/ai-input.types.ts
+          test -f src/ai-input/contracts.ts
+          test -f src/ai-input/pipeline.ts
+          test -f src/ai-input/draft-lifecycle.ts
+          test -f src/ai-input/ai-input.validation.ts
+          test -f src/ai-input/pipeline.test.ts
+          ! grep -R "supabase\|createClient\|record_purchase" src/ai-input/pipeline.ts src/ai-input/contracts.ts
