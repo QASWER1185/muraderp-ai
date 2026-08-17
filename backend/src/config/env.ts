@@ -25,9 +25,44 @@ const envSchema = z
           "SUPABASE_URL, SUPABASE_SECRET_KEY, and INTERNAL_API_TOKEN must be configured together",
       });
     }
+
+    if (configuration.NODE_ENV === "production") {
+      if (configuredValues !== erpValues.length) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Production requires SUPABASE_URL, SUPABASE_SECRET_KEY, and INTERNAL_API_TOKEN",
+        });
+      }
+
+      if (configuration.SUPABASE_URL && !configuration.SUPABASE_URL.startsWith("https://")) {
+        context.addIssue({
+          code: "custom",
+          message: "Production SUPABASE_URL must use HTTPS",
+        });
+      }
+
+      if (configuration.SUPABASE_SECRET_KEY?.toLowerCase().includes("replace_me")) {
+        context.addIssue({
+          code: "custom",
+          message: "Production SUPABASE_SECRET_KEY cannot use a placeholder value",
+        });
+      }
+
+      if (configuration.INTERNAL_API_TOKEN?.toLowerCase().includes("replace_with")) {
+        context.addIssue({
+          code: "custom",
+          message: "Production INTERNAL_API_TOKEN cannot use a placeholder value",
+        });
+      }
+    }
   });
 
-const parsedEnv = envSchema.safeParse(process.env);
+export function parseEnv(input: NodeJS.ProcessEnv) {
+  return envSchema.safeParse(input);
+}
+
+const parsedEnv = parseEnv(process.env);
 
 if (!parsedEnv.success) {
   console.error("Invalid environment configuration", parsedEnv.error.flatten().fieldErrors);
