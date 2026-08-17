@@ -67,20 +67,21 @@ export function createCopilotPlanFromDraft(
 
   const lines = draft.lines.map((line) => toPlannerLine(line, context.rateListId));
   const documentNumber = context.documentNumber ?? draft.documentNumber?.value;
-  const plan = createTransactionActionPlan({
+  const input = {
     organizationId: draft.organizationId,
     userId: context.userId,
     source: draft.source as CopilotInputSource,
     target: draft.intent,
-    ...(draft.customerId?.value ? { customerId: draft.customerId.value } : {}),
-    ...(draft.vendorId?.value ? { vendorId: draft.vendorId.value } : {}),
-    ...(context.warehouseId !== undefined ? { warehouseId: context.warehouseId } : {}),
-    ...(documentNumber ? { documentNumber } : {}),
-    ...(context.documentDate ? { documentDate: context.documentDate } : {}),
-    ...(context.currencyCode ? { currencyCode: context.currencyCode } : {}),
-    ...(context.reason ? { reason: context.reason } : {}),
     lines,
-  });
+    ...(draft.customerId?.value !== undefined ? { customerId: String(draft.customerId.value) } : {}),
+    ...(draft.vendorId?.value !== undefined ? { vendorId: String(draft.vendorId.value) } : {}),
+    ...(context.warehouseId !== undefined ? { warehouseId: context.warehouseId } : {}),
+    ...(documentNumber !== undefined ? { documentNumber: String(documentNumber) } : {}),
+    ...(context.documentDate !== undefined ? { documentDate: context.documentDate } : {}),
+    ...(context.currencyCode !== undefined ? { currencyCode: context.currencyCode } : {}),
+    ...(context.reason !== undefined ? { reason: context.reason } : {}),
+  };
+  const plan = createTransactionActionPlan(input);
 
   return { plan, requiresConfirmation: true };
 }
