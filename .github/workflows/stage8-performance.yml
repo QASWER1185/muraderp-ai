@@ -1,0 +1,45 @@
+name: Stage 8 Performance Acceptance
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'backend/**'
+      - 'scripts/stage8-performance.mjs'
+      - '.github/workflows/stage8-performance.yml'
+      - 'docs/PHASE-23-STAGE-8-ACCEPTANCE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage8-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Typecheck
+        working-directory: backend
+        run: npm run typecheck
+      - name: Performance evidence and full regression timing
+        run: node scripts/stage8-performance.mjs
+      - name: Upload performance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-performance-evidence
+          path: backend/stage8-performance-evidence.txt
+          if-no-files-found: error
+      - name: Production build
+        working-directory: backend
+        run: npm run build
