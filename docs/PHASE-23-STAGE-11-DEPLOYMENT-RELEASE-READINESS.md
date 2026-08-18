@@ -22,21 +22,23 @@ Configuration validation → production build → health/readiness endpoints →
 - Existing migrations remain authoritative for database state.
 - Existing ERP, accounting, inventory, pricing, authorization, idempotency and AI confirmation services remain authoritative.
 
-### Acceptance
-Stage 11 is not PASS from source inspection alone. Required evidence is:
-1. Release-readiness gate GREEN.
-2. Backend typecheck GREEN.
-3. Backend tests GREEN.
-4. Production build GREEN.
-5. Production security gate GREEN.
-6. Phase 23 closure workflow GREEN.
-7. PR merged into `develop`.
-8. Exact merge SHA recorded.
-9. `develop` HEAD equals the merge SHA.
-10. Post-merge `develop` CI is GREEN.
+### Acceptance Evidence
+The original Stage 11 implementation PR **#49** was merged into `develop` with exact merge SHA `3ddb4bb9bec20a02ebf38688008c3953ae5e7cc4`. Its initial release-readiness run exposed the canonical database-path assumption; the corrective Stage 11 PR **#51** changed the readiness path to the authoritative `supabase/` infrastructure and was merged with SHA `c0279c9b0179d3203e0d0f1b5c244a772c2e3374`. The corrected Stage 11 release-readiness run, Backend CI, Production Security Gate, and Phase 23 Production Closure were all GREEN on the corrected verification commit.
+
+The subsequent `develop` line also carried successful authoritative verification for Backend CI, Production Security Gate, Phase 23 Production Closure, and Stage 11 release-readiness.
+
+### Acceptance Cleanup
+- No new ERP domain behavior is introduced.
+- No Stage 9 recovery implementation is introduced.
+- Stage 11 acceptance evidence is preserved in this document.
+- The exact historical Stage 11 implementation and correction SHAs are recorded above.
+- The final cleanup merge must become the verified `develop` HEAD before closure.
 
 ### Rollback / Recovery Boundary
 No automatic production rollback is performed by this stage. Release operators must use the documented deployment platform rollback mechanism and the Stage 9 recovery procedure for database recovery. Stage 11 must not weaken data-integrity or authorization guarantees in pursuit of deployment speed.
+
+### Status
+**ACCEPTANCE CLEANUP — FINAL VERIFICATION**
 
 ### Definition of Done
 `PHASE 23 — STAGE 11 — 100% FINAL / PASS` only after every acceptance item is evidenced on the exact final `develop` merge commit.
