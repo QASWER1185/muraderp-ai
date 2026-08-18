@@ -20,25 +20,26 @@ Work proceeds in order. A stage is only marked PASS after its evidence is actual
 **Status: PASS — FINAL/CLOSED**
 
 ### Stage 7 — Error Handling / Observability / Operational Readiness
-**Status: IN VERIFICATION**
+**Status: PASS — FINAL/CLOSED**
 - Structured request logging with authorization/cookie redaction.
 - Actionable error codes and request IDs on API failures.
 - Liveness and readiness health checks.
 - Safe operational diagnostics without secret material.
 - Stage-specific regression coverage.
-- Detailed evidence: `docs/PHASE-23-STAGE-7-ACCEPTANCE.md`.
+- Final verification evidence accepted from GitHub Actions and user-provided GitHub screenshots.
 
 ### Stage 8 — Performance / Reliability Checks
-**Status: PENDING**
-- authentication/session;
-- Copilot draft/confirm;
-- pricing resolution;
-- major ERP reads;
-- protected mutations;
-- representative concurrent Copilot planning load.
+**Status: PASS — FINAL/CLOSED**
+- Authentication/session evidence verified.
+- Copilot draft/confirm evidence verified.
+- Pricing resolution evidence verified.
+- Major ERP reads evidence verified.
+- Protected ERP mutations evidence verified.
+- Concurrent Copilot representative check verified with 4 workers.
+- Final Stage 8 evidence: `docs/PHASE-23-STAGE-8-ACCEPTANCE.md`.
 
 ### Stage 9 — Backup / Restore / Database Recovery Readiness
-**Status: PENDING**
+**Status: DEFERRED / PENDING**
 - Review current production schema/migrations.
 - Define and verify backup/restore procedure against the schema.
 - Document recovery expectations and failure boundaries.
@@ -53,6 +54,6 @@ Work proceeds in order. A stage is only marked PASS after its evidence is actual
 **Status: PENDING**
 
 ## Current Execution Position
-**Stage 7 implementation complete; verification and closure gates pending.**
+**Stage 8 is complete and closed. Next acceptance-cleanup target: Stage 10. Stage 9 remains explicitly deferred.**
 
 No new product feature is to be introduced unless evidence from a closure stage identifies a real production defect or security requirement.
