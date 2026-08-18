@@ -1,0 +1,86 @@
+name: Post-Merge Production Gate
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: post-merge-production-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  post-merge-gate:
+    name: Post-merge develop verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact develop commit
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Verify branch commit is the checked-out commit
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "Verified develop commit: ${GITHUB_SHA}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Backend typecheck, tests, and production build
+        working-directory: backend
+        run: npm run check
+
+      - name: Phase 12 source boundary verification
+        working-directory: .
+        run: |
+          test -f backend/src/ai-input/ai-input.types.ts
+          test -f backend/src/ai-input/contracts.ts
+          test -f backend/src/ai-input/pipeline.ts
+          test -f backend/src/ai-input/draft-lifecycle.ts
+          test -f backend/src/ai-input/ai-input.validation.ts
+          test -f backend/src/ai-input/pipeline.test.ts
+          ! grep -R "supabase\|createClient\|record_purchase" backend/src/ai-input/pipeline.ts backend/src/ai-input/contracts.ts
+
+      - name: Offline foundation verification
+        working-directory: .
+        run: |
+          test -f frontend/sw.js
+          test -f frontend/offline-store.js
+          test -f frontend/offline-sync.js
+          test -f frontend/manifest.webmanifest
+          test -f frontend/index.html
+          node --check frontend/app.js
+          node --check frontend/offline-store.js
+          node --check frontend/offline-sync.js
+          node --check frontend/sw.js
+          node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8')); console.log('manifest JSON valid')"
+          grep -q 'serviceWorker' frontend/index.html
+          grep -qi 'offline' frontend/index.html
+
+      - name: Frontend syntax verification
+        working-directory: frontend
+        run: |
+          node --check app.js
+          node --check auth.js
+          node --check copilot-api.js
+          node --check ai-experience.js
+
+      - name: Production secret hygiene
+        working-directory: .
+        run: |
+          ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{20,}' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
+
+      - name: Final gate marker
+        run: echo "POST-MERGE PRODUCTION GATE: PASS for ${GITHUB_SHA}"
