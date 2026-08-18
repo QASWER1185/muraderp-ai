@@ -6,6 +6,9 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: post-merge-production-gate-${{ github.ref }}
   cancel-in-progress: false
@@ -14,6 +17,7 @@ jobs:
   post-merge-gate:
     name: Post-merge develop verification
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout exact triggering develop commit
         uses: actions/checkout@v4
