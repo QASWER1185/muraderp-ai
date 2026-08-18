@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - develop
+  workflow_run:
+    workflows:
+      - "Phase 12 AI Input Foundation"
+      - "Backend CI"
+      - "Production Security Gate"
+      - "Phase 23 Production Closure"
+    types:
+      - completed
   workflow_dispatch:
 
 concurrency:
@@ -13,6 +21,10 @@ concurrency:
 jobs:
   post-merge-gate:
     name: Post-merge develop verification
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact develop commit
@@ -24,8 +36,8 @@ jobs:
       - name: Verify branch commit is the checked-out commit
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          echo "Verified develop commit: ${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/develop)"
+          echo "Verified develop commit: $(git rev-parse HEAD)"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -83,4 +95,4 @@ jobs:
           ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{20,}' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
 
       - name: Final gate marker
-        run: echo "POST-MERGE PRODUCTION GATE: PASS for ${GITHUB_SHA}"
+        run: echo "POST-MERGE PRODUCTION GATE: PASS for $(git rev-parse HEAD)"
