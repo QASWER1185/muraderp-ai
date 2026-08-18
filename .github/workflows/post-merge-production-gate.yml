@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: post-merge-production-gate-${{ github.ref }}
@@ -86,6 +87,32 @@ jobs:
         working-directory: .
         run: |
           ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{20,}' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
+
+      - name: Publish connector-visible CI status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Post-merge develop production gate passed"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Post-merge develop production gate was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Post-merge develop production gate failed"
+          fi
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$STATE" \
+            -f context="github-connector/ci-verification" \
+            -f description="$DESCRIPTION" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Final gate marker
         run: echo "POST-MERGE PRODUCTION GATE: PASS for ${GITHUB_SHA}"
