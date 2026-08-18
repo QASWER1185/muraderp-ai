@@ -1,5 +1,6 @@
-export type AiInputSource = "text" | "image" | "camera" | "voice";
+import type { AiInputSource } from "./ai-input.types.js";
 
+/** Compatibility contract used by the Phase 20 copilot bridge. */
 export type AiInputIntent =
   | "estimate"
   | "invoice"
@@ -7,16 +8,7 @@ export type AiInputIntent =
   | "supplier_bill"
   | "inventory_adjustment";
 
-export interface AiInputRequest {
-  organizationId: string;
-  source: AiInputSource;
-  intent: AiInputIntent;
-  text?: string;
-  mediaReference?: string;
-  locale?: string;
-}
-
-export interface ExtractedField<T = unknown> {
+export interface AiDraftField<T = unknown> {
   value: T;
   confidence: number;
   source: AiInputSource;
@@ -24,35 +16,46 @@ export interface ExtractedField<T = unknown> {
 }
 
 export interface AiDraftLine {
-  productName?: ExtractedField<string>;
-  productId?: ExtractedField<string | number>;
-  quantity?: ExtractedField<number>;
-  unit?: ExtractedField<string>;
-  unitRate?: ExtractedField<number>;
-  sourceItemId?: ExtractedField<number>;
+  productName?: AiDraftField<string>;
+  productId?: AiDraftField<string | number>;
+  quantity?: AiDraftField<number>;
+  unit?: AiDraftField<string>;
+  unitRate?: AiDraftField<number>;
+  sourceItemId?: AiDraftField<number>;
 }
 
 export interface AiDraft {
   organizationId: string;
   intent: AiInputIntent;
   source: AiInputSource;
-  customerId?: ExtractedField<string>;
-  vendorId?: ExtractedField<string>;
-  documentNumber?: ExtractedField<string>;
+  customerId?: AiDraftField<string | number>;
+  vendorId?: AiDraftField<string | number>;
+  documentNumber?: AiDraftField<string>;
   lines: AiDraftLine[];
-  totalAmount?: ExtractedField<number>;
+  totalAmount?: AiDraftField<number>;
   confidence: number;
   requiresHumanConfirmation: true;
 }
 
-export interface AiInputProvider {
-  extract(request: AiInputRequest): Promise<AiDraft>;
+export interface AiInputValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
 }
 
-export interface AiDraftValidator {
-  validate(draft: AiDraft): Promise<{
-    valid: boolean;
-    errors: string[];
-    warnings: string[];
-  }>;
+export interface AiInputPipelineContract {
+  createDraft(request: import("./ai-input.types.js").AiInputRequest): Promise<import("./ai-input.types.js").AiInputDraft>;
+  validateDraft(draftId: string, organizationId: string): Promise<import("./ai-input.types.js").AiInputDraft>;
+  confirmDraft(draftId: string, organizationId: string, userId: string): Promise<void>;
 }
+
+export type {
+  AiInputGateway,
+  AiInputProvider,
+  AiInputRequest,
+  AiInputServiceContract,
+  AiInputSource,
+  AiInputStatus,
+  AiInputDraft,
+  ExtractedField,
+} from "./ai-input.types.js";
