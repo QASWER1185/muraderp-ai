@@ -40,4 +40,4 @@ jobs:
         run: npm run build
 
       - name: Runtime import smoke test
-        run: node --input-type=module -e "import('./dist/ai-assistant/index.js').then((m) => { if (typeof m.createAssistantService !== 'function') throw new Error('Phase 13 assistant export missing'); console.log('Phase 13 runtime import OK'); })"
+        run: node --input-type=module -e "import('./dist/ai-assistant/assistant.factory.js').then((m) => { if (typeof m.createAssistantService !== 'function') throw new Error('Phase 13 assistant factory export missing'); console.log('Phase 13 runtime import OK'); })"
