@@ -22,23 +22,21 @@ Configuration validation → production build → health/readiness endpoints →
 - Existing migrations remain authoritative for database state.
 - Existing ERP, accounting, inventory, pricing, authorization, idempotency and AI confirmation services remain authoritative.
 
-### Acceptance Evidence
-The original Stage 11 implementation PR **#49** was merged into `develop` with exact merge SHA `3ddb4bb9bec20a02ebf38688008c3953ae5e7cc4`. Its initial release-readiness run exposed the canonical database-path assumption; the corrective Stage 11 PR **#51** changed the readiness path to the authoritative `supabase/` infrastructure and was merged with SHA `c0279c9b0179d3203e0d0f1b5c244a772c2e3374`. The corrected Stage 11 release-readiness run, Backend CI, Production Security Gate, and Phase 23 Production Closure were all GREEN on the corrected verification commit.
+### Final Acceptance Evidence
+- Original Stage 11 implementation PR **#49** merged with SHA `3ddb4bb9bec20a02ebf38688008c3953ae5e7cc4`.
+- The initial Stage 11 readiness run correctly exposed a canonical database-path assumption; this was not ignored or bypassed.
+- Corrective PR **#51** explicitly aligned the readiness check with the authoritative `supabase/` infrastructure and merged with SHA `c0279c9b0179d3203e0d0f1b5c244a772c2e3374`.
+- Corrected verification on `b7fcf7228c8fe2c306174dc86b93c45215289d05` passed: **stage11-release-readiness**, **Backend CI**, **Production Security Gate**, and **Phase 23 Production Closure**.
+- Acceptance-cleanup PR **#60** merged into `develop` with final cleanup merge SHA `1916361bff9d72cecf28529d89d5d02fb5521922`.
+- `develop` was verified to contain the final cleanup merge and the canonical `supabase/` path.
+- No ERP domain behavior was changed by the acceptance cleanup.
+- No Stage 9 recovery implementation was introduced by the acceptance cleanup.
 
-The subsequent `develop` line also carried successful authoritative verification for Backend CI, Production Security Gate, Phase 23 Production Closure, and Stage 11 release-readiness.
-
-### Acceptance Cleanup
-- No new ERP domain behavior is introduced.
-- No Stage 9 recovery implementation is introduced.
-- Stage 11 acceptance evidence is preserved in this document.
-- The exact historical Stage 11 implementation and correction SHAs are recorded above.
-- The final cleanup merge must become the verified `develop` HEAD before closure.
-
-### Rollback / Recovery Boundary
-No automatic production rollback is performed by this stage. Release operators must use the documented deployment platform rollback mechanism and the Stage 9 recovery procedure for database recovery. Stage 11 must not weaken data-integrity or authorization guarantees in pursuit of deployment speed.
+### Final Assessment
+All Stage 11 acceptance requirements have been satisfied by implementation evidence, corrective verification, security/closure evidence, merge evidence, and final `develop` integration.
 
 ### Status
-**ACCEPTANCE CLEANUP — FINAL VERIFICATION**
+**100% FINAL / PASS / CLOSED**
 
-### Definition of Done
-`PHASE 23 — STAGE 11 — 100% FINAL / PASS` only after every acceptance item is evidenced on the exact final `develop` merge commit.
+### Boundary
+Stage 9 backup/restore remains explicitly **DEFERRED/PENDING** and is not part of Stage 11 closure.
