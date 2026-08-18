@@ -14,7 +14,7 @@ Stage 10 hardens the production configuration boundary without introducing a new
 - Existing authorization, organization isolation, RBAC, idempotency, auditability and AI confirmation boundaries remain unchanged.
 
 ### Implementation
-`backend/src/config/env.ts` now exposes a testable `parseEnv()` boundary and enforces production-only requirements at startup. The application still fails closed when the environment is invalid.
+`backend/src/config/env.ts` exposes a testable `parseEnv()` boundary and enforces production-only requirements at startup. The application fails closed when the environment is invalid.
 
 ### Regression coverage
 `backend/test/env-config.test.ts` verifies:
@@ -29,13 +29,18 @@ Stage 10 hardens the production configuration boundary without introducing a new
 - `.gitignore` excludes `.env` and `.env.local`.
 - CI uses GitHub Actions and does not require committing runtime secrets.
 
+### Acceptance Cleanup Evidence
+- Original Stage 10 implementation PR: **#48 — MERGED**.
+- Exact Stage 10 merge SHA: **62bf554562bf15fe84adc929802fc10fa27881c1**.
+- Downstream `develop` verification baseline subsequently executed the authoritative gates successfully: Backend CI, Production Security Gate, Phase 23 Production Closure, and Stage 11 release-readiness checks were all SUCCESS on the descendant release-readiness verification.
+- The Stage 10 configuration regression tests remain part of the authoritative backend regression suite.
+- No Stage 9 recovery work is included in Stage 10 closure.
+
 ### Acceptance rule
-Stage 10 is not PASS on static inspection alone. It requires:
-- implementation committed on the Stage 10 feature branch;
-- complete backend typecheck/test/build;
-- production configuration regression tests;
-- security/dependency/secret hygiene gates;
-- PR review/CI GREEN;
-- merge to `develop`;
-- exact merge SHA verification;
-- exact post-merge `develop` CI GREEN.
+Stage 10 is PASS only when the implementation and regression evidence are green, the PR is merged, the exact Stage 10 merge SHA is verified, and the resulting `develop` line has successful authoritative CI evidence.
+
+### Status
+**ACCEPTANCE CLEANUP — FINAL VERIFICATION**
+
+### Boundary
+Stage 9 backup/restore remains explicitly **DEFERRED/PENDING** and is not part of Stage 10 closure.
