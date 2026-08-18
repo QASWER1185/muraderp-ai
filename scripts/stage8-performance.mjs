@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 
 const output = 'stage8-vitest.json';
+const evidence = 'stage8-performance-evidence.txt';
 const started = performance.now();
 const result = spawnSync('npm', ['test', '--', '--reporter=json', `--outputFile=${output}`], {
   cwd: 'backend',
@@ -32,11 +33,15 @@ for (const file of files) {
     }
   }
 }
-console.log('\nSTAGE 8 PERFORMANCE EVIDENCE');
-console.log(`full_test_suite_duration_ms=${elapsedMs}`);
-console.log(`test_files=${files.length}`);
+const lines = [
+  'MURADERP-AI — PHASE 23 STAGE 8 PERFORMANCE EVIDENCE',
+  `full_test_suite_duration_ms=${elapsedMs}`,
+  `test_files=${files.length}`,
+];
 for (const [key, value] of Object.entries(totals)) {
-  console.log(`${key}_files=${value.files}`);
-  console.log(`${key}_duration_ms=${Math.round(value.durationMs)}`);
+  lines.push(`${key}_files=${value.files}`);
+  lines.push(`${key}_duration_ms=${Math.round(value.durationMs)}`);
 }
+writeFileSync(`backend/${evidence}`, `${lines.join('\n')}\n`);
+console.log(`\n${lines.join('\n')}`);
 unlinkSync(`backend/${output}`);
