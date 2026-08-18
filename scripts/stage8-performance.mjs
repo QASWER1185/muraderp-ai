@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 const evidence = 'backend/stage8-performance-evidence.txt';
-const runTests = (filters) => spawnSync('npm', ['test', '--', '--run', ...filters], {
+const runTests = (filters, extra = []) => spawnSync('npm', ['test', '--', '--run', ...filters, ...extra], {
   cwd: 'backend',
   stdio: 'inherit',
   shell: process.platform === 'win32',
@@ -75,6 +75,14 @@ for (const [name, filters] of Object.entries(categories)) {
   lines.push(`${name}_result=${result.status === 0 ? 'success' : 'failure'}`);
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
+
+const concurrentStart = performance.now();
+const concurrentCopilot = runTests(categories.copilot, ['--maxWorkers=4']);
+const concurrentDurationMs = Math.round(performance.now() - concurrentStart);
+lines.push(`copilot_concurrent_workers=4`);
+lines.push(`copilot_concurrent_duration_ms=${concurrentDurationMs}`);
+lines.push(`copilot_concurrent_result=${concurrentCopilot.status === 0 ? 'success' : 'failure'}`);
+if (concurrentCopilot.status !== 0) process.exit(concurrentCopilot.status ?? 1);
 
 writeFileSync(evidence, `${lines.join('\n')}\n`);
 console.log(`\n${lines.join('\n')}`);
