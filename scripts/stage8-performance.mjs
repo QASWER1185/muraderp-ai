@@ -1,47 +1,39 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 
-const output = 'stage8-vitest.json';
-const evidence = 'stage8-performance-evidence.txt';
+const evidence = 'backend/stage8-performance-evidence.txt';
 const started = performance.now();
-const result = spawnSync('npm', ['test', '--', '--reporter=json', `--outputFile=${output}`], {
+const full = spawnSync('npm', ['test', '--', '--run'], {
   cwd: 'backend',
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });
-const elapsedMs = Math.round(performance.now() - started);
+const fullDurationMs = Math.round(performance.now() - started);
+if (full.status !== 0) process.exit(full.status ?? 1);
 
-if (result.status !== 0 || !existsSync(`backend/${output}`)) process.exit(result.status ?? 1);
-
-const report = JSON.parse(readFileSync(`backend/${output}`, 'utf8'));
-const files = Array.isArray(report.testResults) ? report.testResults : [];
 const categories = {
-  authentication_session: /auth|session|organization|branch|rbac|permission/i,
-  copilot: /copilot|ai-assistant|ai-input/i,
-  pricing: /pricing|rate|rate-list/i,
-  erp_reads: /customer|vendor|product|warehouse|inventory|estimate|report|accounting/i,
-  protected_mutations: /purchase|sale|invoice|payment|return|mutation|idempot/i,
+  authentication_session: 'auth|session|organization|branch|rbac|permission',
+  copilot: 'copilot|ai-assistant|ai-input',
+  pricing: 'pricing|rate|rate-list',
+  erp_reads: 'customer|vendor|product|warehouse|inventory|estimate|report|accounting',
+  protected_mutations: 'purchase|sale|invoice|payment|return|mutation|idempot',
 };
-const totals = Object.fromEntries(Object.keys(categories).map((key) => [key, { files: 0, durationMs: 0 }]));
-for (const file of files) {
-  const name = file.name ?? file.testFilePath ?? '';
-  const duration = Number(file.duration ?? 0);
-  for (const [key, pattern] of Object.entries(categories)) {
-    if (pattern.test(name)) {
-      totals[key].files += 1;
-      totals[key].durationMs += duration;
-    }
-  }
-}
+
 const lines = [
   'MURADERP-AI — PHASE 23 STAGE 8 PERFORMANCE EVIDENCE',
-  `full_test_suite_duration_ms=${elapsedMs}`,
-  `test_files=${files.length}`,
+  `full_test_suite_duration_ms=${fullDurationMs}`,
 ];
-for (const [key, value] of Object.entries(totals)) {
-  lines.push(`${key}_files=${value.files}`);
-  lines.push(`${key}_duration_ms=${Math.round(value.durationMs)}`);
+for (const [name, pattern] of Object.entries(categories)) {
+  const start = performance.now();
+  const result = spawnSync('npm', ['test', '--', '--run', pattern], {
+    cwd: 'backend',
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  const durationMs = Math.round(performance.now() - start);
+  lines.push(`${name}_duration_ms=${durationMs}`);
+  lines.push(`${name}_result=${result.status === 0 ? 'success' : 'failure'}`);
+  if (result.status !== 0) process.exit(result.status ?? 1);
 }
-writeFileSync(`backend/${evidence}`, `${lines.join('\n')}\n`);
+writeFileSync(evidence, `${lines.join('\n')}\n`);
 console.log(`\n${lines.join('\n')}`);
-unlinkSync(`backend/${output}`);
