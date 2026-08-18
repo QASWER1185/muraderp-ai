@@ -34,6 +34,12 @@ jobs:
         run: npm run typecheck
       - name: Performance evidence and full regression timing
         run: node scripts/stage8-performance.mjs
+      - name: Upload performance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-performance-evidence
+          path: backend/stage8-performance-evidence.txt
+          if-no-files-found: error
       - name: Production build
         working-directory: backend
         run: npm run build
