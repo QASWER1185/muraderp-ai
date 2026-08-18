@@ -54,8 +54,6 @@ Phase 12 may be marked FINAL/CLOSED only after:
 
 ## Final Acceptance Status
 
-**ACCEPTANCE CLEANUP — FINAL VERIFICATION**
+**PASS — FINAL / CLOSED**
 
-The acceptance cleanup is closure-only. No new ERP domain feature is introduced and no Stage 9 recovery work is performed.
-
-After final verification, work enters maintenance mode: security fixes, data-integrity fixes, production defects and operational maintenance only. New feature development requires a separate product decision and is not part of the planned MuradERP-AI development roadmap.
+Acceptance cleanup is closure-only. No new ERP domain feature is introduced and no Stage 9 recovery work is performed. Phase 12 is now in maintenance mode: security fixes, data-integrity fixes, production defects and operational maintenance only. New feature development requires a separate product decision and is not part of the planned MuradERP-AI development roadmap.
