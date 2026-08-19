@@ -34,21 +34,22 @@ function fakeDatabase() {
     const query: any = {
       _filters: [] as Array<[string, unknown]>,
       _update: undefined,
+      _insert: undefined,
       select() { return query; },
       eq(column: string, value: unknown) { query._filters.push([column, value]); return query; },
       maybeSingle() {
         const match = [...rows.values()].find((row) => query._filters.every(([key, value]) => row[key] === value));
+        if (match && query._update) Object.assign(match, query._update);
         return Promise.resolve({ data: match ?? null, error: null });
       },
       insert(payload: any) { query._insert = payload; return query; },
       update(payload: any) { query._update = payload; return query; },
       single() {
-        const row = { id: "action-1", ...query._insert };
+        const row = { id: `action-${rows.size + 1}`, ...query._insert };
         rows.set(row.id, row);
         return Promise.resolve({ data: row, error: null });
       },
     };
-    if (query._insert === undefined && query._update === undefined) return query;
     return query;
   });
   return { from, rows };
