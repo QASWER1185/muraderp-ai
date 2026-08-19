@@ -12,6 +12,13 @@ describe("InventoryIntelligenceService", () => {
     expect(gateway.query).not.toHaveBeenCalled();
   });
 
+  it("rejects unsupported inventory queries at runtime", async () => {
+    const gateway = { query: vi.fn(), createAdjustmentDraft: vi.fn() };
+    const service = new InventoryIntelligenceService(gateway);
+    await expect(service.query("not-a-query" as never, context)).rejects.toThrow("unsupported inventory query");
+    expect(gateway.query).not.toHaveBeenCalled();
+  });
+
   it("delegates authorized inventory queries through the gateway", async () => {
     const gateway = { query: vi.fn().mockResolvedValue({ available: 25 }), createAdjustmentDraft: vi.fn() };
     const service = new InventoryIntelligenceService(gateway);
@@ -68,5 +75,48 @@ describe("InventoryIntelligenceService", () => {
       quantityDelta: 5,
       reason: "cycle count",
     })).rejects.toThrow("must require explicit confirmation");
+  });
+
+  it("rejects a cross-organization or cross-user adjustment result", async () => {
+    const gateway = {
+      query: vi.fn(),
+      createAdjustmentDraft: vi.fn().mockResolvedValue({
+        organizationId: "other-org",
+        userId: "other-user",
+        warehouseId: "wh-1",
+        productId: "product-1",
+        quantityDelta: 5,
+        reason: "cycle count",
+        requiresConfirmation: true,
+      }),
+    };
+    const service = new InventoryIntelligenceService(gateway);
+    await expect(service.createAdjustmentDraft(context, {
+      warehouseId: "wh-1",
+      productId: "product-1",
+      quantityDelta: 5,
+      reason: "cycle count",
+    })).rejects.toThrow("context mismatch");
+  });
+
+  it("rejects a gateway draft whose payload differs from the requested draft", async () => {
+    const gateway = {
+      query: vi.fn(),
+      createAdjustmentDraft: vi.fn().mockResolvedValue({
+        ...context,
+        warehouseId: "wh-1",
+        productId: "product-2",
+        quantityDelta: 5,
+        reason: "cycle count",
+        requiresConfirmation: true,
+      }),
+    };
+    const service = new InventoryIntelligenceService(gateway);
+    await expect(service.createAdjustmentDraft(context, {
+      warehouseId: "wh-1",
+      productId: "product-1",
+      quantityDelta: 5,
+      reason: "cycle count",
+    })).rejects.toThrow("payload mismatch");
   });
 });
