@@ -11,8 +11,7 @@ create table if not exists public.bank_accounts (
   provider text,
   is_active boolean not null default true,
   created_at timestamp with time zone not null default now(),
-  updated_at timestamp with time zone not null default now(),
-  constraint bank_accounts_org_id_unique unique (organization_id, id)
+  updated_at timestamp with time zone not null default now()
 );
 
 create index if not exists bank_accounts_org_idx on public.bank_accounts (organization_id);
@@ -20,7 +19,7 @@ create index if not exists bank_accounts_org_idx on public.bank_accounts (organi
 create table if not exists public.bank_transactions (
   id bigint generated always as identity primary key,
   organization_id text not null check (btrim(organization_id) <> ''),
-  bank_account_id bigint not null,
+  bank_account_id bigint not null references public.bank_accounts(id),
   external_id text not null check (btrim(external_id) <> ''),
   booked_at timestamp with time zone not null,
   amount numeric(20,4) not null check (amount > 0),
@@ -30,9 +29,6 @@ create table if not exists public.bank_transactions (
   source_hash text,
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
-  constraint bank_transactions_account_org_fk
-    foreign key (organization_id, bank_account_id)
-    references public.bank_accounts(organization_id, id),
   constraint bank_transactions_external_unique unique (organization_id, bank_account_id, external_id)
 );
 
@@ -42,15 +38,12 @@ create index if not exists bank_transactions_account_date_idx
 create table if not exists public.reconciliation_sessions (
   id bigint generated always as identity primary key,
   organization_id text not null check (btrim(organization_id) <> ''),
-  bank_account_id bigint not null,
+  bank_account_id bigint not null references public.bank_accounts(id),
   period_from date not null,
   period_to date not null,
   status text not null default 'open' check (status in ('open','completed','cancelled')),
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
-  constraint reconciliation_account_org_fk
-    foreign key (organization_id, bank_account_id)
-    references public.bank_accounts(organization_id, id),
   constraint reconciliation_period_valid check (period_to >= period_from)
 );
 
