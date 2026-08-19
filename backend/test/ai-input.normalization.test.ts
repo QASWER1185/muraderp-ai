@@ -9,6 +9,7 @@ describe("AI input normalization", () => {
       source: "text",
       intent: "estimate.create",
       organizationId: "org-1",
+      userId: "user-1",
       status: "validated",
       requiresConfirmation: true,
       fields: {
@@ -30,9 +31,6 @@ describe("AI input normalization", () => {
       quantity: 50,
       unit: "pcs",
       brandHint: "Popular",
-      productId: undefined,
-      rateListHint: undefined,
-      unitRate: undefined,
     }]);
   });
 
@@ -42,6 +40,7 @@ describe("AI input normalization", () => {
       source: "voice",
       intent: "estimate.create",
       organizationId: "org-1",
+      userId: "user-1",
       status: "draft",
       requiresConfirmation: true,
       fields: {},

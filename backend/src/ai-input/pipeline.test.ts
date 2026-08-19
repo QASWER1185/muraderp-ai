@@ -6,11 +6,12 @@ const provider: AiInputProvider = {
   async extract(request) {
     const source = request.source;
     return {
-      draftId: "draft-1",
+      draftId: "provider-controlled-id-must-not-be-trusted",
       source,
       intent: request.intent,
       organizationId: request.organizationId,
-      status: "draft",
+      userId: "spoofed-provider-user",
+      status: "confirmed",
       requiresConfirmation: true,
       fields: {
         product: { value: "Bestway Cement", confidence: 0.98, source },
@@ -33,30 +34,29 @@ function requestFor(source: AiInputRequest["source"]): AiInputRequest {
   return request;
 }
 
-describe("Phase 12 AI input pipeline", () => {
-  it.each(["text", "image", "camera", "voice"] as const)(
-    "creates a reviewable draft for %s input",
-    async (source) => {
-      const gateway = new InMemoryAiInputGateway();
-      const pipeline = new AiInputPipeline(provider, gateway);
-      const draft = await pipeline.createDraft(requestFor(source));
-
-      expect(draft.status).toBe("draft");
-      expect(draft.requiresConfirmation).toBe(true);
-      expect(draft.organizationId).toBe("org-1");
-    },
-  );
-
-  it("requires validation before confirmation", async () => {
+describe("Phase 18 AI draft normalization and ownership", () => {
+  it("creates a server-owned reviewable draft regardless of provider metadata", async () => {
     const gateway = new InMemoryAiInputGateway();
     const pipeline = new AiInputPipeline(provider, gateway);
-    const draft = await pipeline.createDraft({
-      source: "text",
-      intent: "estimate.create",
-      organizationId: "org-1",
-      userId: "user-1",
-      text: "10 bags cement",
-    });
+    const draft = await pipeline.createDraft(requestFor("text"));
+
+    expect(draft.draftId).not.toBe("provider-controlled-id-must-not-be-trusted");
+    expect(draft.status).toBe("draft");
+    expect(draft.requiresConfirmation).toBe(true);
+    expect(draft.organizationId).toBe("org-1");
+    expect(draft.userId).toBe("user-1");
+    expect(draft.source).toBe("text");
+    expect(draft.intent).toBe("supplier_bill.create");
+  });
+
+  it("requires validation before confirmation and enforces user ownership", async () => {
+    const gateway = new InMemoryAiInputGateway();
+    const pipeline = new AiInputPipeline(provider, gateway);
+    const draft = await pipeline.createDraft(requestFor("text"));
+
+    await expect(pipeline.confirmDraft(draft.draftId, "org-1", "user-2")).rejects.toThrow(
+      "user ownership mismatch",
+    );
 
     await expect(pipeline.confirmDraft(draft.draftId, "org-1", "user-1")).rejects.toThrow(
       "must be validated",
@@ -103,5 +103,19 @@ describe("Phase 12 AI input pipeline", () => {
       }),
     ).rejects.toThrow("organization and user context");
     expect(called).toBe(false);
+  });
+
+  it("rejects runtime-invalid source and intent values", async () => {
+    const guardedProvider: AiInputProvider = {
+      async extract() {
+        throw new Error("provider must not be called");
+      },
+    };
+    const pipeline = new AiInputPipeline(guardedProvider, new InMemoryAiInputGateway());
+    const sourceRequest = { ...requestFor("text"), source: "fax" } as unknown as AiInputRequest;
+    const intentRequest = { ...requestFor("text"), intent: "payments.execute" } as unknown as AiInputRequest;
+
+    await expect(pipeline.createDraft(sourceRequest)).rejects.toThrow("Unsupported AI input source");
+    await expect(pipeline.createDraft(intentRequest)).rejects.toThrow("Unsupported AI input intent");
   });
 });

@@ -67,9 +67,7 @@ describe("Phase 23 Stage 6 — AI Copilot safety / end-to-end contract", () => {
         source: "text",
         target: "estimate",
         customerId: "101",
-        lines: [
-          { productName: "Bestway Cement", quantity: 20 },
-        ],
+        lines: [{ productName: "Bestway Cement", quantity: 20 }],
       }),
     ).not.toThrow();
   });
@@ -151,6 +149,7 @@ describe("Phase 23 Stage 6 — AI Copilot safety / end-to-end contract", () => {
       source: "voice",
       intent: "estimate.create",
       organizationId,
+      userId,
       status: "validated",
       fields: {
         lines: { value: [{ productId: 501 }], confidence: 0.98, source: "voice" },
