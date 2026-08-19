@@ -4,6 +4,12 @@ Status: AUDIT IN PROGRESS
 
 Scope: Document Intelligence & Business Communication Foundation.
 
+Findings remediated:
+- Runtime confidence validation now rejects NaN and infinite document/entity confidence values.
+- A deterministic organization-scoped document duplicate key is required before an authoritative posting boundary.
+- Duplicate candidates are rejected through a pure validation boundary with no database mutation authority.
+- Regression coverage was added for malformed confidence, missing source hashes, duplicate detection, provenance and confirmation requirements.
+
 Acceptance:
 - canonical document classes and provenance are explicit
 - document extraction remains an untrusted candidate boundary
