@@ -22,15 +22,36 @@ declare global {
  */
 export const requireOrganizationContext: RequestHandler = (request, _response, next) => {
   const context = request.organizationContext;
-  if (!context?.userId || !context.organizationId) {
-    next(new ApiError(401, "ORGANIZATION_CONTEXT_REQUIRED", "Authenticated organization context is required"));
+  if (
+    !context ||
+    typeof context.userId !== "string" ||
+    !context.userId.trim() ||
+    typeof context.organizationId !== "string" ||
+    !context.organizationId.trim()
+  ) {
+    next(
+      new ApiError(
+        401,
+        "ORGANIZATION_CONTEXT_REQUIRED",
+        "Authenticated organization context is required",
+      ),
+    );
     return;
   }
   next();
 };
 
-export function assertBranchContext(context: OrganizationContext, branchId?: string | null): void {
+export function assertBranchContext(
+  context: OrganizationContext,
+  branchId?: string | null,
+): void {
+  // A null active branch intentionally represents organization-scoped access.
+  // When an active branch exists, requested branch access must match it.
   if (branchId && context.branchId && branchId !== context.branchId) {
-    throw new ApiError(403, "BRANCH_ACCESS_DENIED", "The requested branch is outside the active branch context");
+    throw new ApiError(
+      403,
+      "BRANCH_ACCESS_DENIED",
+      "The requested branch is outside the active branch context",
+    );
   }
 }
