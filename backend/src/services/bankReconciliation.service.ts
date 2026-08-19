@@ -63,8 +63,8 @@ export class BankReconciliationService {
     if (!suggestion.transactionExternalId || !suggestion.targetId) {
       throw new Error("Reconciliation match identifiers are required");
     }
-    if (suggestion.confidence < 0 || suggestion.confidence > 1) {
-      throw new Error("Match confidence must be between 0 and 1");
+    if (!Number.isFinite(suggestion.confidence) || suggestion.confidence < 0 || suggestion.confidence > 1) {
+      throw new Error("Match confidence must be a finite number between 0 and 1");
     }
     if (!suggestion.rationale.trim()) throw new Error("Match rationale is required");
     if (suggestion.requiresConfirmation !== true) {

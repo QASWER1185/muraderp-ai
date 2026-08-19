@@ -74,6 +74,20 @@ describe("BankReconciliationService", () => {
     });
   });
 
+  it("rejects non-finite match confidence at the runtime boundary", () => {
+    const service = new BankReconciliationService();
+    const base = {
+      transactionExternalId: "bank-001",
+      targetType: "ledger_entry" as const,
+      targetId: "ledger-1",
+      rationale: "Validated ledger reference",
+      requiresConfirmation: true as const,
+    };
+    expect(() => service.validateSuggestion({ ...base, confidence: Number.NaN })).toThrow(/finite number/);
+    expect(() => service.validateSuggestion({ ...base, confidence: Number.POSITIVE_INFINITY })).toThrow(/finite number/);
+    expect(() => service.validateSuggestion({ ...base, confidence: Number.NEGATIVE_INFINITY })).toThrow(/finite number/);
+  });
+
   it("refuses to match a transaction that is not persisted", async () => {
     const repo = repository();
     vi.mocked(repo.findTransactionByExternalId).mockResolvedValue(null);
