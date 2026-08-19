@@ -39,6 +39,10 @@ export class NoopAiInputAuditSink implements AiInputAuditSink {
   async record(_event: AiInputAuditEvent): Promise<void> {}
 }
 
+function requireNonBlank(value: string, field: string): void {
+  if (!value?.trim()) throw new Error(`${field} is required`);
+}
+
 export class AiInputPipeline implements AiInputServiceContract {
   constructor(
     private readonly provider: AiInputProvider,
@@ -50,16 +54,26 @@ export class AiInputPipeline implements AiInputServiceContract {
     validateAiInputRequest(request);
     const extracted = await this.provider.extract(request);
 
+    validateExtractedFields(extracted.fields);
     if (extracted.organizationId !== request.organizationId) {
       throw new Error("AI provider returned a draft for a different organization");
     }
-
-    validateExtractedFields(extracted.fields);
+    if (extracted.source !== request.source) {
+      throw new Error("AI provider returned a draft for a different input source");
+    }
+    if (extracted.intent !== request.intent) {
+      throw new Error("AI provider returned a draft for a different intent");
+    }
 
     const draft: AiInputDraft = {
-      ...extracted,
-      draftId: extracted.draftId || randomUUID(),
+      // Draft identity and authenticated ownership are server-authoritative.
+      draftId: randomUUID(),
+      source: request.source,
+      intent: request.intent,
+      organizationId: request.organizationId,
+      userId: request.userId,
       status: "draft",
+      fields: extracted.fields,
       requiresConfirmation: true,
     };
 
@@ -68,13 +82,15 @@ export class AiInputPipeline implements AiInputServiceContract {
       type: "draft.created",
       draftId: saved.draftId,
       organizationId: saved.organizationId,
-      userId: request.userId,
+      userId: saved.userId,
       timestamp: new Date().toISOString(),
     });
     return saved;
   }
 
   async validateDraft(draftId: string, organizationId: string): Promise<AiInputDraft> {
+    requireNonBlank(draftId, "draftId");
+    requireNonBlank(organizationId, "organizationId");
     const current = await this.gateway.getDraft(draftId);
     if (!current) throw new Error("AI input draft not found");
     assertDraftBelongsToContext(current, organizationId);
@@ -83,9 +99,15 @@ export class AiInputPipeline implements AiInputServiceContract {
   }
 
   async confirmDraft(draftId: string, organizationId: string, userId: string): Promise<void> {
+    requireNonBlank(draftId, "draftId");
+    requireNonBlank(organizationId, "organizationId");
+    requireNonBlank(userId, "userId");
     const current = await this.gateway.getDraft(draftId);
     if (!current) throw new Error("AI input draft not found");
     assertDraftBelongsToContext(current, organizationId);
+    if (current.userId !== userId) {
+      throw new Error("AI input draft user ownership mismatch");
+    }
     if (current.status !== "validated") {
       throw new Error("AI input draft must be validated before confirmation");
     }
