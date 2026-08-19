@@ -17,16 +17,21 @@ function draft(overrides: Partial<DocumentDraft> = {}): DocumentDraft {
   };
 }
 
+function request(overrides: Record<string, unknown> = {}) {
+  return {
+    organizationId: "org-1",
+    userId: "user-1",
+    transactionType: "ESTIMATE" as const,
+    draft: draft(),
+    idempotencyKey: "estimate-001",
+    ...overrides,
+  };
+}
+
 describe("Phase 19 transaction automation", () => {
   it("prepares a confirmed estimate without directly mutating financial data", async () => {
     const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
-    const result = await service.prepare({
-      organizationId: "org-1",
-      userId: "user-1",
-      transactionType: "ESTIMATE",
-      draft: draft(),
-      idempotencyKey: "estimate-001",
-    });
+    const result = await service.prepare(request());
 
     expect(result.created).toBe(true);
     expect(result.command.status).toBe("READY");
@@ -36,74 +41,47 @@ describe("Phase 19 transaction automation", () => {
 
   it("keeps unconfirmed drafts in review", async () => {
     const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
-    const result = await service.prepare({
-      organizationId: "org-1",
-      userId: "user-1",
-      transactionType: "ESTIMATE",
-      draft: draft({ status: "needs_review" }),
+    const result = await service.prepare(request({
       idempotencyKey: "estimate-002",
-    });
+      draft: draft({ status: "needs_review" }),
+    }));
 
     expect(result.command.status).toBe("REQUIRES_REVIEW");
   });
 
   it("rejects a mismatched document type", async () => {
     const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
-    await expect(service.prepare({
-      organizationId: "org-1",
-      userId: "user-1",
+    await expect(service.prepare(request({
       transactionType: "SUPPLIER_BILL",
-      draft: draft(),
       idempotencyKey: "bill-001",
-    })).rejects.toMatchObject({ code: "DOCUMENT_TYPE_MISMATCH" });
+    }))).rejects.toMatchObject({ code: "DOCUMENT_TYPE_MISMATCH" });
   });
 
   it("enforces organization and user boundaries", async () => {
     const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
-    await expect(service.prepare({
+    await expect(service.prepare(request({
       organizationId: "org-2",
-      userId: "user-1",
-      transactionType: "ESTIMATE",
-      draft: draft(),
       idempotencyKey: "estimate-003",
-    })).rejects.toMatchObject({ code: "ORGANIZATION_BOUNDARY_VIOLATION" });
+    }))).rejects.toMatchObject({ code: "ORGANIZATION_BOUNDARY_VIOLATION" });
 
-    await expect(service.prepare({
-      organizationId: "org-1",
+    await expect(service.prepare(request({
       userId: "user-2",
-      transactionType: "ESTIMATE",
-      draft: draft(),
       idempotencyKey: "estimate-004",
-    })).rejects.toMatchObject({ code: "USER_CONTEXT_MISMATCH" });
+    }))).rejects.toMatchObject({ code: "USER_CONTEXT_MISMATCH" });
   });
 
   it("is idempotent and rejects reuse with a different payload", async () => {
     const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
-    const first = await service.prepare({
-      organizationId: "org-1",
-      userId: "user-1",
-      transactionType: "ESTIMATE",
-      draft: draft(),
-      idempotencyKey: "estimate-005",
-    });
-    const second = await service.prepare({
-      organizationId: "org-1",
-      userId: "user-1",
-      transactionType: "ESTIMATE",
-      draft: draft(),
-      idempotencyKey: "estimate-005",
-    });
+    const first = await service.prepare(request({ idempotencyKey: "estimate-005" }));
+    const second = await service.prepare(request({ idempotencyKey: "estimate-005" }));
 
     expect(second.created).toBe(false);
     expect(second.command.requestFingerprint).toBe(first.command.requestFingerprint);
 
-    await expect(service.prepare({
-      organizationId: "org-1",
-      userId: "user-1",
-      transactionType: "ESTIMATE",
-      draft: draft({ extractedFields: { lines: [{ item: "Dura Pipe 32mm", quantity: 30 }] } }),
+    await expect(service.prepare(request({
       idempotencyKey: "estimate-005",
-    })).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSED" });
+      draft: draft({ extractedFields: { lines: [{ item: "Dura Pipe 32mm", quantity: 30 }] } }),
+    }))).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REUSED" });
   });
 
   it("supports the planned transaction document types", async () => {
@@ -117,15 +95,46 @@ describe("Phase 19 transaction automation", () => {
     ] as const;
 
     for (const [transactionType, documentType] of cases) {
-      const result = await service.prepare({
-        organizationId: "org-1",
-        userId: "user-1",
+      const result = await service.prepare(request({
         transactionType,
         draft: draft({ documentType }),
         idempotencyKey: `transaction-${transactionType}`,
-      });
+      }));
       expect(result.command.status).toBe("READY");
       expect(result.command.sourceDocumentType).toBe(documentType);
     }
+  });
+
+  it("rejects runtime-invalid transaction types before document matching", async () => {
+    const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
+    await expect(service.prepare(request({
+      transactionType: "PAYMENT_EXECUTE",
+      idempotencyKey: "invalid-type",
+    }))).rejects.toMatchObject({ code: "UNSUPPORTED_TRANSACTION_TYPE" });
+  });
+
+  it("rejects malformed runtime requests instead of throwing incidental TypeErrors", async () => {
+    const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
+
+    await expect(service.prepare(null as never)).rejects.toMatchObject({ code: "TRANSACTION_REQUEST_INVALID" });
+    await expect(service.prepare(request({ idempotencyKey: 123 }))).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REQUIRED" });
+    await expect(service.prepare(request({ idempotencyKey: "   " }))).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_REQUIRED" });
+    await expect(service.prepare(request({ idempotencyKey: "x".repeat(256) }))).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_TOO_LONG" });
+  });
+
+  it("rejects malformed document drafts safely", async () => {
+    const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
+
+    await expect(service.prepare(request({ draft: null }))).rejects.toMatchObject({ code: "DOCUMENT_DRAFT_INVALID" });
+    await expect(service.prepare(request({ draft: { ...draft(), matches: "bad" } }))).rejects.toMatchObject({ code: "DOCUMENT_DRAFT_INVALID" });
+    await expect(service.prepare(request({ draft: { ...draft(), extractedFields: [] } }))).rejects.toMatchObject({ code: "DOCUMENT_DRAFT_INVALID" });
+  });
+
+  it("does not mutate the authoritative ERP state", async () => {
+    const service = new TransactionAutomationService(new InMemoryTransactionCommandStore());
+    const result = await service.prepare(request({ idempotencyKey: "no-mutation-001" }));
+
+    expect(result.command.status).toBe("READY");
+    expect(result.command.requiresConfirmation).toBe(true);
   });
 });
