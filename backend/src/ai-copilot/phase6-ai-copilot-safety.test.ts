@@ -38,7 +38,7 @@ function fakeDatabase() {
       _insert: undefined,
       select() { return query; },
       eq(column: string, value: unknown) { query._filters.push([column, value]); return query; },
-      findMatch() { return [...rows.values()].find((row) => query._filters.every(([key, value]) => row[key] === value)); },
+      findMatch() { return [...rows.values()].find((row) => query._filters.every(([key, value]: [string, unknown]) => row[key] === value)); },
       maybeSingle() {
         const match = query.findMatch();
         if (match && query._update) Object.assign(match, query._update);
