@@ -15,7 +15,7 @@ For the production-grade MuradERP-AI architecture, Customer must have one author
 
 ## Remediation
 
-The legacy `/api/customers` route and its obsolete in-memory controller/service/repository/model were removed from the application boundary. The canonical `/api/v1/customers` ERP route remains the authoritative Customer API.
+The legacy `/api/customers` application mount was removed. The canonical `/api/v1/customers` ERP route remains the authoritative Customer API. The historical controller/service/repository/model files are retained temporarily on this audit branch only until compilation/test verification confirms they are no longer referenced; they will then be deleted in the same remediation change set if safe.
 
 ## Verification requirement
 
