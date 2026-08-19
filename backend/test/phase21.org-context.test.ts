@@ -30,12 +30,12 @@ describe("Phase 21 organization and branch context boundary", () => {
 
     expect(next).toHaveBeenCalledOnce();
     const error = next.mock.calls[0]?.[0] as {
-      statusCode?: number;
+      status?: number;
       code?: string;
       message?: string;
     };
     expect(error).toMatchObject({
-      statusCode: 401,
+      status: 401,
       code: "ORGANIZATION_CONTEXT_REQUIRED",
       message: "Authenticated organization context is required",
     });
