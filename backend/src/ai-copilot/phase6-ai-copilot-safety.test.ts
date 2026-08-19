@@ -6,6 +6,7 @@ import type { CopilotActionPlan } from "./copilot.types.js";
 
 const organizationId = "11111111-1111-4111-8111-111111111111";
 const userId = "22222222-2222-4222-8222-222222222222";
+const otherUserId = "44444444-4444-4444-8444-444444444444";
 
 function draft(overrides: Partial<AiDraft> = {}): AiDraft {
   return {
@@ -102,6 +103,13 @@ describe("Phase 6 — AI Copilot safety / end-to-end regression", () => {
     await expect(runtime.createDraft(changed, { userId }, "idem-1")).rejects.toThrow("Idempotency-Key was reused for a different Copilot action");
   });
 
+  it("rejects idempotency replay by a different user in the same organization", async () => {
+    const database = fakeDatabase();
+    const runtime = new CopilotRuntime({} as any, deps(database));
+    await runtime.createDraft(draft(), { userId }, "idem-user-boundary");
+    await expect(runtime.createDraft(draft(), { userId: otherUserId }, "idem-user-boundary")).rejects.toThrow("Idempotency-Key belongs to a different Copilot user");
+  });
+
   it("executes only after confirmation, with authorization and persisted state transition", async () => {
     const database = fakeDatabase();
     const runtimeDependencies = deps(database);
@@ -120,6 +128,6 @@ describe("Phase 6 — AI Copilot safety / end-to-end regression", () => {
     const created = await runtime.createDraft(draft(), { userId }, "idem-3");
 
     await expect(runtime.confirmAndExecute(created.id, "33333333-3333-4333-8333-333333333333", userId, "idem-3")).rejects.toThrow("copilot action organization mismatch");
-    await expect(runtime.confirmAndExecute(created.id, organizationId, "44444444-4444-4444-8444-444444444444", "idem-3")).rejects.toThrow("copilot action user mismatch");
+    await expect(runtime.confirmAndExecute(created.id, organizationId, otherUserId, "idem-3")).rejects.toThrow("copilot action user mismatch");
   });
 });
