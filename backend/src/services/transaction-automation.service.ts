@@ -5,10 +5,22 @@ import type { DocumentDraft } from "../types/document-intelligence.types.js";
 import {
   expectedDocumentType,
   isConfirmedDraft,
+  type AutomatedTransactionType,
   type TransactionAutomationRequest,
   type TransactionAutomationResult,
   type TransactionCommand,
 } from "../types/transaction-automation.types.js";
+
+const AUTOMATED_TRANSACTION_TYPES: ReadonlySet<AutomatedTransactionType> = new Set([
+  "ESTIMATE",
+  "CUSTOMER_INVOICE",
+  "SUPPLIER_BILL",
+  "CUSTOMER_RETURN",
+  "PURCHASE_RETURN",
+  "INVENTORY_COUNT",
+]);
+
+const MAX_IDEMPOTENCY_KEY_LENGTH = 255;
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -59,7 +71,7 @@ export class TransactionAutomationService {
 
     const principalScope = request.organizationId;
     const fingerprint = fingerprintTransactionRequest(request);
-    const existing = await this.store.find(principalScope, request.idempotencyKey);
+    const existing = await this.store.find(principalScope, request.idempotencyKey.trim());
 
     if (existing) {
       if (existing.requestFingerprint !== fingerprint) {
@@ -78,7 +90,7 @@ export class TransactionAutomationService {
       transactionType: request.transactionType,
       sourceDocumentType: request.draft.documentType,
       status: isConfirmedDraft(request.draft) ? "READY" : "REQUIRES_REVIEW",
-      idempotencyKey: request.idempotencyKey,
+      idempotencyKey: request.idempotencyKey.trim(),
       requestFingerprint: fingerprint,
       draftStatus: request.draft.status,
       requiresConfirmation: true,
@@ -89,15 +101,51 @@ export class TransactionAutomationService {
   }
 
   private validateRequest(request: TransactionAutomationRequest): void {
-    if (!request.organizationId || !request.userId) {
-      throw new ApiError(400, "TRANSACTION_CONTEXT_REQUIRED", "Organization and user context are required");
-    }
-    if (!request.idempotencyKey.trim()) {
-      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "An Idempotency-Key is required");
+    if (!request || typeof request !== "object") {
+      throw new ApiError(400, "TRANSACTION_REQUEST_INVALID", "A valid transaction request is required");
     }
 
-    const expectedType = expectedDocumentType(request.transactionType);
-    if (request.draft.documentType !== expectedType) {
+    if (typeof request.organizationId !== "string" || !request.organizationId.trim()) {
+      throw new ApiError(400, "TRANSACTION_CONTEXT_REQUIRED", "Organization and user context are required");
+    }
+    if (typeof request.userId !== "string" || !request.userId.trim()) {
+      throw new ApiError(400, "TRANSACTION_CONTEXT_REQUIRED", "Organization and user context are required");
+    }
+    if (typeof request.idempotencyKey !== "string") {
+      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "An Idempotency-Key is required");
+    }
+    const idempotencyKey = request.idempotencyKey.trim();
+    if (!idempotencyKey) {
+      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "An Idempotency-Key is required");
+    }
+    if (idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+      throw new ApiError(
+        400,
+        "IDEMPOTENCY_KEY_TOO_LONG",
+        `An Idempotency-Key must be ${MAX_IDEMPOTENCY_KEY_LENGTH} characters or fewer`,
+      );
+    }
+
+    if (
+      typeof request.transactionType !== "string" ||
+      !AUTOMATED_TRANSACTION_TYPES.has(request.transactionType as AutomatedTransactionType)
+    ) {
+      throw new ApiError(400, "UNSUPPORTED_TRANSACTION_TYPE", "Unsupported automated transaction type");
+    }
+
+    const draft = request.draft as DocumentDraft;
+    if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
+      throw new ApiError(400, "DOCUMENT_DRAFT_INVALID", "A valid document draft is required");
+    }
+    if (!Array.isArray(draft.matches)) {
+      throw new ApiError(400, "DOCUMENT_DRAFT_INVALID", "Document entity matches must be an array");
+    }
+    if (!draft.extractedFields || typeof draft.extractedFields !== "object" || Array.isArray(draft.extractedFields)) {
+      throw new ApiError(400, "DOCUMENT_DRAFT_INVALID", "Document extracted fields must be an object");
+    }
+
+    const expectedType = expectedDocumentType(request.transactionType as AutomatedTransactionType);
+    if (draft.documentType !== expectedType) {
       throw new ApiError(
         400,
         "DOCUMENT_TYPE_MISMATCH",
@@ -105,13 +153,21 @@ export class TransactionAutomationService {
       );
     }
 
-    validateDocumentDraft(request.draft);
+    try {
+      validateDocumentDraft(draft);
+    } catch (error) {
+      throw new ApiError(
+        400,
+        "DOCUMENT_DRAFT_INVALID",
+        error instanceof Error ? error.message : "Document draft validation failed",
+      );
+    }
 
-    if (request.draft.organizationId !== request.organizationId) {
+    if (draft.organizationId !== request.organizationId) {
       throw new ApiError(403, "ORGANIZATION_BOUNDARY_VIOLATION", "Draft belongs to a different organization");
     }
 
-    if (request.draft.createdByUserId !== request.userId) {
+    if (draft.createdByUserId !== request.userId) {
       throw new ApiError(403, "USER_CONTEXT_MISMATCH", "Draft user context does not match the transaction requester");
     }
   }
