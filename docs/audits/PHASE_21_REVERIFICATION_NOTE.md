@@ -1,0 +1,1 @@
+Phase 21 reverification: implementation is hardened; explicit regression tests now cover blank user identifiers and non-string organization identifiers. Existing branch semantics are preserved.
