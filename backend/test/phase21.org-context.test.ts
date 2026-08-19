@@ -29,9 +29,9 @@ describe("Phase 21 organization and branch context boundary", () => {
     requireOrganizationContext(request, {} as never, next);
 
     expect(next).toHaveBeenCalledOnce();
-    const error = next.mock.calls[0]?.[0] as { statusCode?: number; code?: string };
-    expect(error.statusCode).toBe(401);
+    const error = next.mock.calls[0]?.[0] as { code?: string; message?: string };
     expect(error.code).toBe("ORGANIZATION_CONTEXT_REQUIRED");
+    expect(error.message).toBe("Authenticated organization context is required");
   });
 
   it("accepts the active branch", () => {
