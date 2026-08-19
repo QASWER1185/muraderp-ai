@@ -7,6 +7,7 @@ const draft = (status: AiInputDraft["status"]): AiInputDraft => ({
   source: "text",
   intent: "estimate.create",
   organizationId: "org-1",
+  userId: "user-1",
   status,
   requiresConfirmation: true,
   fields: { lines: { value: [], confidence: 1, source: "text" } },
