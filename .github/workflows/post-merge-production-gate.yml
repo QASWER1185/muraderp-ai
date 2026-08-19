@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - develop
+    paths-ignore:
+      - "docs/audits/post-merge-status/**"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 concurrency:
@@ -125,7 +127,7 @@ jobs:
 - Result: ${JOB_STATUS}
 - Evidence source: GitHub Actions
 - Connector status context: github-connector/ci-verification
-- Verification timestamp: ${GITHUB_RUN_ATTEMPT}
+- Verification attempt: ${GITHUB_RUN_ATTEMPT}
 
 This file is a connector-readable mirror of the GitHub Actions result. GitHub Actions remains the authoritative source of truth.
 EOF
@@ -133,8 +135,8 @@ EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "docs/audits/post-merge-status/${GITHUB_SHA}.md"
-          git commit -m "ci(audit): record post-merge evidence ${GITHUB_SHA}" || true
-          git push origin HEAD:develop || true
+          git commit -m "ci(audit): record post-merge evidence ${GITHUB_SHA}"
+          git push origin HEAD:develop
 
       - name: Final gate marker
         run: echo "POST-MERGE PRODUCTION GATE: ${JOB_STATUS} for ${GITHUB_SHA}"
