@@ -5,6 +5,7 @@ import type {
   RateListItemDefinition,
   RateListVersionDefinition,
   ResolvedPrice,
+  RateListSelectionSource,
 } from "../types/pricing.types.js";
 import type {
   RateListItemRecord,
@@ -23,6 +24,35 @@ export interface PricingService {
   resolveCandidate(candidate: PricingCandidate, base: Omit<PriceResolutionContext, "product_id" | "quantity" | "rate_list_id">): Promise<ResolvedPrice | null>;
 }
 
+const VALID_SELECTION_SOURCES: readonly RateListSelectionSource[] = [
+  "ESTIMATE_DEFAULT",
+  "LINE_OVERRIDE",
+  "OCR_BRAND_MATCH",
+  "VOICE_BRAND_MATCH",
+  "MANUAL_OVERRIDE",
+];
+
+function assertResolvedPrice(resolved: ResolvedPrice, context: PriceResolutionContext): void {
+  const positiveIntegers: Array<[number, string]> = [
+    [resolved.rate_list_id, "resolved rate_list_id"],
+    [resolved.rate_list_version_id, "resolved rate_list_version_id"],
+    [resolved.rate_list_item_id, "resolved rate_list_item_id"],
+    [resolved.product_id, "resolved product_id"],
+  ];
+  for (const [value, field] of positiveIntegers) {
+    if (!Number.isInteger(value) || value <= 0) throw new Error(`${field} must be a positive integer`);
+  }
+  if (resolved.product_id !== context.product_id) throw new Error("resolved price product does not match the requested product");
+  if (!Number.isFinite(resolved.unit_price) || resolved.unit_price < 0) throw new Error("resolved unit_price must be a finite non-negative number");
+  if (!Number.isFinite(resolved.minimum_quantity) || resolved.minimum_quantity <= 0) throw new Error("resolved minimum_quantity must be a finite positive number");
+  if (!resolved.unit?.trim()) throw new Error("resolved price unit is required");
+  if (!resolved.currency_code?.trim()) throw new Error("resolved price currency is required");
+  if (!resolved.effective_from || Number.isNaN(Date.parse(resolved.effective_from))) throw new Error("resolved effective_from must be a valid date/time");
+  if (context.rate_list_id != null && resolved.rate_list_id !== context.rate_list_id) {
+    throw new Error("resolved price does not belong to the requested rate list");
+  }
+}
+
 export class DefaultPricingService implements PricingService {
   constructor(
     private readonly repository: PricingRepository,
@@ -37,9 +67,7 @@ export class DefaultPricingService implements PricingService {
       throw new Error("rate_list_id must be a positive integer when provided");
     }
     const resolved = await this.repository.findBestRateListItem(context);
-    if (resolved && context.rate_list_id != null && resolved.rate_list_id !== context.rate_list_id) {
-      throw new Error("resolved price does not belong to the requested rate list");
-    }
+    if (resolved) assertResolvedPrice(resolved, context);
     return resolved;
   }
 
@@ -49,15 +77,22 @@ export class DefaultPricingService implements PricingService {
   ): Promise<ResolvedPrice | null> {
     if (!Number.isInteger(candidate.product_id) || candidate.product_id <= 0) throw new Error("candidate product_id must be a positive integer");
     if (!Number.isFinite(candidate.quantity) || candidate.quantity <= 0) throw new Error("candidate quantity must be greater than zero");
-    if (!candidate.selection_source) throw new Error("candidate selection_source is required");
+    if (!VALID_SELECTION_SOURCES.includes(candidate.selection_source)) throw new Error("candidate selection_source is invalid");
+    if (candidate.unit != null && !candidate.unit.trim()) throw new Error("candidate unit cannot be blank when provided");
 
     let rateListId = candidate.selected_rate_list_id ?? null;
+    if (rateListId != null && (!Number.isInteger(rateListId) || rateListId <= 0)) {
+      throw new Error("candidate selected_rate_list_id must be a positive integer when provided");
+    }
     if (candidate.rate_list_hint?.trim()) {
       if (!this.rateListHintResolver) throw new Error("rate-list hint resolver is required when a rate_list_hint is provided");
       const matches = await this.rateListHintResolver.findRateListsByHint(candidate.rate_list_hint.trim(), base);
       if (matches.length > 1) return null;
       const match = matches[0];
-      if (match) rateListId = match.id;
+      if (match) {
+        if (rateListId != null && rateListId !== match.id) return null;
+        rateListId = match.id;
+      }
       if (matches.length === 0 && rateListId == null) return null;
     }
 
