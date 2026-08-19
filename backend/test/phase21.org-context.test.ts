@@ -29,9 +29,30 @@ describe("Phase 21 organization and branch context boundary", () => {
     requireOrganizationContext(request, {} as never, next);
 
     expect(next).toHaveBeenCalledOnce();
-    const error = next.mock.calls[0]?.[0] as { code?: string; message?: string };
+    const error = next.mock.calls[0]?.[0] as { statusCode?: number; code?: string; message?: string };
+    expect(error.statusCode).toBe(401);
     expect(error.code).toBe("ORGANIZATION_CONTEXT_REQUIRED");
     expect(error.message).toBe("Authenticated organization context is required");
+  });
+
+  it("rejects blank user identifiers", () => {
+    const request = { organizationContext: { ...context, userId: "   " } } as never;
+    const next = vi.fn();
+
+    requireOrganizationContext(request, {} as never, next);
+
+    const error = next.mock.calls[0]?.[0] as { code?: string };
+    expect(error.code).toBe("ORGANIZATION_CONTEXT_REQUIRED");
+  });
+
+  it("rejects non-string organization identifiers", () => {
+    const request = { organizationContext: { ...context, organizationId: 42 } } as never;
+    const next = vi.fn();
+
+    requireOrganizationContext(request, {} as never, next);
+
+    const error = next.mock.calls[0]?.[0] as { code?: string };
+    expect(error.code).toBe("ORGANIZATION_CONTEXT_REQUIRED");
   });
 
   it("accepts the active branch", () => {
