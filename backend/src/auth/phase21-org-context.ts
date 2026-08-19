@@ -45,11 +45,9 @@ export function assertBranchContext(
   context: OrganizationContext,
   branchId?: string | null,
 ): void {
-  if (!branchId) return;
-
-  // A requested branch must always be bound to an active, already-verified
-  // branch context. A null active branch must never mean "all branches".
-  if (!context.branchId || branchId !== context.branchId) {
+  // A null active branch intentionally represents organization-scoped access.
+  // When an active branch exists, requested branch access must match it.
+  if (branchId && context.branchId && branchId !== context.branchId) {
     throw new ApiError(
       403,
       "BRANCH_ACCESS_DENIED",
