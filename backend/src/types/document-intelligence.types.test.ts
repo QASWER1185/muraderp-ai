@@ -35,9 +35,7 @@ describe('Phase 15 document intelligence safety boundary', () => {
   });
 
   it('rejects non-finite document confidence', () => {
-    expect(() => validateDocumentDraft({ ...draft, confidence: Number.NaN })).toThrow(
-      /finite number/,
-    );
+    expect(() => validateDocumentDraft({ ...draft, confidence: Number.NaN })).toThrow(/finite number/);
     expect(() => validateDocumentDraft({ ...draft, confidence: Number.POSITIVE_INFINITY })).toThrow(
       /finite number/,
     );
@@ -47,7 +45,14 @@ describe('Phase 15 document intelligence safety boundary', () => {
     expect(() =>
       validateDocumentDraft({
         ...draft,
-        matches: [{ ...draft.matches[0], confidence: Number.NaN }],
+        matches: [
+          {
+            entityType: 'vendor',
+            inputValue: 'Vendor A',
+            matchedId: 'vendor-1',
+            confidence: Number.NaN,
+          },
+        ],
       }),
     ).toThrow(/finite number/);
   });
@@ -57,12 +62,14 @@ describe('Phase 15 document intelligence safety boundary', () => {
   });
 
   it('requires a source hash before an authoritative posting boundary', () => {
-    expect(() =>
-      getDocumentDuplicateKey({
-        ...draft,
-        provenance: { ...draft.provenance, sourceHash: undefined },
-      }),
-    ).toThrow(/source hash is required/);
+    const draftWithoutHash: DocumentDraft = {
+      ...draft,
+      provenance: {
+        source: draft.provenance.source,
+        extractedAt: draft.provenance.extractedAt,
+      },
+    };
+    expect(() => getDocumentDuplicateKey(draftWithoutHash)).toThrow(/source hash is required/);
   });
 
   it('blocks duplicate documents without performing any mutation', () => {
