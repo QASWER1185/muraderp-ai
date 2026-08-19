@@ -10,6 +10,7 @@ const draft: AiInputDraft = {
   source: "image",
   intent: "supplier_bill.create",
   organizationId: "org-1",
+  userId: "user-1",
   status: "draft",
   fields: {
     vendor: { value: "Vendor A", confidence: 0.98, source: "image" },
