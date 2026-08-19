@@ -30,6 +30,7 @@ export interface AiInputDraft {
   source: AiInputSource;
   intent: AiInputIntent;
   organizationId: string;
+  userId: string;
   status: AiInputStatus;
   fields: Record<string, ExtractedField>;
   requiresConfirmation: true;
