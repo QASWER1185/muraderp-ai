@@ -42,6 +42,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/", (_request, response) => response.status(200).send("MuradERP-AI Backend"));
   app.get("/api/test", (_request, response) => response.status(200).json({ success: true, message: "API Test Working" }));
   app.use("/api/v1/health", healthRouter);
+  app.use("/api/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1", createErpRouter(options.internalApiToken ?? env.INTERNAL_API_TOKEN, options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID, options.erpService ?? new SupabaseErpService()));
   const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
