@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
-import customerRoutes from "./routes/customer.routes.js";
 import { createErpRouter } from "./routes/erp.routes.js";
 import { healthRouter } from "./routes/health.js";
 import { createInventoryRouter } from "./routes/inventory.routes.js";
@@ -54,7 +53,6 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api/v1/customer-payments", createCustomerPaymentRouter(internalApiToken, internalApiPrincipalId, options.customerPaymentService ?? new SupabaseCustomerPaymentService()));
   app.use("/api/v1/vendor-payments", createVendorPaymentRouter(internalApiToken, internalApiPrincipalId, options.vendorPaymentService ?? new SupabaseVendorPaymentService()));
   app.use("/api/v1/sales-returns", createSalesReturnRouter(internalApiToken, internalApiPrincipalId));
-  app.use("/api/health", healthRouter); app.use("/api", customerRoutes);
   app.use("/frontend", express.static(frontendRoot, { index: "index.html", fallthrough: false }));
   app.use(notFoundHandler); app.use(errorHandler); return app;
 }
