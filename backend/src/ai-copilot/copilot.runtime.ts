@@ -153,6 +153,7 @@ export class CopilotRuntime {
       .maybeSingle();
     if (existingError) throw existingError;
     if (existing) {
+      if (existing.user_id !== plan.userId) throw new Error("Idempotency-Key belongs to a different Copilot user");
       if (existing.request_fingerprint !== fingerprint) throw new Error("Idempotency-Key was reused for a different Copilot action");
       return existing;
     }
