@@ -28,8 +28,18 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - name: Checkout
+      - name: Checkout exact triggering commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify exact develop post-merge target
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        working-directory: .
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/develop"
+          echo "POST-MERGE DEVELOP SHA VERIFIED: ${GITHUB_SHA}"
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -79,3 +89,12 @@ jobs:
             -f context="github-connector/phase23-closure" \
             -f description="$DESCRIPTION" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/develop" ]; then
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+              -f state="$STATE" \
+              -f context="github-connector/ci-verification" \
+              -f description="Exact post-merge develop verification: ${JOB_STATUS}" \
+              -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          fi
