@@ -19,6 +19,7 @@ function draft(overrides: Partial<AiDraft> = {}): AiDraft {
         productId: { value: 501, confidence: 0.98, source: "voice" },
         quantity: { value: 20, confidence: 0.99, source: "voice" },
         unit: { value: "bag", confidence: 0.99, source: "voice" },
+        unitRate: { value: 1525, confidence: 0.95, source: "voice" },
       },
     ],
     confidence: 0.98,
@@ -80,7 +81,7 @@ describe("Phase 6 — AI Copilot safety / end-to-end regression", () => {
     expect(requiresConfirmation).toBe(true);
     expect(plan.requiresConfirmation).toBe(true);
     expect(plan.lines[0]?.productId).toBe(501);
-    expect(plan.lines[0]?.rateSource).toBe("UNRESOLVED");
+    expect(plan.lines[0]?.rateSource).toBe("EXPLICIT_USER_RATE");
     expect(() => createCopilotPlanFromDraft(draft({ requiresHumanConfirmation: false as true }), { userId })).toThrow();
   });
 
