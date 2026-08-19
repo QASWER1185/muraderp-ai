@@ -4,6 +4,7 @@
 - [x] Identify duplicate Customer persistence authority in current `develop`.
 - [x] Remove legacy `/api/customers` application mount.
 - [x] Preserve canonical authorized `/api/v1/customers` ERP route.
+- [x] Remove obsolete in-memory Customer implementation files from the remediation branch.
 - [ ] Backend typecheck on remediation branch.
 - [ ] Full backend test suite on remediation branch.
 - [ ] Production build on remediation branch.
