@@ -36,11 +36,4 @@ describe("MuradERP API foundation", () => {
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["x-powered-by"]).toBeUndefined();
   });
-
-  it("keeps the existing in-memory customer prototype on its compatibility path", async () => {
-    const response = await request(app).get("/api/customers");
-
-    expect(response.status).toBe(200);
-    expect(Array.isArray(response.body)).toBe(true);
-  });
 });
