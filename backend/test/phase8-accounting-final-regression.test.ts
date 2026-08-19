@@ -59,3 +59,5 @@ describe('Phase 8 final accounting regression contract', () => {
     })).not.toThrow();
   });
 });
+
+// Controlled closure verification: keep this regression file on the CI path.
