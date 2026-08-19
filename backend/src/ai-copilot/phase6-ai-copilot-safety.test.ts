@@ -37,14 +37,21 @@ function fakeDatabase() {
       _insert: undefined,
       select() { return query; },
       eq(column: string, value: unknown) { query._filters.push([column, value]); return query; },
+      findMatch() { return [...rows.values()].find((row) => query._filters.every(([key, value]) => row[key] === value)); },
       maybeSingle() {
-        const match = [...rows.values()].find((row) => query._filters.every(([key, value]) => row[key] === value));
+        const match = query.findMatch();
         if (match && query._update) Object.assign(match, query._update);
         return Promise.resolve({ data: match ?? null, error: null });
       },
       insert(payload: any) { query._insert = payload; return query; },
       update(payload: any) { query._update = payload; return query; },
       single() {
+        if (query._update) {
+          const match = query.findMatch();
+          if (!match) return Promise.resolve({ data: null, error: new Error("row not found") });
+          Object.assign(match, query._update);
+          return Promise.resolve({ data: match, error: null });
+        }
         const row = { id: `action-${rows.size + 1}`, ...query._insert };
         rows.set(row.id, row);
         return Promise.resolve({ data: row, error: null });
