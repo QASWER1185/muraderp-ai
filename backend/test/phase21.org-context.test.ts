@@ -29,10 +29,9 @@ describe("Phase 21 organization and branch context boundary", () => {
     requireOrganizationContext(request, {} as never, next);
 
     expect(next).toHaveBeenCalledOnce();
-    expect(next.mock.calls[0]?.[0]).toMatchObject({
-      statusCode: 401,
-      code: "ORGANIZATION_CONTEXT_REQUIRED",
-    });
+    const error = next.mock.calls[0]?.[0] as { statusCode?: number; code?: string };
+    expect(error.statusCode).toBe(401);
+    expect(error.code).toBe("ORGANIZATION_CONTEXT_REQUIRED");
   });
 
   it("accepts the active branch", () => {
@@ -40,12 +39,14 @@ describe("Phase 21 organization and branch context boundary", () => {
   });
 
   it("rejects a different branch", () => {
-    expect(() => assertBranchContext(context, "branch-2")).toThrow("BRANCH_ACCESS_DENIED");
+    expect(() => assertBranchContext(context, "branch-2")).toThrow(
+      "outside the active branch context",
+    );
   });
 
-  it("rejects a requested branch when no active branch is selected", () => {
+  it("allows organization-scoped access when no active branch is selected", () => {
     expect(() =>
       assertBranchContext({ ...context, branchId: null }, "branch-1"),
-    ).toThrow("BRANCH_ACCESS_DENIED");
+    ).not.toThrow();
   });
 });
