@@ -19,13 +19,9 @@ Scope: Bank Feeds & Bank Reconciliation Foundation only.
 - Frontend syntax verification: PASS
 - Production secret hygiene: PASS
 - PR CI: PASS
-- Merged to develop: PASS
-- Exact merge SHA: ed9e654a77aad4c2fcf277b46214a495b2316fdd
-- Exact post-merge develop SHA verification: PASS
-- Post-merge workflow run: 32255859062
-- Connector status `github-connector/phase23-closure`: PASS
-- Connector status `github-connector/ci-verification`: PASS
-- Final closure evidence recorded: PASS
+- Audit PR #77 merged to develop: PASS
+- Audit merge SHA: ed9e654a77aad4c2fcf277b46214a495b2316fdd
+- Final evidence head is this controlled closure commit; post-merge verification is required on the resulting develop SHA.
 
 ## Architecture boundary
 
