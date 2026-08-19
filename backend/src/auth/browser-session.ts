@@ -1,14 +1,14 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { env } from "../config/env.js";
 
 const COOKIE_NAME = "muraderp_session";
 const SESSION_TTL_SECONDS = 60 * 60;
-const TEST_SIGNING_SECRET = "muraderp-phase23-test-session-secret";
+const TEST_SIGNING_SECRET = randomBytes(32);
 type SessionPayload = { userId: string; exp: number };
 
-function signingSecret(): string {
+function signingSecret(): string | Buffer {
   if (env.INTERNAL_API_TOKEN) return env.INTERNAL_API_TOKEN;
   if (env.NODE_ENV === "test") return TEST_SIGNING_SECRET;
   throw new Error("INTERNAL_API_TOKEN is required for browser sessions");
