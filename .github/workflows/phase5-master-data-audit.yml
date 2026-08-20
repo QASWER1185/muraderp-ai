@@ -1,0 +1,59 @@
+name: Phase 5 Master Data Audit
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "backend/**"
+      - "supabase/**"
+      - ".github/workflows/phase5-master-data-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase5-master-data-audit-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  master-data-audit:
+    name: Phase 5 Master Data Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify checkout integrity
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Phase 5 master-data acceptance tests
+        working-directory: backend
+        run: npm test -- erp.master-data.test.ts
+
+      - name: Full backend typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Full production build
+        working-directory: backend
+        run: npm run build
+
+      - name: Final Phase 5 gate marker
+        run: echo "PHASE 5 MASTER DATA AUDIT: PASS CANDIDATE for ${GITHUB_SHA}"
