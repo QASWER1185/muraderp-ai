@@ -1,0 +1,130 @@
+name: Post-Merge Production Gate
+
+on:
+  push:
+    branches:
+      - develop
+    paths-ignore:
+      - "docs/audits/post-merge-status/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: post-merge-production-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  post-merge-gate:
+    name: Post-merge develop verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact triggering develop commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify triggering commit is on develop
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/develop"
+          echo "Verified develop commit: ${GITHUB_SHA}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Backend typecheck, tests, and production build
+        working-directory: backend
+        run: npm run check
+
+      - name: Phase 12 source boundary verification
+        run: |
+          test -f backend/src/ai-input/ai-input.types.ts
+          test -f backend/src/ai-input/contracts.ts
+          test -f backend/src/ai-input/pipeline.ts
+          test -f backend/src/ai-input/draft-lifecycle.ts
+          test -f backend/src/ai-input/ai-input.validation.ts
+          test -f backend/src/ai-input/pipeline.test.ts
+          ! grep -R "supabase\|createClient\|record_purchase" backend/src/ai-input/pipeline.ts backend/src/ai-input/contracts.ts
+
+      - name: Offline foundation verification
+        run: |
+          test -f frontend/sw.js
+          test -f frontend/offline-store.js
+          test -f frontend/offline-sync.js
+          test -f frontend/manifest.webmanifest
+          test -f frontend/index.html
+          node --check frontend/app.js
+          node --check frontend/offline-store.js
+          node --check frontend/offline-sync.js
+          node --check frontend/sw.js
+          node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8')); console.log('manifest JSON valid')"
+          grep -q 'serviceWorker' frontend/index.html
+          grep -qi 'offline' frontend/index.html
+
+      - name: Frontend syntax verification
+        working-directory: frontend
+        run: |
+          node --check app.js
+          node --check auth.js
+          node --check copilot-api.js
+          node --check ai-experience.js
+
+      - name: Production secret hygiene
+        run: |
+          ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{20,}' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
+
+      - name: Publish authoritative connector-visible status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Post-merge develop production gate passed"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Post-merge develop production gate was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Post-merge develop production gate failed"
+          fi
+
+          TARGET_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$STATE" \
+            -f context="github-connector/ci-verification" \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
+
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$STATE" \
+            -f context="github-connector/phase23-closure" \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
+
+      - name: Final gate marker
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: echo "POST-MERGE PRODUCTION GATE: ${JOB_STATUS} for ${GITHUB_SHA}"
