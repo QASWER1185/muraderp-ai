@@ -80,3 +80,5 @@ jobs:
 
       - name: Final Phase 5 gate marker
         run: echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: PASS CANDIDATE for ${GITHUB_SHA}"
+
+# Final audit trigger: dependency-safe Phase 5 gate execution.
