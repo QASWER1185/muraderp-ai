@@ -24,7 +24,10 @@ jobs:
           node-version: 22
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install --no-audit --no-fund
+        run: npm install --include=dev --no-audit --no-fund
+      - name: Verify Phase 5 test runner
+        working-directory: frontend
+        run: npm exec -- vitest --version
       - name: Phase 5 frontend acceptance tests
         working-directory: frontend
         run: npm run test:phase5
