@@ -56,7 +56,15 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install --no-audit --no-fund
+        run: npm install --include=dev --no-audit --no-fund
+
+      - name: Ensure Phase 5 test runner is installed
+        working-directory: frontend
+        run: npm install --include=dev --no-save --no-audit --no-fund vitest@3.2.4
+
+      - name: Verify Phase 5 test runner
+        working-directory: frontend
+        run: test -x node_modules/.bin/vitest
 
       - name: Phase 5 frontend acceptance tests
         working-directory: frontend
