@@ -1,0 +1,35 @@
+name: Phase 5 Frontend Production Gate
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/phase5-frontend-production-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Phase 5 frontend acceptance tests
+        working-directory: frontend
+        run: npm run test:phase5
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build
+      - name: Production gate
+        run: echo "PHASE 5 FRONTEND PRODUCTION GATE PASSED"
