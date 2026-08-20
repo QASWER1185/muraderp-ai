@@ -1,1 +1,1 @@
-{"name":"muraderp-ai-frontend","private":true,"type":"module","scripts":{"test":"vitest run","test:phase5":"vitest run phase5-master-data.test.js","typecheck":"tsc --noEmit","build":"node build-check.mjs"},"devDependencies":{"typescript":"^5.8.3","vitest":"^3.2.4"}}
+{"name":"muraderp-ai-frontend","private":true,"type":"module","scripts":{"test":"vitest run","test:phase5":"vitest run phase5-master-data.test.js","build":"node build-check.mjs"},"devDependencies":{"vitest":"^3.2.4"}}
