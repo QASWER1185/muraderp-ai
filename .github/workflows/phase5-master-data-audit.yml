@@ -30,41 +30,57 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+
       - name: Verify checkout integrity
+        shell: bash
         run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --include=dev --no-audit --no-fund
+
       - name: Phase 5 backend acceptance tests
         working-directory: backend
         run: npm test -- erp.master-data.test.ts
+
       - name: Full backend typecheck
         working-directory: backend
         run: npm run typecheck
+
       - name: Full backend production build
         working-directory: backend
         run: npm run build
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install --include=dev --no-audit --no-fund
+
       - name: Ensure Phase 5 test runner is installed
         working-directory: frontend
         run: npm install --include=dev --no-save --no-audit --no-fund vitest@3.2.4
+
       - name: Verify Phase 5 test runner
         working-directory: frontend
         run: test -x node_modules/.bin/vitest
+
       - name: Phase 5 frontend acceptance tests
         working-directory: frontend
         run: npm run test:phase5
+
       - name: Frontend production typecheck
         working-directory: frontend
         run: npm run typecheck
+
       - name: Frontend production build gate
         working-directory: frontend
         run: npm run build
+
       - name: Final Phase 5 gate marker
         run: echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: PASS CANDIDATE for ${GITHUB_SHA}"
