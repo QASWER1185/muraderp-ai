@@ -1,29 +1,25 @@
 name: Phase 5 Master Data Audit
+run-name: Phase 5 Production Audit - ${{ github.ref_name }} - ${{ github.sha }}
 
-on:
+"on":
   push:
     branches:
       - main
       - develop
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - "supabase/**"
-      - ".github/workflows/phase5-master-data-audit.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: phase5-master-data-audit-${{ github.ref }}
+  group: phase5-master-data-audit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   master-data-audit:
     name: Phase 5 Master Data + Frontend Production Audit
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
@@ -33,14 +29,13 @@ jobs:
 
       - name: Verify checkout integrity
         shell: bash
-        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
 
       - name: Install backend dependencies
         working-directory: backend
@@ -50,11 +45,11 @@ jobs:
         working-directory: backend
         run: npm test -- erp.master-data.test.ts
 
-      - name: Full backend typecheck
+      - name: Backend typecheck
         working-directory: backend
         run: npm run typecheck
 
-      - name: Full backend production build
+      - name: Backend production build
         working-directory: backend
         run: npm run build
 
@@ -62,25 +57,29 @@ jobs:
         working-directory: frontend
         run: npm install --include=dev --no-audit --no-fund
 
-      - name: Ensure Phase 5 test runner is installed
+      - name: Ensure Phase 5 test runner
         working-directory: frontend
         run: npm install --include=dev --no-save --no-audit --no-fund vitest@3.2.4
 
       - name: Verify Phase 5 test runner
         working-directory: frontend
+        shell: bash
         run: test -x node_modules/.bin/vitest
 
       - name: Phase 5 frontend acceptance tests
         working-directory: frontend
         run: npm run test:phase5
 
-      - name: Frontend production typecheck
+      - name: Frontend typecheck
         working-directory: frontend
         run: npm run typecheck
 
-      - name: Frontend production build gate
+      - name: Frontend production build
         working-directory: frontend
         run: npm run build
 
-      - name: Final Phase 5 gate marker
-        run: echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: PASS CANDIDATE for ${GITHUB_SHA}"
+      - name: Final Phase 5 gate
+        shell: bash
+        run: |
+          echo "PHASE 5 PRODUCTION AUDIT: PASS CANDIDATE"
+          echo "COMMIT: ${GITHUB_SHA}"
