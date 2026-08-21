@@ -1,0 +1,63 @@
+name: Phase 5 Dispatch Bootstrap
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-phase5:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve latest develop SHA
+        id: develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA="$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/develop --jq '.object.sha')"
+          test -n "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check existing Phase 5 run for develop SHA
+        id: runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.develop.outputs.sha }}
+        run: |
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow phase5-master-data-audit.yml \
+            --branch develop \
+            --limit 20 \
+            --json databaseId,headSha,status,conclusion \
+            > /tmp/phase5-runs.json
+
+          if jq -e --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha and .conclusion == "success")' /tmp/phase5-runs.json >/dev/null; then
+            echo "success=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "success=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if jq -e --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha and (.status == "queued" or .status == "in_progress"))' /tmp/phase5-runs.json >/dev/null; then
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch Phase 5 for develop
+        if: steps.runs.outputs.success != 'true' && steps.runs.outputs.active != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.develop.outputs.sha }}
+        run: |
+          gh workflow run phase5-master-data-audit.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref develop
+          echo "Dispatched Phase 5 for develop SHA $TARGET_SHA"
+
+      - name: Bootstrap status
+        run: echo "Phase 5 bootstrap checked develop at ${{ steps.develop.outputs.sha }}"
