@@ -1,6 +1,12 @@
 name: Phase 5 Dispatch Bootstrap
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase5-dispatch-bootstrap.yml"
+      - ".github/workflows/phase5-master-data-audit.yml"
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
@@ -12,6 +18,7 @@ permissions:
 jobs:
   dispatch-phase5:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Resolve latest develop SHA
         id: develop
