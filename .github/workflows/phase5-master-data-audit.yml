@@ -3,6 +3,7 @@ name: Phase 5 Master Data Audit
 on:
   push:
     branches:
+      - main
       - develop
     paths:
       - "backend/**"
