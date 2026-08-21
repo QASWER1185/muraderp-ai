@@ -22,7 +22,7 @@ jobs:
           test -n "$SHA"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Check existing Phase 5 run for develop SHA
+      - name: Check whether Phase 5 already ran for this SHA
         id: runs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -36,20 +36,14 @@ jobs:
             --json databaseId,headSha,status,conclusion \
             > /tmp/phase5-runs.json
 
-          if jq -e --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha and .conclusion == "success")' /tmp/phase5-runs.json >/dev/null; then
-            echo "success=true" >> "$GITHUB_OUTPUT"
+          if jq -e --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha)' /tmp/phase5-runs.json >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "success=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if jq -e --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha and (.status == "queued" or .status == "in_progress"))' /tmp/phase5-runs.json >/dev/null; then
-            echo "active=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "active=false" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Dispatch Phase 5 for develop
-        if: steps.runs.outputs.success != 'true' && steps.runs.outputs.active != 'true'
+        if: steps.runs.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.develop.outputs.sha }}
