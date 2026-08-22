@@ -1,29 +1,25 @@
 name: Phase 5 Master Data Audit
+run-name: Phase 5 Production Audit - ${{ github.ref_name }} - ${{ github.sha }}
 
-on:
+"on":
   push:
     branches:
+      - main
       - develop
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - "supabase/**"
-      - ".github/workflows/phase5-master-data-audit.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  statuses: write
 
 concurrency:
-  group: phase5-master-data-audit-${{ github.ref }}
+  group: phase5-master-data-audit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   master-data-audit:
     name: Phase 5 Master Data + Frontend Production Audit
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
@@ -32,6 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: Verify checkout integrity
+        shell: bash
         run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Setup Node.js
@@ -47,11 +44,11 @@ jobs:
         working-directory: backend
         run: npm test -- erp.test.ts
 
-      - name: Full backend typecheck
+      - name: Backend typecheck
         working-directory: backend
         run: npm run typecheck
 
-      - name: Full backend production build
+      - name: Backend production build
         working-directory: backend
         run: npm run build
 
@@ -59,57 +56,29 @@ jobs:
         working-directory: frontend
         run: npm install --include=dev --no-audit --no-fund
 
-      - name: Ensure Phase 5 test runner is installed
+      - name: Ensure Phase 5 test runner
         working-directory: frontend
         run: npm install --include=dev --no-save --no-audit --no-fund vitest@3.2.4
 
       - name: Verify Phase 5 test runner
         working-directory: frontend
+        shell: bash
         run: test -x node_modules/.bin/vitest
 
       - name: Phase 5 frontend acceptance tests
         working-directory: frontend
         run: npm run test:phase5
 
-      - name: Frontend production typecheck
+      - name: Frontend typecheck
         working-directory: frontend
         run: npm run typecheck
 
-      - name: Frontend production build gate
+      - name: Frontend production build
         working-directory: frontend
         run: npm run build
 
-      - name: Publish authoritative Phase 5 status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          JOB_STATUS: ${{ job.status }}
+      - name: Final Phase 5 gate
         shell: bash
         run: |
-          set -euo pipefail
-          if [ "$JOB_STATUS" = "success" ]; then
-            STATE=success
-            DESCRIPTION="Phase 5 backend + frontend production audit passed"
-          elif [ "$JOB_STATUS" = "cancelled" ]; then
-            STATE=error
-            DESCRIPTION="Phase 5 production audit was cancelled"
-          else
-            STATE=failure
-            DESCRIPTION="Phase 5 backend + frontend production audit failed"
-          fi
-
-          TARGET_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
-          gh api --method POST \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
-            -f state="$STATE" \
-            -f context="phase5/production-gate" \
-            -f description="$DESCRIPTION" \
-            -f target_url="$TARGET_URL"
-
-      - name: Final Phase 5 gate marker
-        if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
-        run: echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: ${JOB_STATUS} for ${GITHUB_SHA}"
+          echo "PHASE 5 PRODUCTION AUDIT: PASS"
+          echo "COMMIT: ${GITHUB_SHA}"
