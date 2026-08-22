@@ -45,7 +45,7 @@ jobs:
 
       - name: Phase 5 backend acceptance tests
         working-directory: backend
-        run: npm test -- erp.master-data.test.ts
+        run: npm test -- erp.test.ts
 
       - name: Full backend typecheck
         working-directory: backend
@@ -108,7 +108,6 @@ jobs:
             -f description="$DESCRIPTION" \
             -f target_url="$TARGET_URL"
 
-      # Final Phase 5 gate marker retained for explicit audit evidence.
       - name: Final Phase 5 gate marker
         if: always()
         env:
