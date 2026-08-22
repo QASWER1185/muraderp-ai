@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: phase5-master-data-audit-${{ github.ref }}
@@ -78,7 +79,37 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Final Phase 5 gate marker
-        run: echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: PASS CANDIDATE for ${GITHUB_SHA}"
+      - name: Publish authoritative Phase 5 status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Phase 5 backend + frontend production audit passed"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Phase 5 production audit was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Phase 5 backend + frontend production audit failed"
+          fi
 
-# Final production readiness execution trigger.
+          TARGET_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$STATE" \
+            -f context="phase5/production-gate" \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
+
+      - name: Final Phase 5 gate marker
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: ${JOB_STATUS} for ${GITHUB_SHA}"
