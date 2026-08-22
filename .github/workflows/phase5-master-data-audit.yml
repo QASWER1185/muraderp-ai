@@ -29,8 +29,7 @@ jobs:
 
       - name: Verify checkout integrity
         shell: bash
-        run: |
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -43,7 +42,7 @@ jobs:
 
       - name: Phase 5 backend acceptance tests
         working-directory: backend
-        run: npm test -- erp.master-data.test.ts
+        run: npm test -- erp.test.ts
 
       - name: Backend typecheck
         working-directory: backend
@@ -81,5 +80,5 @@ jobs:
       - name: Final Phase 5 gate
         shell: bash
         run: |
-          echo "PHASE 5 PRODUCTION AUDIT: PASS CANDIDATE"
+          echo "PHASE 5 PRODUCTION AUDIT: PASS"
           echo "COMMIT: ${GITHUB_SHA}"
