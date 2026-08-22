@@ -1,4 +1,5 @@
 name: Phase 6 Pricing Architecture Audit
+run-name: Phase 6 Pricing Production Audit - ${{ github.ref_name }} - ${{ github.sha }}
 
 on:
   push:
@@ -8,7 +9,7 @@ on:
 
 concurrency:
   group: phase6-pricing-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -17,35 +18,49 @@ jobs:
   pricing-architecture:
     name: Phase 6 Pricing Architecture Production Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
 
     steps:
-      - name: Checkout exact commit
+      - name: Checkout exact triggering commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Verify checkout integrity
-        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
         working-directory: .
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "Verified commit: ${GITHUB_SHA}"
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install backend dependencies
-        run: npm ci
+      - name: Verify backend lockfile
+        shell: bash
+        run: |
+          test -f package-lock.json
+          node -e "const p=require('./package-lock.json'); if (p.lockfileVersion !== 3) process.exit(1)"
+
+      - name: Install backend dependencies deterministically
+        run: npm ci --include=dev --no-audit --no-fund
 
       - name: Phase 6 pricing repository tests
-        run: npm test -- repositories/rate-list.repository.test.ts repositories/pricing.repository.test.ts
+        run: npm test -- src/repositories/rate-list.repository.test.ts src/repositories/pricing.repository.test.ts
 
-      - name: Phase 6 pricing service tests
-        run: npm test -- services/rate-list.service.test.ts services/rate-list.lifecycle.test.ts services/pricing.service.test.ts services/pricing.validation.test.ts
+      - name: Phase 6 pricing service and lifecycle tests
+        run: npm test -- src/services/rate-list.service.test.ts src/services/rate-list.lifecycle.test.ts src/services/pricing.service.test.ts src/services/pricing.validation.test.ts
+
+      - name: Phase 6 deterministic price resolution tests
+        run: npm test -- test/pricing-resolution.test.ts test/pricing.service.test.ts
 
       - name: Backend typecheck
         run: npm run typecheck
@@ -56,5 +71,13 @@ jobs:
       - name: Full backend regression suite
         run: npm test
 
+      - name: Verify pricing foundation migration is present
+        working-directory: .
+        shell: bash
+        run: test -f supabase/migrations/20260813132000_pricing_rate_list_foundation.sql
+
       - name: Final Phase 6 gate
-        run: echo "PHASE_6_PRICING_ARCHITECTURE_FINAL_PASS"
+        shell: bash
+        run: |
+          echo "PHASE_6_PRICING_ARCHITECTURE_FINAL_PASS"
+          echo "COMMIT: ${GITHUB_SHA}"
