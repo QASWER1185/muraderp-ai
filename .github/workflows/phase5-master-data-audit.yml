@@ -10,6 +10,7 @@ run-name: Phase 5 Production Audit - ${{ github.ref_name }} - ${{ github.sha }}
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: phase5-master-data-audit-${{ github.workflow }}-${{ github.ref }}
@@ -35,6 +36,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Verify backend lockfile
+        working-directory: backend
+        shell: bash
+        run: test -f package-lock.json && node -e "const p=require('./package-lock.json'); if(p.lockfileVersion < 1) process.exit(1)"
 
       - name: Install backend dependencies
         working-directory: backend
@@ -77,8 +83,34 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Final Phase 5 gate
+      - name: Publish authoritative Phase 5 status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
         shell: bash
         run: |
-          echo "PHASE 5 PRODUCTION AUDIT: PASS"
+          set -euo pipefail
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Phase 5 backend + frontend production audit passed"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Phase 5 production audit was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Phase 5 backend + frontend production audit failed"
+          fi
+          TARGET_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$STATE" \
+            -f context="phase5/production-gate" \
+            -f description="$DESCRIPTION" \
+            -f target_url="$TARGET_URL"
+
+      - name: Final Phase 5 gate
+        run: |
+          echo "PHASE 5 BACKEND + FRONTEND PRODUCTION AUDIT: PASS"
           echo "COMMIT: ${GITHUB_SHA}"
