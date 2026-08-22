@@ -1,0 +1,79 @@
+name: Phase 5 Production Gate
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: phase5-production-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  phase5:
+    name: Phase 5 Production Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify checkout
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Verify baseline
+        run: |
+          test -f backend/package.json
+          test -f backend/package-lock.json
+          test -f backend/test/erp.test.ts
+          test -f frontend/package.json
+          test -f frontend/phase5-master-data.test.js
+
+      - name: Backend npm ci
+        working-directory: backend
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Backend Phase 5 tests
+        working-directory: backend
+        run: npm test -- erp.test.ts
+
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Backend production build
+        working-directory: backend
+        run: npm run build
+
+      - name: Frontend npm install
+        working-directory: frontend
+        run: npm install --include=dev --no-audit --no-fund
+
+      - name: Frontend Phase 5 tests
+        working-directory: frontend
+        run: npm run test:phase5
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Final Phase 5 gate
+        run: echo "PHASE 5 PRODUCTION GATE: PASS"
