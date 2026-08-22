@@ -108,6 +108,7 @@ jobs:
             -f description="$DESCRIPTION" \
             -f target_url="$TARGET_URL"
 
+      # Final Phase 5 gate marker retained for explicit audit evidence.
       - name: Final Phase 5 gate marker
         if: always()
         env:
