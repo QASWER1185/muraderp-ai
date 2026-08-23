@@ -16,8 +16,6 @@ concurrency:
 jobs:
   pricing-architecture:
     name: Phase 6 Pricing Architecture Production Audit
-    # Authoritative Phase 6 execution uses the repository's Windows self-hosted runner.
-    # Required runner labels: self-hosted, windows, x64.
     runs-on: [self-hosted, windows, x64]
     timeout-minutes: 30
     steps:
@@ -40,23 +38,17 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $head = (git rev-parse HEAD).Trim()
-          if ($head -ne $env:GITHUB_SHA) {
-            throw "Checkout integrity failure: HEAD=$head GITHUB_SHA=$env:GITHUB_SHA"
-          }
+          if ($head -ne $env:GITHUB_SHA) { throw "Checkout integrity failure: HEAD=$head GITHUB_SHA=$env:GITHUB_SHA" }
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Verify Node and npm
+      - name: Verify Node.js 22 runtime
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          node --version
-          npm --version
+          $node = (node --version).Trim()
+          $npm = (npm --version).Trim()
+          Write-Host "node=$node"
+          Write-Host "npm=$npm"
+          if ($node -notmatch '^v22\.') { throw "Node.js 22 is required; detected $node" }
 
       - name: Verify backend lockfile
         working-directory: backend
@@ -89,9 +81,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not (Test-Path 'supabase/migrations/20260813132000_pricing_rate_list_foundation.sql')) {
-            throw 'Pricing foundation migration is missing'
-          }
+          if (-not (Test-Path 'supabase/migrations/20260813132000_pricing_rate_list_foundation.sql')) { throw 'Pricing foundation migration is missing' }
 
       - name: Final Phase 6 gate
         shell: powershell
