@@ -29,16 +29,16 @@ function normalizeDefinition(input: ProductDefinition): ProductDefinition {
 export class ProductService {
   constructor(private readonly repository: ProductRepository) {}
 
-  create(input: ProductDefinition): Promise<ProductRecord> {
+  async create(input: ProductDefinition): Promise<ProductRecord> {
     return this.repository.create(normalizeDefinition(input));
   }
 
-  getById(id: number): Promise<ProductRecord | null> {
+  async getById(id: number): Promise<ProductRecord | null> {
     if (!Number.isInteger(id) || id <= 0) throw new Error("id must be a positive integer");
     return this.repository.getById(id);
   }
 
-  list(filter: ProductListFilter = {}): Promise<ProductRecord[]> {
+  async list(filter: ProductListFilter = {}): Promise<ProductRecord[]> {
     if (filter.brand_id != null && (!Number.isInteger(filter.brand_id) || filter.brand_id <= 0)) throw new Error("brand_id must be a positive integer");
     const normalizedFilter: ProductListFilter = {};
     if (filter.search?.trim()) normalizedFilter.search = filter.search.trim();
@@ -47,7 +47,7 @@ export class ProductService {
     return this.repository.list(normalizedFilter);
   }
 
-  update(id: number, input: Partial<ProductDefinition>): Promise<ProductRecord | null> {
+  async update(id: number, input: Partial<ProductDefinition>): Promise<ProductRecord | null> {
     if (!Number.isInteger(id) || id <= 0) throw new Error("id must be a positive integer");
     if (Object.keys(input).length === 0) throw new Error("at least one field is required");
     const normalized = normalizeDefinition({
@@ -72,7 +72,7 @@ export class ProductService {
     return this.repository.update(id, partial);
   }
 
-  delete(id: number): Promise<boolean> {
+  async delete(id: number): Promise<boolean> {
     if (!Number.isInteger(id) || id <= 0) throw new Error("id must be a positive integer");
     return this.repository.delete(id);
   }
