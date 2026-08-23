@@ -3,8 +3,7 @@ run-name: Phase 6 Pricing Production Audit - ${{ github.ref_name }} - ${{ github
 
 on:
   push:
-    branches:
-      - develop
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
@@ -13,25 +12,22 @@ permissions:
 jobs:
   pricing-architecture:
     name: Phase 6 Pricing Architecture Production Audit
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
       - name: Checkout exact triggering commit
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Verify checkout integrity
-        working-directory: .
+      - name: Verify runner and checkout
         shell: bash
         run: |
+          set -euo pipefail
+          echo "runner=${RUNNER_NAME}"
+          echo "os=${RUNNER_OS}"
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          echo "Verified commit: ${GITHUB_SHA}"
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -40,35 +36,23 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Verify backend lockfile
-        shell: bash
-        run: |
-          test -f package-lock.json
-          node -e "const p=require('./package-lock.json'); if (p.lockfileVersion !== 3) process.exit(1)"
-
-      - name: Install backend dependencies deterministically
+      - name: Backend dependency installation
+        working-directory: backend
         run: npm ci --include=dev --no-audit --no-fund
 
-      - name: Phase 6 pricing repository tests
-        run: npm test -- src/repositories/rate-list.repository.test.ts src/repositories/pricing.repository.test.ts
-
-      - name: Phase 6 pricing service and lifecycle tests
-        run: npm test -- src/services/rate-list.service.test.ts src/services/rate-list.lifecycle.test.ts src/services/pricing.service.test.ts src/services/pricing.validation.test.ts
-
-      - name: Phase 6 deterministic price resolution tests
-        run: npm test -- test/pricing-resolution.test.ts test/pricing.service.test.ts
+      - name: Phase 6 complete regression
+        working-directory: backend
+        run: npm test
 
       - name: Backend typecheck
+        working-directory: backend
         run: npm run typecheck
 
       - name: Backend production build
+        working-directory: backend
         run: npm run build
 
-      - name: Full backend regression suite
-        run: npm test
-
-      - name: Verify pricing foundation migration is present
-        working-directory: .
+      - name: Verify pricing migration
         shell: bash
         run: test -f supabase/migrations/20260813132000_pricing_rate_list_foundation.sql
 
