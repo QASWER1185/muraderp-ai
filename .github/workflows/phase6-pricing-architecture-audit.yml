@@ -40,7 +40,7 @@ jobs:
           $head = (git rev-parse HEAD).Trim()
           if ($head -ne $env:GITHUB_SHA) { throw "Checkout integrity failure: HEAD=$head GITHUB_SHA=$env:GITHUB_SHA" }
 
-      - name: Verify Node.js 22 runtime
+      - name: Verify Node.js 22+ runtime
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -48,7 +48,7 @@ jobs:
           $npm = (npm --version).Trim()
           Write-Host "node=$node"
           Write-Host "npm=$npm"
-          if ($node -notmatch '^v22\.') { throw "Node.js 22 is required; detected $node" }
+          if ($node -notmatch '^v(22|23|24)\.') { throw "Node.js >=22 is required; detected $node" }
 
       - name: Verify backend lockfile
         working-directory: backend
