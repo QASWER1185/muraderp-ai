@@ -16,23 +16,33 @@ concurrency:
 jobs:
   pricing-architecture:
     name: Phase 6 Pricing Architecture Production Audit
-    runs-on: ubuntu-22.04
+    # Authoritative Phase 6 execution uses the repository's Windows self-hosted runner.
+    # Required runner labels: self-hosted, windows, x64.
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 30
     steps:
+      - name: Verify runner identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "runner=$env:RUNNER_NAME"
+          Write-Host "os=$env:RUNNER_OS"
+          Write-Host "arch=$env:RUNNER_ARCH"
+
       - name: Checkout exact triggering commit
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Verify runner and checkout
-        shell: bash
+      - name: Verify checkout integrity
+        shell: pwsh
         run: |
-          set -euo pipefail
-          echo "runner=${RUNNER_NAME}"
-          echo "os=${RUNNER_OS}"
-          echo "arch=${RUNNER_ARCH}"
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:GITHUB_SHA) {
+            throw "Checkout integrity failure: HEAD=$head GITHUB_SHA=$env:GITHUB_SHA"
+          }
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -41,34 +51,51 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
+      - name: Verify Node and npm
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --version
+          npm --version
+
       - name: Verify backend lockfile
         working-directory: backend
-        shell: bash
-        run: test -f package-lock.json
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path package-lock.json)) { throw 'backend/package-lock.json is missing' }
 
       - name: Backend dependency installation
         working-directory: backend
+        shell: pwsh
         run: npm ci --include=dev --no-audit --no-fund
 
       - name: Phase 6 complete regression
         working-directory: backend
+        shell: pwsh
         run: npm test
 
       - name: Backend typecheck
         working-directory: backend
+        shell: pwsh
         run: npm run typecheck
 
       - name: Backend production build
         working-directory: backend
+        shell: pwsh
         run: npm run build
 
       - name: Verify pricing migration
-        shell: bash
-        run: test -f supabase/migrations/20260813132000_pricing_rate_list_foundation.sql
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'supabase/migrations/20260813132000_pricing_rate_list_foundation.sql')) {
+            throw 'Pricing foundation migration is missing'
+          }
 
       - name: Final Phase 6 gate
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          echo "PHASE_6_PRICING_ARCHITECTURE_FINAL_PASS"
-          echo "COMMIT: ${GITHUB_SHA}"
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'PHASE_6_PRICING_ARCHITECTURE_FINAL_PASS'
+          Write-Host "COMMIT: $env:GITHUB_SHA"
