@@ -7,17 +7,13 @@ on:
       - develop
   workflow_dispatch:
 
-concurrency:
-  group: phase6-pricing-${{ github.ref }}
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
 jobs:
   pricing-architecture:
     name: Phase 6 Pricing Architecture Production Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     defaults:
       run:
