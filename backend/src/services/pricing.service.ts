@@ -53,6 +53,12 @@ function assertResolvedPrice(resolved: ResolvedPrice, context: PriceResolutionCo
   }
 }
 
+function requireOptionalPositiveInteger(value: number | null | undefined, field: string): void {
+  if (value != null && (!Number.isInteger(value) || value <= 0)) {
+    throw new Error(`${field} must be a positive integer when provided`);
+  }
+}
+
 export class DefaultPricingService implements PricingService {
   constructor(
     private readonly repository: PricingRepository,
@@ -63,6 +69,8 @@ export class DefaultPricingService implements PricingService {
     if (!Number.isInteger(context.product_id) || context.product_id <= 0) throw new Error("product_id must be a positive integer");
     if (!Number.isFinite(context.quantity) || context.quantity <= 0) throw new Error("quantity must be greater than zero");
     if (!context.as_of || Number.isNaN(Date.parse(context.as_of))) throw new Error("as_of must be a valid date/time");
+    requireOptionalPositiveInteger(context.vendor_id, "vendor_id");
+    requireOptionalPositiveInteger(context.customer_id, "customer_id");
     if (context.rate_list_id != null && (!Number.isInteger(context.rate_list_id) || context.rate_list_id <= 0)) {
       throw new Error("rate_list_id must be a positive integer when provided");
     }
