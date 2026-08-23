@@ -9,10 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: phase6-pricing-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pricing-architecture:
     name: Phase 6 Pricing Architecture Production Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - name: Checkout exact triggering commit
@@ -27,6 +31,7 @@ jobs:
           set -euo pipefail
           echo "runner=${RUNNER_NAME}"
           echo "os=${RUNNER_OS}"
+          echo "arch=${RUNNER_ARCH}"
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - name: Setup Node.js 22
@@ -35,6 +40,11 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
+
+      - name: Verify backend lockfile
+        working-directory: backend
+        shell: bash
+        run: test -f package-lock.json
 
       - name: Backend dependency installation
         working-directory: backend
@@ -59,5 +69,6 @@ jobs:
       - name: Final Phase 6 gate
         shell: bash
         run: |
+          set -euo pipefail
           echo "PHASE_6_PRICING_ARCHITECTURE_FINAL_PASS"
           echo "COMMIT: ${GITHUB_SHA}"
