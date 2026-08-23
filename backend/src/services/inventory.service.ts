@@ -8,19 +8,19 @@ function validateId(value: number, name: string): void {
 export class InventoryService {
   constructor(private readonly repository: InventoryRepository) {}
 
-  listBalances(filter: InventoryListFilter = {}): Promise<InventoryBalance[]> {
+  async listBalances(filter: InventoryListFilter = {}): Promise<InventoryBalance[]> {
     if (filter.product_id !== undefined) validateId(filter.product_id, "product_id");
     if (filter.warehouse_id !== undefined) validateId(filter.warehouse_id, "warehouse_id");
     return this.repository.listBalances(filter);
   }
 
-  getBalance(productId: number, warehouseId: number): Promise<InventoryBalance | null> {
+  async getBalance(productId: number, warehouseId: number): Promise<InventoryBalance | null> {
     validateId(productId, "product_id");
     validateId(warehouseId, "warehouse_id");
     return this.repository.getBalance(productId, warehouseId);
   }
 
-  listMovements(filter: MovementListFilter = {}): Promise<InventoryMovement[]> {
+  async listMovements(filter: MovementListFilter = {}): Promise<InventoryMovement[]> {
     if (filter.product_id !== undefined) validateId(filter.product_id, "product_id");
     if (filter.warehouse_id !== undefined) validateId(filter.warehouse_id, "warehouse_id");
     if (filter.movement_type !== undefined && !filter.movement_type.trim()) throw new Error("movement_type cannot be empty");
