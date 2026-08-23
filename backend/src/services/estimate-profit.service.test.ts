@@ -27,8 +27,11 @@ describe("DefaultEstimateProfitService", () => {
     const service = new DefaultEstimateProfitService(resolver({ 10: 1400, 11: 900 }));
     const result = await service.analyze(lines, "2026-08-13T10:00:00Z");
 
+    // Revenue = (10 × 1200) + (5 × 800) = 16000.
+    // Estimated cost = (10 × 1400) + (5 × 900) = 18500.
+    // Therefore the estimated loss is 2500.
     expect(result.expected_profit).toBeNull();
-    expect(result.expected_loss).toBe(4500);
+    expect(result.expected_loss).toBe(2500);
     expect(result.status).toBe("LOSS");
   });
 
