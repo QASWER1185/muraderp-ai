@@ -4,6 +4,7 @@ import type { PriceResolutionContext } from "../types/pricing.types.js";
 
 function clientFor(rows: unknown[], error: unknown = null) {
   const filters: Array<{ method: string; value: unknown }> = [];
+  let filteredRows = [...rows] as Array<Record<string, unknown>>;
   const query = {
     select: () => query,
     eq: (method: string, value: unknown) => {
@@ -12,11 +13,16 @@ function clientFor(rows: unknown[], error: unknown = null) {
     },
     lte: (method: string, value: unknown) => {
       filters.push({ method, value });
+      if (method === "minimum_quantity" && typeof value === "number") {
+        filteredRows = filteredRows.filter(
+          (row) => typeof row.minimum_quantity === "number" && row.minimum_quantity <= value,
+        );
+      }
       return query;
     },
     or: () => query,
     order: () => query,
-    limit: async () => ({ data: rows, error }),
+    limit: async () => ({ data: filteredRows, error }),
   };
 
   return { from: () => query, filters };
