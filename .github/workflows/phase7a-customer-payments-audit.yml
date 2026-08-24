@@ -1,0 +1,92 @@
+name: Phase 7A Customer Payments Audit
+run-name: Phase 7A Customer Payments Production Audit - ${{ github.ref_name }} - ${{ github.sha }}
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase7a-customer-payments-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phase7a-customer-payments:
+    name: Phase 7A Customer Payments Production Audit
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 60
+    steps:
+      - name: Verify runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "runner=$env:RUNNER_NAME"
+          Write-Host "os=$env:RUNNER_OS"
+          Write-Host "arch=$env:RUNNER_ARCH"
+
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify checkout integrity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:GITHUB_SHA) { throw "Checkout integrity failure: HEAD=$head GITHUB_SHA=$env:GITHUB_SHA" }
+
+      - name: Verify Node.js 22+ runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = (node --version).Trim()
+          $npm = (npm --version).Trim()
+          Write-Host "node=$node"
+          Write-Host "npm=$npm"
+          if ($node -notmatch '^v(22|23|24)\.') { throw "Node.js >=22 is required; detected $node" }
+
+      - name: Verify backend lockfile
+        working-directory: backend
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path package-lock.json)) { throw 'backend/package-lock.json is missing' }
+
+      - name: Verify Phase 7A migrations
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'supabase/migrations/20260814100000_customer_payments_receivables_foundation.sql')) { throw 'Phase 7A foundation migration is missing' }
+          if (-not (Test-Path 'supabase/migrations/20260824170000_phase7a_customer_payment_idempotency_concurrency_hardening.sql')) { throw 'Phase 7A hardening migration is missing' }
+
+      - name: Backend dependency installation
+        working-directory: backend
+        shell: powershell
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Phase 7A regression tests
+        working-directory: backend
+        shell: powershell
+        run: npm test
+
+      - name: Backend typecheck
+        working-directory: backend
+        shell: powershell
+        run: npm run typecheck
+
+      - name: Backend production build
+        working-directory: backend
+        shell: powershell
+        run: npm run build
+
+      - name: Final Phase 7A gate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'PHASE_7A_CUSTOMER_PAYMENTS_FINAL_PASS'
+          Write-Host "COMMIT: $env:GITHUB_SHA"
