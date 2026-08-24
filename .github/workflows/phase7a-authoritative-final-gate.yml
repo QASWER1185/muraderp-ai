@@ -1,0 +1,63 @@
+name: Phase 7A Authoritative Final Gate
+run-name: Phase 7A Final Gate - ${{ github.ref_name }} - ${{ github.sha }}
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase7a-final-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  final-gate:
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Verify checkout
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Checkout integrity failure' }
+      - name: Verify runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $node=(node --version).Trim()
+          if ($node -notmatch '^v(22|23|24)\.') { throw "Node.js >=22 required; detected $node" }
+      - name: Verify Phase 7A files
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=@('supabase/migrations/20260814100000_customer_payments_receivables_foundation.sql','supabase/migrations/20260824170000_phase7a_customer_payment_idempotency_concurrency_hardening.sql','backend/package-lock.json','backend/test/customer-payment.test.ts')
+          foreach($f in $files){if(-not(Test-Path $f)){throw "Missing required Phase 7A file: $f"}}
+      - name: Install dependencies
+        working-directory: backend
+        shell: powershell
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Test
+        working-directory: backend
+        shell: powershell
+        run: npm test
+      - name: Typecheck
+        working-directory: backend
+        shell: powershell
+        run: npm run typecheck
+      - name: Build
+        working-directory: backend
+        shell: powershell
+        run: npm run build
+      - name: FINAL GATE
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host 'PHASE_7A_FINAL_PASS'
+          Write-Host "COMMIT=$env:GITHUB_SHA"
