@@ -28,7 +28,7 @@ jobs:
           Write-Host "arch=$env:RUNNER_ARCH"
 
       - name: Checkout exact triggering commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -93,3 +93,4 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Write-Host 'PHASE_7B_SALES_RETURNS_FINAL_PASS'
           Write-Host "COMMIT: $env:GITHUB_SHA"
+          exit 0
