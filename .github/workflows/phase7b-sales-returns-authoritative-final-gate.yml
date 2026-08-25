@@ -28,13 +28,23 @@ jobs:
           Write-Host "arch=$env:RUNNER_ARCH"
 
       - name: Checkout exact triggering commit
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = "https://github.com/${{ github.repository }}.git"
+          $target = Join-Path $env:GITHUB_WORKSPACE 'repo'
+          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+          git clone --no-tags --depth 1 $repo $target
+          Set-Location $target
+          git fetch --depth 1 origin $env:GITHUB_SHA
+          git checkout --force $env:GITHUB_SHA
+          git rev-parse HEAD
 
       - name: Verify checkout integrity
         shell: powershell
+        working-directory: repo
         run: |
           $ErrorActionPreference = 'Stop'
           $head = (git rev-parse HEAD).Trim()
@@ -51,44 +61,44 @@ jobs:
           if ($node -notmatch '^v(22|23|24)\.') { throw "Node.js >=22 is required; detected $node" }
 
       - name: Verify backend lockfile
-        working-directory: backend
+        working-directory: repo/backend
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Test-Path package-lock.json)) { throw 'backend/package-lock.json is missing' }
 
       - name: Verify Phase 7B implementation surface
+        working-directory: repo
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $matches = @(
-            'supabase/migrations',
-            'backend'
-          )
-          foreach ($path in $matches) { if (-not (Test-Path $path)) { throw "Required path missing: $path" } }
+          foreach ($path in @('supabase/migrations','backend')) {
+            if (-not (Test-Path $path)) { throw "Required path missing: $path" }
+          }
 
       - name: Backend dependency installation
-        working-directory: backend
+        working-directory: repo/backend
         shell: powershell
         run: npm ci --include=dev --no-audit --no-fund
 
       - name: Phase 7B regression tests
-        working-directory: backend
+        working-directory: repo/backend
         shell: powershell
         run: npm test
 
       - name: Backend typecheck
-        working-directory: backend
+        working-directory: repo/backend
         shell: powershell
         run: npm run typecheck
 
       - name: Backend production build
-        working-directory: backend
+        working-directory: repo/backend
         shell: powershell
         run: npm run build
 
       - name: Final Phase 7B gate
         shell: powershell
+        working-directory: repo
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host 'PHASE_7B_SALES_RETURNS_FINAL_PASS'
