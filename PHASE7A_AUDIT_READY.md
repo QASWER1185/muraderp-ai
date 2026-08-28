@@ -1,0 +1,1 @@
+Phase 7A authoritative audit marker. Final gate is defined in .github/workflows/phase7a-authoritative-final-gate.yml.
