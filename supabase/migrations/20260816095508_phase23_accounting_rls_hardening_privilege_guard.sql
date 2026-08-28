@@ -1,0 +1,1 @@
+revoke all on function public.post_journal_entry from anon, authenticated;
