@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "decision_id": "STEP_6_P0_2_PHASE21_DISPOSITION",
+  "decided_on": "2026-08-28",
+  "source_evidence_sha256": "749201cd05b6d11f2bc6a8d17e4277921b5f76f607d20bee639253211de3123a",
+  "decision": "HISTORICAL_ONLY_DO_NOT_APPLY",
+  "executable": false,
+  "replacement_required": true,
+  "canonical_identity_foundation": "20260815070000_phase_10_identity_organization_authorization.sql",
+  "future_version_floor_exclusive": "20260824170000",
+  "preservation_policy": "PRESERVE_IN_PLACE_AS_IMMUTABLE_HISTORICAL_EVIDENCE_UNTIL_CHAIN_RECONCILIATION",
+  "runtime_compatibility": {
+    "phase21_org_context": "TEMPORARY_COMPATIBILITY_BOUNDARY",
+    "null_branch_semantics": "DEPRECATED_FOR_TENANT_ISOLATION_FOUNDATION",
+    "replacement_rule": "Use explicit organization scope and explicit branch grants. A null branch must not grant wildcard branch access."
+  },
+  "files": [
+    {
+      "filename": "20260815190000_phase21_organization_branch_security.sql",
+      "sql_sha256": "2bcb8719e8498c7a560729c9ae0ac89b5e06b177775b52f0283e2618ed4827ef",
+      "git_blob_sha": "254857523b9d663b07845f43d478c3327826b3f7",
+      "disposition": "SUPERSEDED_DESIGN_REFERENCE",
+      "do_not_apply": true
+    },
+    {
+      "filename": "20260815190100_phase21_branch_key_guard.sql",
+      "sql_sha256": "bd9a070f2c32b2e472f18b720de947cfb6752f42eb89085d220de9b492acb31c",
+      "git_blob_sha": "1c3659f87172d78aee4d2268fc64c940e78d1f3e",
+      "disposition": "REDUNDANT_HISTORICAL_CORRECTION",
+      "do_not_apply": true
+    },
+    {
+      "filename": "20260815190200_phase21_branch_reference_fix.sql",
+      "sql_sha256": "64390ceab428eb72255ef2711b6a00e5607293947771b07291e09eb65beeb5c1",
+      "git_blob_sha": "f79e7967384c2204b63b0812d0e7da48c85d24e9",
+      "disposition": "REDUNDANT_HISTORICAL_CORRECTION",
+      "do_not_apply": true
+    },
+    {
+      "filename": "20260815190300_phase21_schema_validation.sql",
+      "sql_sha256": "ee8fa27e48a4d0a9a82de2728678d57715b8108bf26a8250e14d1724adcdef6e",
+      "git_blob_sha": "9234af6fdacc63f4964e23b648579f68554eaf40",
+      "disposition": "REDUNDANT_HISTORICAL_CORRECTION",
+      "do_not_apply": true
+    }
+  ]
+}

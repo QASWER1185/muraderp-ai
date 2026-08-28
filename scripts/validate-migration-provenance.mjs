@@ -6,6 +6,10 @@ import { fileURLToPath } from "node:url";
 const EXPECTED_BUNDLE_SHA256 =
   "749201cd05b6d11f2bc6a8d17e4277921b5f76f607d20bee639253211de3123a";
 const EXPECTED_PROJECT_ID = "pmsowmiivjkwtovynhje";
+const EXPECTED_PHASE21_DECISION = "HISTORICAL_ONLY_DO_NOT_APPLY";
+const EXPECTED_PHASE21_SOURCE_STATE = "PENDING_P0_2_REVIEW";
+const EXPECTED_IDENTITY_FOUNDATION =
+  "20260815070000_phase_10_identity_organization_authorization.sql";
 const MIGRATION_FILE_PATTERN = /^(\d{14})_(.+)\.sql$/;
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +20,12 @@ const evidencePath = path.join(
   "supabase",
   "migration-provenance",
   "live-applied.json",
+);
+const phase21DispositionPath = path.join(
+  repositoryRoot,
+  "supabase",
+  "migration-provenance",
+  "phase21-disposition.json",
 );
 
 const failures = [];
@@ -46,8 +56,12 @@ function migrationVersion(filename) {
   return filename.match(MIGRATION_FILE_PATTERN)?.[1] ?? null;
 }
 
-const evidenceRaw = await readFile(evidencePath, "utf8");
+const [evidenceRaw, phase21DispositionRaw] = await Promise.all([
+  readFile(evidencePath, "utf8"),
+  readFile(phase21DispositionPath, "utf8"),
+]);
 const evidence = JSON.parse(evidenceRaw);
+const phase21Disposition = JSON.parse(phase21DispositionRaw);
 
 check(
   sha256(evidenceRaw) === EXPECTED_BUNDLE_SHA256,
@@ -61,6 +75,51 @@ check(
 check(
   evidence.source.read_only_capture === true,
   "The evidence bundle must be marked as a read-only capture.",
+);
+
+check(
+  evidence.repository.phase21_active_chain.disposition ===
+    EXPECTED_PHASE21_SOURCE_STATE,
+  "The immutable P0-1 evidence no longer reflects its captured Phase 21 state.",
+);
+check(
+  phase21Disposition.schema_version === 1,
+  "Unsupported Phase 21 disposition schema version.",
+);
+check(
+  phase21Disposition.decision_id === "STEP_6_P0_2_PHASE21_DISPOSITION",
+  "Unexpected Phase 21 disposition decision id.",
+);
+check(
+  phase21Disposition.source_evidence_sha256 === EXPECTED_BUNDLE_SHA256,
+  "Phase 21 disposition is not bound to the approved P0-1 evidence bundle.",
+);
+check(
+  phase21Disposition.decision === EXPECTED_PHASE21_DECISION,
+  "Phase 21 disposition must keep the historical migrations non-executable.",
+);
+check(
+  phase21Disposition.executable === false,
+  "Phase 21 historical migrations must remain non-executable.",
+);
+check(
+  phase21Disposition.replacement_required === true,
+  "Phase 21 must require a canonical replacement rather than silent reuse.",
+);
+check(
+  phase21Disposition.canonical_identity_foundation ===
+    EXPECTED_IDENTITY_FOUNDATION,
+  "Phase 21 disposition changed the canonical Phase 10 identity foundation.",
+);
+check(
+  phase21Disposition.future_version_floor_exclusive ===
+    evidence.reconciliation.future_version_floor_exclusive,
+  "Phase 21 disposition changed the approved future migration version floor.",
+);
+check(
+  phase21Disposition.runtime_compatibility?.null_branch_semantics ===
+    "DEPRECATED_FOR_TENANT_ISOLATION_FOUNDATION",
+  "Phase 21 null-branch wildcard semantics must remain deprecated for the tenant isolation foundation.",
 );
 
 const liveVersions = new Set();
@@ -174,7 +233,8 @@ for (const active of activeRows) {
   if (!live) {
     continue;
   }
-  const isExact = normalizedSql(active.sql) === normalizedSql(live.statements.join("\n"));
+  const isExact =
+    normalizedSql(active.sql) === normalizedSql(live.statements.join("\n"));
   check(
     (live.repository_relation === "EXACT_ACTIVE_VERSION_AND_SQL") === isExact,
     `Live/repository relation changed for version ${active.version}.`,
@@ -188,19 +248,74 @@ for (const version of evidence.reconciliation.archive_only_live_versions) {
   );
 }
 
-for (const filename of evidence.repository.phase21_active_chain.files) {
+const expectedPhase21Files = [
+  ...evidence.repository.phase21_active_chain.files,
+].sort();
+const dispositionPhase21Files = phase21Disposition.files
+  .map((entry) => entry.filename)
+  .sort();
+check(
+  JSON.stringify(dispositionPhase21Files) === JSON.stringify(expectedPhase21Files),
+  "Phase 21 disposition file set differs from the P0-1 evidence bundle.",
+);
+check(
+  new Set(dispositionPhase21Files).size === dispositionPhase21Files.length,
+  "Phase 21 disposition contains duplicate filenames.",
+);
+
+for (const entry of phase21Disposition.files) {
+  const baseline = baselineByName.get(entry.filename);
+  const active = activeByName.get(entry.filename);
+  check(Boolean(baseline), `Phase 21 baseline file is unknown: ${entry.filename}`);
+  check(Boolean(active), `Phase 21 historical file is missing: ${entry.filename}`);
+  check(entry.do_not_apply === true, `Phase 21 file is not blocked: ${entry.filename}`);
   check(
-    activeByName.has(filename),
-    `Phase 21 evidence file is missing before P0-2 disposition: ${filename}`,
+    typeof entry.disposition === "string" && entry.disposition.length > 0,
+    `Phase 21 file has no disposition: ${entry.filename}`,
   );
+  if (baseline) {
+    check(
+      entry.sql_sha256 === baseline.sql_sha256,
+      `Phase 21 disposition SQL fingerprint mismatch: ${entry.filename}`,
+    );
+    check(
+      entry.git_blob_sha === baseline.git_blob_sha,
+      `Phase 21 disposition Git blob fingerprint mismatch: ${entry.filename}`,
+    );
+  }
+  if (active) {
+    check(
+      active.sql_sha256 === entry.sql_sha256,
+      `Phase 21 historical SQL changed after disposition: ${entry.filename}`,
+    );
+    check(
+      active.git_blob_sha === entry.git_blob_sha,
+      `Phase 21 historical Git blob changed after disposition: ${entry.filename}`,
+    );
+  }
 }
+
 check(
   evidence.repository.phase21_active_chain.executable === false,
-  "Phase 21 must remain non-executable pending P0-2.",
+  "The P0-1 evidence must record Phase 21 as non-executable.",
+);
+check(
+  evidence.reconciliation.active_chain_blockers.includes(
+    "P0_2_PHASE21_DISPOSITION_REQUIRED",
+  ),
+  "The immutable P0-1 evidence no longer records the original P0-2 blocker.",
+);
+const remainingActiveChainBlockers =
+  evidence.reconciliation.active_chain_blockers.filter(
+    (blocker) => blocker !== "P0_2_PHASE21_DISPOSITION_REQUIRED",
+  );
+check(
+  remainingActiveChainBlockers.length > 0,
+  "P0-2 alone must not make the historical migration chain deployable.",
 );
 check(
   evidence.reconciliation.active_chain_deployable === false,
-  "The active chain must remain blocked until the documented blockers are resolved.",
+  "The active chain must remain blocked until all historical blockers are resolved.",
 );
 
 if (failures.length > 0) {
@@ -220,8 +335,10 @@ console.log(
       repository_baseline_files: evidence.repository.baseline_files.length,
       active_files: activeRows.length,
       acknowledged_duplicate_versions: actualDuplicates.length,
-      phase21_disposition: evidence.repository.phase21_active_chain.disposition,
+      phase21_disposition: phase21Disposition.decision,
+      p0_2_resolved: true,
       active_chain_deployable: evidence.reconciliation.active_chain_deployable,
+      remaining_active_chain_blockers: remainingActiveChainBlockers,
       future_version_floor_exclusive:
         evidence.reconciliation.future_version_floor_exclusive,
     },
