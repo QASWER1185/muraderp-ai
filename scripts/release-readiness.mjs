@@ -12,6 +12,7 @@ const requiredPaths = [
   "supabase",
   "supabase/data-ownership/p0-3-existing-data-classification.json",
   "scripts/validate-existing-data-ownership.mjs",
+  "scripts/validate-p0-5-authorization-foundation.mjs",
 ];
 
 const failures = [];
@@ -60,16 +61,21 @@ for (const file of sourceFiles) {
 }
 if (!failures.some((message) => message.includes("possible production secret pattern"))) pass("no production secret pattern detected in tracked source");
 
-try {
-  execFileSync(process.execPath, [resolve(root, "scripts/validate-existing-data-ownership.mjs")], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-  pass("P0-3 existing-data ownership gate is valid");
-} catch (error) {
-  const detail = error?.stderr?.toString?.().trim();
-  fail(`P0-3 existing-data ownership gate failed${detail ? `: ${detail}` : ""}`);
+for (const validation of [
+  ["P0-3 existing-data ownership gate", "scripts/validate-existing-data-ownership.mjs"],
+  ["P0-5 membership / branch access foundation", "scripts/validate-p0-5-authorization-foundation.mjs"],
+]) {
+  try {
+    execFileSync(process.execPath, [resolve(root, validation[1])], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    pass(`${validation[0]} is valid`);
+  } catch (error) {
+    const detail = error?.stderr?.toString?.().trim();
+    fail(`${validation[0]} failed${detail ? `: ${detail}` : ""}`);
+  }
 }
 
 if (failures.length > 0) {
