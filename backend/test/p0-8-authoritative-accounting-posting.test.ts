@@ -41,6 +41,7 @@ describe("P0-8 authoritative accounting posting foundation", () => {
     expect(migration).toContain("organization_id, source_type, source_record_id, posting_kind");
     expect(migration).toContain("sales_transaction_idempotency_p0_8_scope_key");
     expect(migration).toContain("organization_id, principal_id, operation_scope, idempotency_key");
+    expect(migration).toContain("drop index if exists public.sales_transaction_idempotency_unique");
     expect(migration).toContain("request_fingerprint");
   });
 
