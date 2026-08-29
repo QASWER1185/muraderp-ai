@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "decision_id": "STEP_6_P0_3_EXISTING_DATA_OWNERSHIP_GATE",
+  "captured_on": "2026-08-29",
+  "source": {
+    "project_id": "pmsowmiivjkwtovynhje",
+    "starting_develop_sha": "f4488ff462e98a9c71d7ad328491f04410d7d1da",
+    "owner_evidence": "PRINCIPAL_ARCHITECT_DECISION_2026_08_29_POSTMAN_VALIDATION_DATA",
+    "capture_mode": "READ_ONLY"
+  },
+  "policy": {
+    "automatic_ownership_backfill_allowed": false,
+    "default_organization_assignment_allowed": false,
+    "synthetic_branch_assignment_allowed": false,
+    "automatic_cleanup_allowed": false,
+    "production_data_mutation_authorized": false,
+    "unknown_rows_block_ownership_migration": true,
+    "real_business_rows_require_explicit_organization_evidence": true,
+    "live_snapshot_must_be_rechecked_before_any_ownership_migration": true
+  },
+  "classifications": [
+    "TEST_VALIDATION",
+    "UNKNOWN_REQUIRES_OWNER_DECISION",
+    "REAL_BUSINESS_EXPLICITLY_PROVEN",
+    "SYSTEM_TEMPLATE"
+  ],
+  "business_records": [
+    {
+      "table": "vendors",
+      "primary_key": "3",
+      "classification": "TEST_VALIDATION",
+      "organization_id": null,
+      "branch_id": null,
+      "quarantine_action": "PRESERVE_UNOWNED_NO_BACKFILL",
+      "evidence": ["PRINCIPAL_ARCHITECT_POSTMAN_TEST_CONTEXT", "LIVE_ROW_COUNT_AND_ID_CAPTURE"]
+    },
+    {
+      "table": "products",
+      "primary_key": "2",
+      "classification": "TEST_VALIDATION",
+      "organization_id": null,
+      "branch_id": null,
+      "quarantine_action": "PRESERVE_UNOWNED_NO_BACKFILL",
+      "evidence": ["PRINCIPAL_ARCHITECT_POSTMAN_TEST_CONTEXT", "LIVE_ROW_COUNT_AND_ID_CAPTURE"]
+    },
+    {
+      "table": "warehouses",
+      "primary_key": "2",
+      "classification": "TEST_VALIDATION",
+      "organization_id": null,
+      "branch_id": null,
+      "quarantine_action": "PRESERVE_UNOWNED_NO_BACKFILL",
+      "evidence": ["PRINCIPAL_ARCHITECT_POSTMAN_TEST_CONTEXT", "LIVE_ROW_COUNT_AND_ID_CAPTURE"]
+    },
+    {
+      "table": "inventory",
+      "primary_key": "2",
+      "classification": "TEST_VALIDATION",
+      "organization_id": null,
+      "branch_id": null,
+      "quarantine_action": "PRESERVE_UNOWNED_NO_BACKFILL",
+      "evidence": ["PRINCIPAL_ARCHITECT_POSTMAN_TEST_CONTEXT", "LIVE_ROW_COUNT_AND_ID_CAPTURE"]
+    },
+    {
+      "table": "stock_movements",
+      "primary_key": "2",
+      "classification": "TEST_VALIDATION",
+      "organization_id": null,
+      "branch_id": null,
+      "quarantine_action": "PRESERVE_UNOWNED_NO_BACKFILL",
+      "evidence": ["PRINCIPAL_ARCHITECT_POSTMAN_TEST_CONTEXT", "LIVE_ROW_COUNT_AND_ID_CAPTURE"]
+    }
+  ],
+  "system_template_data": [
+    {
+      "table": "accounts",
+      "classification": "SYSTEM_TEMPLATE",
+      "exact_count": 10,
+      "identity": ["1000", "1010", "1090", "1100", "1200", "1300", "2000", "3000", "4000", "5000"],
+      "evidence": ["MIGRATION_SEEDED_ACCOUNTING_CHART"]
+    },
+    {
+      "table": "permissions",
+      "classification": "SYSTEM_TEMPLATE",
+      "exact_count": 20,
+      "evidence": ["PHASE_10_MIGRATION_SEEDED_PERMISSION_CATALOG"]
+    },
+    {
+      "table": "role_permissions",
+      "classification": "SYSTEM_TEMPLATE",
+      "exact_count": 88,
+      "evidence": ["PHASE_10_MIGRATION_SEEDED_ROLE_PERMISSION_MATRIX"]
+    }
+  ],
+  "empty_ownership_context": {
+    "auth_users": 0,
+    "organizations": 0,
+    "organization_memberships": 0,
+    "customers": 0,
+    "purchases": 0,
+    "purchase_items": 0,
+    "invoices": 0,
+    "invoice_items": 0,
+    "customer_payments": 0,
+    "vendor_payments": 0,
+    "journal_entries": 0,
+    "ai_copilot_actions": 0
+  },
+  "summary": {
+    "test_validation_count": 5,
+    "unknown_count": 0,
+    "real_business_count": 0,
+    "system_template_table_count": 3,
+    "ownership_backfill_status": "NOT_AUTHORIZED",
+    "gate_result": "VALID_FOR_P0_3_REPOSITORY_CONTROL"
+  }
+}

@@ -10,6 +10,8 @@ const requiredPaths = [
   ".github/workflows/phase23-closure.yml",
   ".github/workflows/production-security-gate.yml",
   "supabase",
+  "supabase/data-ownership/p0-3-existing-data-classification.json",
+  "scripts/validate-existing-data-ownership.mjs",
 ];
 
 const failures = [];
@@ -57,6 +59,18 @@ for (const file of sourceFiles) {
   }
 }
 if (!failures.some((message) => message.includes("possible production secret pattern"))) pass("no production secret pattern detected in tracked source");
+
+try {
+  execFileSync(process.execPath, [resolve(root, "scripts/validate-existing-data-ownership.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  pass("P0-3 existing-data ownership gate is valid");
+} catch (error) {
+  const detail = error?.stderr?.toString?.().trim();
+  fail(`P0-3 existing-data ownership gate failed${detail ? `: ${detail}` : ""}`);
+}
 
 if (failures.length > 0) {
   console.error("\nStage 11 release readiness FAILED:");
