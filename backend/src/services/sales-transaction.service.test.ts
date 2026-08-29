@@ -14,6 +14,9 @@ const requestLine: SalesTransactionLine = {
 };
 
 const request: SalesTransactionRequest = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
+  branch_id: null,
+  actor_user_id: "22222222-2222-4222-8222-222222222222",
   invoice: {
     id: 0,
     status: "DRAFT",
@@ -23,7 +26,7 @@ const request: SalesTransactionRequest = {
     lines: [],
     subtotal: 10000,
     discount_total: 500,
-    grand_total: 9500,
+    grand_total: 10500,
     pass_through_rent: 1000,
   },
   warehouse_id: 1,
@@ -44,7 +47,7 @@ const transaction: SalesTransactionPort = {
 };
 
 describe("SalesTransactionService", () => {
-  it("delegates a valid invoice to the atomic transaction port", async () => {
+  it("delegates a valid organization-scoped invoice to the atomic transaction port", async () => {
     const result = await new SalesTransactionService(transaction).createInvoice(request);
     expect(result.invoice.status).toBe("POSTED");
     expect(result.inventory_decreased).toBe(true);
@@ -58,7 +61,7 @@ describe("SalesTransactionService", () => {
   it("rejects duplicate line numbers before any transaction executes", async () => {
     await expect(new SalesTransactionService(transaction).createInvoice({
       ...request,
-      lines: [requestLine, { ...requestLine, line_number: 2 }].map((line) => ({ ...line, line_number: 1 })),
+      lines: [requestLine, { ...requestLine, line_number: 1 }],
     })).rejects.toThrow("duplicate line_number 1");
   });
 
@@ -68,5 +71,12 @@ describe("SalesTransactionService", () => {
       ...request,
       lines: [mismatchedLine],
     })).rejects.toThrow("cogs_total mismatch on line 1");
+  });
+
+  it("rejects the legacy rent arithmetic before mutation", async () => {
+    await expect(new SalesTransactionService(transaction).createInvoice({
+      ...request,
+      invoice: { ...request.invoice, grand_total: 9500 },
+    })).rejects.toThrow("grand_total must equal subtotal minus discount plus pass-through rent");
   });
 });
