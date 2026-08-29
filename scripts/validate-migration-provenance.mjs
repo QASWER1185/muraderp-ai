@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,40 +12,26 @@ const EXPECTED_PHASE21_SOURCE_STATE = "PENDING_P0_2_REVIEW";
 const EXPECTED_IDENTITY_FOUNDATION =
   "20260815070000_phase_10_identity_organization_authorization.sql";
 const MIGRATION_FILE_PATTERN = /^(\d{14})_(.+)\.sql$/;
+const EVIDENCE_RELATIVE_PATH =
+  "supabase/migration-provenance/live-applied.json";
+const PHASE21_DISPOSITION_RELATIVE_PATH =
+  "supabase/migration-provenance/phase21-disposition.json";
+const PROVENANCE_INPUT_PATHS = [
+  "supabase/migrations",
+  "supabase/migration-provenance",
+];
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "..");
 const migrationDirectory = path.join(repositoryRoot, "supabase", "migrations");
-const evidencePath = path.join(
-  repositoryRoot,
-  "supabase",
-  "migration-provenance",
-  "live-applied.json",
-);
-const phase21DispositionPath = path.join(
-  repositoryRoot,
-  "supabase",
-  "migration-provenance",
-  "phase21-disposition.json",
-);
-
 const failures = [];
 
-// Git may expose text files as CRLF in Windows working trees even when the
-// repository blob is LF. Fingerprints are bound to canonical repository text,
-// so normalize only that checkout conversion; all other byte changes still fail.
-function canonicalRepositoryText(value) {
-  return value.replace(/\r\n/g, "\n");
-}
-
 function sha256(value) {
-  return createHash("sha256")
-    .update(canonicalRepositoryText(value))
-    .digest("hex");
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function gitBlobSha(value) {
-  const bytes = Buffer.from(canonicalRepositoryText(value));
+  const bytes = Buffer.from(value);
   return createHash("sha1")
     .update(`blob ${bytes.length}\0`)
     .update(bytes)
@@ -58,22 +45,93 @@ function check(condition, message) {
 }
 
 function normalizedSql(value) {
-  return canonicalRepositoryText(value).trimEnd();
+  return value.replace(/\r\n/g, "\n").trimEnd();
 }
 
 function migrationVersion(filename) {
   return filename.match(MIGRATION_FILE_PATTERN)?.[1] ?? null;
 }
 
-const [evidenceRaw, phase21DispositionRaw] = await Promise.all([
-  readFile(evidencePath, "utf8"),
-  readFile(phase21DispositionPath, "utf8"),
-]);
+function failNow(message) {
+  console.error("MIGRATION_PROVENANCE_VALIDATION_FAILED");
+  console.error(`- ${message}`);
+  process.exit(1);
+}
+
+function committedBlob(relativePath) {
+  try {
+    return execFileSync(
+      "git",
+      ["cat-file", "blob", `HEAD:${relativePath.replaceAll("\\", "/")}`],
+      {
+        cwd: repositoryRoot,
+        maxBuffer: 32 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+  } catch (error) {
+    const stderr = error?.stderr?.toString("utf8")?.trim();
+    failNow(
+      `Unable to read committed Git blob ${relativePath}${stderr ? `: ${stderr}` : "."}`,
+    );
+  }
+}
+
+function provenanceStatus() {
+  try {
+    return execFileSync(
+      "git",
+      [
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        ...PROVENANCE_INPUT_PATHS,
+      ],
+      {
+        cwd: repositoryRoot,
+        encoding: "utf8",
+        maxBuffer: 8 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+  } catch (error) {
+    const stderr = error?.stderr?.toString("utf8")?.trim();
+    failNow(
+      `Unable to verify migration provenance working-tree state${stderr ? `: ${stderr}` : "."}`,
+    );
+  }
+}
+
+const status = provenanceStatus();
+check(
+  status.trim().length === 0,
+  `Migration provenance inputs must be clean and committed before validation.${
+    status.trim().length > 0 ? ` Git status: ${status.trim().replace(/\r?\n/g, " | ")}` : ""
+  }`,
+);
+
+if (failures.length > 0) {
+  console.error("MIGRATION_PROVENANCE_VALIDATION_FAILED");
+  for (const failure of failures) {
+    console.error(`- ${failure}`);
+  }
+  process.exit(1);
+}
+
+const evidenceBuffer = committedBlob(EVIDENCE_RELATIVE_PATH);
+const phase21DispositionBuffer = committedBlob(
+  PHASE21_DISPOSITION_RELATIVE_PATH,
+);
+const evidenceRaw = evidenceBuffer.toString("utf8");
+const phase21DispositionRaw = phase21DispositionBuffer.toString("utf8");
 const evidence = JSON.parse(evidenceRaw);
 const phase21Disposition = JSON.parse(phase21DispositionRaw);
 
 check(
-  sha256(evidenceRaw) === EXPECTED_BUNDLE_SHA256,
+  sha256(evidenceBuffer) === EXPECTED_BUNDLE_SHA256,
   "The live migration evidence bundle fingerprint changed.",
 );
 check(evidence.schema_version === 1, "Unsupported provenance schema version.");
@@ -167,13 +225,15 @@ for (const filename of activeFilenames) {
   if (!match) {
     continue;
   }
-  const sql = await readFile(path.join(migrationDirectory, filename), "utf8");
+  const relativePath = `supabase/migrations/${filename}`;
+  const buffer = committedBlob(relativePath);
+  const sql = buffer.toString("utf8");
   activeRows.push({
     filename,
     version: match[1],
     sql,
-    sql_sha256: sha256(sql),
-    git_blob_sha: gitBlobSha(sql),
+    sql_sha256: sha256(buffer),
+    git_blob_sha: gitBlobSha(buffer),
   });
 }
 
@@ -350,6 +410,7 @@ console.log(
       remaining_active_chain_blockers: remainingActiveChainBlockers,
       future_version_floor_exclusive:
         evidence.reconciliation.future_version_floor_exclusive,
+      integrity_source: "COMMITTED_GIT_BLOBS",
     },
     null,
     2,

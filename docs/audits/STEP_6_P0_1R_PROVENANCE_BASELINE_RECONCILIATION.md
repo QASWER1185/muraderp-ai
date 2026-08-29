@@ -2,119 +2,108 @@
 
 ## Scope
 
-This record reconciles the migration-provenance validator with the legitimate repository state after the approved P0-1 → P0-2 progression. It does not redesign the migration system, change production Supabase, alter migration history, or modify historical migration SQL.
+This is the final controlled P0-1R reconciliation pass. It does not redesign the migration system, modify historical migration SQL, repair migration history, apply migrations, or mutate production Supabase.
 
-## Previous authoritative evidence
+## Previous authoritative baseline
 
-P0-1 commit:
+- P0-1 commit: `615494767e0df48727c93f83d6359aacaed202a5`
+- Immutable live evidence bundle SHA-256: `749201cd05b6d11f2bc6a8d17e4277921b5f76f607d20bee639253211de3123a`
+- Live evidence file: `supabase/migration-provenance/live-applied.json`
+- Live evidence Git blob: `2111460e97e74877a200a66ffb0051e0d32ea7ee`
 
-`615494767e0df48727c93f83d6359aacaed202a5`
+The P0-1 bundle remains historical evidence and is not rewritten by this reconciliation. No environment-specific replacement baseline is created.
 
-P0-1 evidence file:
+## Approved progression examined
 
-`supabase/migration-provenance/live-applied.json`
+The ancestry from P0-1 to the accepted P0-7/P0-8 starting state is an eight-commit forward progression:
 
-The evidence file remains the immutable capture of the live ledger and repository baseline at P0-1. Its Git blob is unchanged across P0-1, P0-2, and the current P0-8 starting HEAD:
+1. `981d831f8f1e46e5251a1ea5e783365368205a3f` — P0-2 Phase 21 disposition.
+2. `f4488ff462e98a9c71d7ad328491f04410d7d1da` — P0-4 branch foundation.
+3. `f7bc6154423c891d92998f731eae591fcd5299b6` — P0-3 existing-data ownership gate.
+4. `b0650fec332e2bae2ea4d412b7bfed8f53b259bc` — P0-5 membership/branch-access foundation.
+5. `880fe671ad93818e1ec46b87ac0fca2a7824bc4e` — P0-5 RLS hardening fix.
+6. `baee2b5bc43bdbc8fbf2752cc412e83c59a023d2` — P0-6 service-principal foundation.
+7. `208220c647d86d7e02dab945b2baf4be4bbd14e6` — P0-6 validator-path fix.
+8. `d06834faf81d302b2af01807c43e40d76d4fc285` — P0-7 accounting architecture decision and P0-8 starting state.
 
-`2111460e97e74877a200a66ffb0051e0d32ea7ee`
+P0-3 was intentionally based on the already accepted P0-4 repository state; unit numbering does not imply Git ancestry order.
 
-The approved evidence SHA-256 remains:
+## Migration-file change reconciliation
 
-`749201cd05b6d11f2bc6a8d17e4277921b5f76f607d20bee639253211de3123a`
+Comparison of P0-1 commit `6154947...` to `d06834f...` shows no modification, deletion, rename, or restoration of any migration SQL file that already existed at P0-1.
 
-No replacement provenance baseline is required by this reconciliation.
+Only three migration files were introduced after P0-1:
 
-## Phase 21 progression
+| Migration | Change | Responsible commit(s) | Conclusion |
+| --- | --- | --- | --- |
+| `20260828182231_branch_foundation.sql` | Added | `f4488ff462e98a9c71d7ad328491f04410d7d1da` | Approved P0-4 forward migration |
+| `20260829062845_p0_5_membership_branch_access_foundation.sql` | Added, then hardened before production application | `b0650fec332e2bae2ea4d412b7bfed8f53b259bc`, `880fe671ad93818e1ec46b87ac0fca2a7824bc4e` | Approved P0-5 forward migration evolution |
+| `20260829065058_p0_6_service_principal_security_foundation.sql` | Added | `baee2b5bc43bdbc8fbf2752cc412e83c59a023d2` | Approved P0-6 forward migration |
 
-The P0-1 evidence correctly preserves the captured source state:
+P0-2 did not edit Phase 21 SQL. P0-3 created no migration. P0-7 created no migration. No P0-8 migration exists in the reconciled state.
 
-- disposition: `PENDING_P0_2_REVIEW`
-- executable: `false`
+## Live-applied evidence bundle
 
-P0-2 resolved the disposition additively rather than rewriting P0-1 evidence.
+`supabase/migration-provenance/live-applied.json` has the same committed Git object from P0-1 through the approved progression. Its expected SHA-256 therefore remains unchanged.
 
-P0-2 commit:
+The Windows working-tree fingerprint mismatch is not promoted into a new evidence baseline.
 
-`981d831f8f1e46e5251a1ea5e783365368205a3f`
+## Phase 21 disposition evolution
 
-Disposition file:
+P0-1 captured Phase 21 as pending controlled disposition. P0-2 commit `981d831f8f1e46e5251a1ea5e783365368205a3f` added `supabase/migration-provenance/phase21-disposition.json` without modifying the historical Phase 21 SQL.
 
-`supabase/migration-provenance/phase21-disposition.json`
-
-Disposition:
+Authoritative status remains:
 
 `HISTORICAL_ONLY_DO_NOT_APPLY`
 
-The disposition Git blob remains unchanged from P0-2 through the current starting HEAD:
+The current committed Git blob identities of all four Phase 21 SQL files match the immutable fingerprints recorded by the P0-2 disposition manifest. Phase 21 remains non-executable and replacement-required.
 
-`83077e5b41689749576db7a6177ae2ec2bc5ced4`
+## Root cause of the Windows validator failure
 
-The four Phase 21 SQL files remain historical and immutable. They must not be applied as the tenant-isolation foundation.
+The original validator read provenance JSON and migration SQL from working-tree files and calculated SHA-256 and synthetic Git-blob SHA from those checkout bytes.
 
-## Historical migration integrity
+A Windows checkout can materialize LF repository text as CRLF while Git still reports the working tree clean. A targeted reproduction confirmed this behavior: the CRLF working-tree raw blob hash differed while `git cat-file blob HEAD:<path>` preserved the committed LF blob identity.
 
-A targeted Git comparison from P0-1 commit `6154947...` to current starting HEAD `d06834f...` shows no modified historical file under `supabase/migrations`.
+This explains the simultaneous bundle, historical SQL, and synthetic Git-blob mismatches without any corresponding committed historical migration change.
 
-Repository evolution after P0-1 added forward migration candidates, including:
+## Reconciliation implementation
 
-- `20260828182231_branch_foundation.sql`
-- `20260829062845_p0_5_membership_branch_access_foundation.sql`
-- `20260829065058_p0_6_service_principal_security_foundation.sql`
+An intermediate candidate commit `fcb02a5c8b6a98224e2a31a257447afe0088524a` normalized CRLF before hashing. That correctly addressed checkout presentation, but the final fail-closed implementation does not rely on normalization because normalization could hide a committed line-ending-only change.
 
-The P0-1 historical migration set was not rewritten in this progression.
+The final validator is hardened as follows:
 
-Representative exact Git-blob checks also match the P0-1 baseline, including:
+1. `supabase/migrations` and `supabase/migration-provenance` must be clean and committed before validation.
+2. Provenance JSON and migration SQL fingerprints are calculated from canonical committed Git object bytes using `git cat-file blob HEAD:<path>`.
+3. The P0-1 evidence SHA-256 expectation remains unchanged.
+4. Every historical SQL SHA-256 expectation remains unchanged.
+5. Every historical Git blob expectation remains unchanged.
+6. Phase 21 P0-2 disposition checks remain enforced.
+7. Future-version, duplicate-version, live/repository-relation, archive-only, and deployability checks remain enforced.
+8. Untracked or modified provenance inputs fail before validation.
 
-- `20260809141445_establish_database_foundation.sql` → `e2eae9e2d78dbd3112d2beacbdabb8d03e7bdb44`
-- `20260815190000_phase21_organization_branch_security.sql` → `254857523b9d663b07845f43d478c3327826b3f7`
+This changes the validator's evidence source from platform-dependent checkout bytes to canonical committed Git objects. It does not weaken or replace the baseline.
 
-Therefore the reported historical fingerprint failures are not evidence of unauthorized historical SQL modification.
+## Historical migration integrity conclusion
 
-## Root cause
+**NO UNEXPLAINED HISTORICAL MIGRATION MODIFICATION FOUND.**
 
-The provenance validator hashed text as read from the working tree. On Windows, Git may expose repository text using CRLF line endings even when the committed Git blob uses LF. The repository has no `.gitattributes` file forcing checkout EOL behavior, while `.editorconfig` specifies LF for editors.
-
-Consequences on a Windows checkout can include false failures for:
-
-- the immutable evidence bundle SHA-256;
-- historical migration SQL SHA-256 values;
-- computed Git blob SHA values.
-
-The underlying Git blobs remain unchanged.
-
-## Controlled correction
-
-The validator now canonicalizes only CRLF checkout conversion to LF before computing text SHA-256 and Git-blob fingerprints.
-
-This is not a baseline weakening:
-
-- expected evidence SHA-256 is unchanged;
-- expected historical SQL SHA-256 values are unchanged;
-- expected historical Git blob SHAs are unchanged;
-- expected Phase 21 disposition is unchanged;
-- missing files still fail;
-- renamed files still fail;
-- SQL content changes still fail;
-- duplicate-version changes still fail;
-- live/repository relation changes still fail.
-
-Only platform-specific CRLF/LF presentation is normalized.
+All committed migration changes after P0-1 are attributable to approved forward project commits. Pre-P0-1 migration Git objects remain unchanged through the approved progression.
 
 ## Required genuine validation
 
-The authoritative result still requires execution from the genuine repository checkout:
+The final authority remains actual execution on a genuine repository checkout:
 
 `node scripts/validate-migration-provenance.mjs`
 
-Only actual output `MIGRATION_PROVENANCE_VALID` may be accepted as PASS.
-
-If any mismatch remains, stop and report the exact remaining validator failures. Do not weaken the validator and do not modify historical SQL to make it pass.
+Only literal output `MIGRATION_PROVENANCE_VALID` is accepted as PASS. Any remaining mismatch requires an immediate stop and exact failure report.
 
 ## Safety status
 
-- Production Supabase mutation: **NONE**
+- Production Supabase mutation: **ZERO**
 - `supabase db push`: **NOT RUN**
 - migration repair: **NOT RUN**
+- database reset: **NOT RUN**
 - historical migration SQL modification: **NONE**
+- migration rename/delete/restore: **NONE**
 - P0-8 migration generation: **NOT STARTED**
 - P0-9: **NOT STARTED**
