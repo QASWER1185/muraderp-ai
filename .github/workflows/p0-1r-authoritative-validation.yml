@@ -1,0 +1,66 @@
+name: P0-1R Authoritative Validation
+run-name: P0-1R validate candidate c9f9c593
+
+on:
+  push:
+    branches:
+      - p0-1r-authoritative-validation-20260829
+
+permissions:
+  contents: read
+
+jobs:
+  authoritative-validator:
+    name: Authoritative migration provenance validator
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 15
+    steps:
+      - name: Verify expected runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "runner=$env:RUNNER_NAME"
+          Write-Host "os=$env:RUNNER_OS"
+          Write-Host "arch=$env:RUNNER_ARCH"
+          Write-Host "workspace=$env:GITHUB_WORKSPACE"
+          if ($env:RUNNER_NAME -ne 'DESKTOP-2S9VT4V') { throw "Unexpected runner: $env:RUNNER_NAME" }
+          if ($env:RUNNER_OS -ne 'Windows') { throw "Unexpected runner OS: $env:RUNNER_OS" }
+          if ($env:RUNNER_ARCH -ne 'X64') { throw "Unexpected runner architecture: $env:RUNNER_ARCH" }
+          if (-not (Test-Path $env:GITHUB_WORKSPACE)) { throw 'GITHUB_WORKSPACE is unavailable' }
+
+      - name: Verify Node and Git availability
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node --version
+          git --version
+
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: c9f9c59309b580872679c3cf7e6a8d12235b093a
+          fetch-depth: 2
+          persist-credentials: false
+          clean: true
+
+      - name: Verify checkout and working directory safety
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:GITHUB_WORKSPACE
+          $head = (git rev-parse HEAD).Trim()
+          $parent = (git rev-parse HEAD^).Trim()
+          $status = @(git status --porcelain)
+          Write-Host "candidate_head=$head"
+          Write-Host "candidate_parent=$parent"
+          Write-Host "working_tree_changes=$($status.Count)"
+          if ($head -ne 'c9f9c59309b580872679c3cf7e6a8d12235b093a') { throw "Candidate checkout mismatch: $head" }
+          if ($parent -ne 'f4488ff462e98a9c71d7ad328491f04410d7d1da') { throw "Candidate parent mismatch: $parent" }
+          if ($status.Count -ne 0) { throw 'Candidate checkout is not clean' }
+
+      - name: Run authoritative migration provenance validator
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:GITHUB_WORKSPACE
+          node scripts/validate-migration-provenance.mjs
