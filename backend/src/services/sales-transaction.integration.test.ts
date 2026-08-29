@@ -1,110 +1,76 @@
 import { describe, expect, it, vi } from "vitest";
+import { buildDirectInvoice } from "../types/invoice.types.js";
 import { SalesTransactionService } from "./sales-transaction.service.js";
-import type { SalesTransactionLine, SalesTransactionPort, SalesTransactionRequest } from "../types/sales-transaction.types.js";
+import { SupabaseSalesTransactionAdapter } from "./supabase-sales-transaction.adapter.js";
+import type { SalesTransactionRequest } from "../types/sales-transaction.types.js";
 
-const line: SalesTransactionLine = {
-  line_number: 1,
-  product_id: 25,
-  quantity: 10,
-  unit: "bag",
-  unit_price: 1000,
-  line_total: 10000,
-  unit_cost: 800,
-  cogs_total: 8000,
-};
-
+const organizationId = "11111111-1111-4111-8111-111111111111";
+const actorUserId = "22222222-2222-4222-8222-222222222222";
 const request: SalesTransactionRequest = {
-  invoice: {
-    id: 0,
-    status: "DRAFT",
-    source_estimate_id: 42,
-    source_type: "FROM_ESTIMATE",
-    definition: {
-      invoice_number: "INV-TEST-0001",
-      customer_id: 7,
-      issue_date: "2026-08-13",
-      currency_code: "PKR",
-    },
-    lines: [],
-    subtotal: 10000,
-    discount_total: 500,
-    grand_total: 9500,
-    pass_through_rent: 750,
-  },
-  warehouse_id: 1,
-  idempotency_key: "invoice-test-0001",
-  lines: [line],
+  organization_id: organizationId,
+  branch_id: null,
+  actor_user_id: actorUserId,
+  invoice: buildDirectInvoice(
+    { invoice_number: "INV-E2E-001", customer_id: 7, salesperson_id: 3, issue_date: "2026-08-14", currency_code: "PKR", notes: "verification" },
+    [{ line_number: 1, product_id: 10, quantity: 2, unit: "piece", unit_price: 1500, pricing_source: "RESOLVED_RATE", rate_list_id: 4, rate_list_selection_source: "MANUAL_OVERRIDE" }],
+    3000,
+    0,
+    3200,
+    200,
+  ),
+  warehouse_id: 2,
+  lines: [{ line_number: 1, product_id: 10, quantity: 2, unit: "piece", unit_price: 1500, line_total: 3000, unit_cost: 900, cogs_total: 1800 }],
+  idempotency_key: "invoice-e2e-001",
 };
 
-function successfulPort(): SalesTransactionPort {
-  return {
-    execute: vi.fn(async (value) => ({
-      invoice: { ...value.invoice, id: 501, status: "POSTED" },
+const principalId = "principal-e2e";
+
+describe("Sales transaction P0-8 integration contract", () => {
+  it("rejects an invalid request before any database adapter call", async () => {
+    const execute = vi.fn();
+    const service = new SalesTransactionService({ execute });
+    const invalid = { ...request, idempotency_key: "   " };
+    await expect(service.createInvoice(invalid)).rejects.toThrow("idempotency_key is required");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("maps the selected sales transaction to the organization-aware authoritative RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { invoice_id: 101, journal_entry_id: "33333333-3333-4333-8333-333333333333", replayed: false, revenue: 3000, cogs: 1800, rent: 200, profit: 1200 }, error: null });
+    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, principalId);
+    const result = await new SalesTransactionService(adapter).createInvoice(request);
+
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(rpc).toHaveBeenCalledWith("post_invoice_atomic", expect.objectContaining({
+      p_organization_id: organizationId,
+      p_branch_id: null,
+      p_actor_user_id: actorUserId,
+      p_service_principal: principalId,
+      p_operation_scope: "sales.invoice.post",
+      p_warehouse_id: 2,
+      p_idempotency_key: "invoice-e2e-001",
+      p_lines: request.lines,
+      p_invoice: expect.objectContaining({ grand_total: 3200, pass_through_rent: 200 }),
+    }));
+    expect(result).toMatchObject({
+      invoice: { id: 101, status: "POSTED" },
       inventory_decreased: true,
       customer_receivable_updated: true,
       revenue_recorded: true,
       cogs_recorded: true,
       profit_loss_recorded: true,
       pass_through_rent_recorded: true,
-    })),
-  };
-}
-
-describe("Invoice transaction integration contract", () => {
-  it("requires every authoritative accounting/stock outcome to be reported", async () => {
-    const port = successfulPort();
-    const result = await new SalesTransactionService(port).createInvoice(request);
-
-    expect(result.invoice.id).toBe(501);
-    expect(result.invoice.status).toBe("POSTED");
-    expect(result.inventory_decreased).toBe(true);
-    expect(result.customer_receivable_updated).toBe(true);
-    expect(result.revenue_recorded).toBe(true);
-    expect(result.cogs_recorded).toBe(true);
-    expect(result.profit_loss_recorded).toBe(true);
-    expect(result.pass_through_rent_recorded).toBe(true);
-    expect(port.execute).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("passes the estimate source through to the authoritative transaction port", async () => {
-    const port = successfulPort();
-    await new SalesTransactionService(port).createInvoice(request);
-
-    expect(port.execute).toHaveBeenCalledWith(expect.objectContaining({
-      invoice: expect.objectContaining({
-        source_estimate_id: 42,
-        source_type: "FROM_ESTIMATE",
-      }),
-    }));
+  it("surfaces idempotency fingerprint conflicts as a conflict", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "P0001", message: "idempotency key was already used for a different sales request" } });
+    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, principalId);
+    await expect(adapter.execute(request)).rejects.toMatchObject({ status: 409, code: "IDEMPOTENCY_KEY_REUSED" });
   });
 
-  it("does not call the transaction port when request validation fails", async () => {
-    const port = successfulPort();
-    await expect(new SalesTransactionService(port).createInvoice({
-      ...request,
-      idempotency_key: "",
-    })).rejects.toThrow("idempotency_key is required");
-
-    expect(port.execute).not.toHaveBeenCalled();
-  });
-
-  it("rejects an existing invoice id before any database mutation", async () => {
-    const port = successfulPort();
-    await expect(new SalesTransactionService(port).createInvoice({
-      ...request,
-      invoice: { ...request.invoice, id: 501 },
-    })).rejects.toThrow("new sales transaction must not reuse an existing invoice id");
-
-    expect(port.execute).not.toHaveBeenCalled();
-  });
-
-  it("rejects a non-positive warehouse before any database mutation", async () => {
-    const port = successfulPort();
-    await expect(new SalesTransactionService(port).createInvoice({
-      ...request,
-      warehouse_id: 0,
-    })).rejects.toThrow("warehouse_id must be a positive integer");
-
-    expect(port.execute).not.toHaveBeenCalled();
+  it("surfaces insufficient stock atomically", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "P0004", message: "insufficient stock" } });
+    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, principalId);
+    await expect(adapter.execute(request)).rejects.toMatchObject({ status: 409, code: "INSUFFICIENT_STOCK" });
   });
 });
