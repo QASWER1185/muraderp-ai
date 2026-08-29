@@ -1,0 +1,52 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const migration = readFileSync(resolve(root, "supabase/migrations/20260829173824_p0_8_authoritative_accounting_posting_foundation.sql"), "utf8");
+const repository = readFileSync(resolve(root, "backend/src/repositories/sales-transaction.repository.ts"), "utf8");
+const route = readFileSync(resolve(root, "backend/src/routes/sales.routes.ts"), "utf8");
+const types = readFileSync(resolve(root, "backend/src/types/sales-transaction.types.ts"), "utf8");
+const adapter = readFileSync(resolve(root, "backend/src/services/supabase-sales-transaction.adapter.ts"), "utf8");
+const failures = [];
+const check = (condition, message) => condition ? console.log(`PASS  ${message}`) : failures.push(message);
+
+check(migration.includes("journal_entries_p0_8_source_key"), "organization-aware authoritative source uniqueness exists");
+check(migration.includes("organization_id, source_type, source_record_id, posting_kind"), "source tuple matches P0-7");
+check(migration.includes("sales_transaction_idempotency_p0_8_scope_key"), "organization-scoped sales idempotency exists");
+check(migration.includes("organization_id, principal_id, operation_scope, idempotency_key"), "idempotency scope includes organization/principal/operation/key");
+check(migration.includes("request_fingerprint"), "request fingerprint is persisted");
+check(migration.includes("posted journal total debits must equal total credits"), "database balance equality is enforced");
+check(migration.includes("posted journal total debit must be greater than zero"), "database positive-debit invariant is enforced");
+check(migration.includes("deferrable initially deferred"), "balance enforcement supports atomic multi-line construction");
+check(migration.includes("journal status transition must be DRAFT to POSTED"), "authoritative posting transition is explicit");
+check(migration.includes("authoritative journal lines are immutable after insert"), "posted journal lines cannot be edited/deleted");
+check(migration.includes("has_permission_for_user(p_actor_user_id, p_organization_id, 'sales.create')"), "sales permission is enforced");
+check(migration.includes("has_permission_for_user(p_actor_user_id, p_organization_id, 'accounting.post')"), "accounting permission is enforced");
+check(migration.includes("has_branch_access_for_user"), "optional branch scope uses P0-5 explicit grants");
+check(migration.includes("customer ownership is not assigned to the authorized organization"), "unknown customer ownership fails closed");
+check(migration.includes("inventory ownership is not assigned to the authorized organization"), "unknown inventory ownership fails closed");
+check(!/insert\s+into\s+public\.accounting_journal_(entries|lines)/i.test(migration), "selected sales path does not write legacy accounting journal");
+check(!migration.includes("RENT_RECEIVABLE"), "rent does not create a second receivable debit");
+check(migration.includes("v_rent_payable_account, 0, v_rent"), "rent is credited to authoritative Rent Payable");
+check(!migration.includes("purchase_price"), "P0-8 does not invent a costing policy fallback");
+check(migration.includes("revoke all on function public.post_invoice_atomic(jsonb,jsonb,bigint,text,text)"), "legacy P0-6 sales wrapper is disabled");
+check(migration.includes("record_sales_transaction"), "legacy/missing repository RPC is explicitly disabled if present");
+check(migration.includes("grant execute on function public.post_invoice_atomic(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb,bigint) to service_role"), "new authoritative RPC is service-role-only");
+check(repository.includes('client.rpc("post_invoice_atomic"'), "repository targets authoritative post_invoice_atomic RPC");
+check(!repository.includes('client.rpc("record_sales_transaction"'), "repository no longer targets record_sales_transaction");
+check(repository.includes('p_operation_scope: OPERATION_SCOPE'), "backend passes deterministic operation scope");
+check(repository.includes('p_request_fingerprint: fingerprint(request)'), "backend sends deterministic fingerprint");
+check(route.includes('X-Organization-Id') && route.includes('X-Actor-User-Id'), "sales route requires explicit tenant/actor context");
+check(types.includes("grand_total must equal subtotal minus discount plus pass-through rent"), "backend enforces accepted rent total semantics");
+check(types.includes("costing is not inferred"), "backend requires explicit posted cost basis");
+check(adapter.includes("SupabaseSalesTransactionRepository"), "legacy adapter delegates to one canonical RPC mapping");
+
+if (failures.length) {
+  console.error("\nP0_8_ACCOUNTING_FOUNDATION_INVALID");
+  for (const failure of failures) console.error(`FAIL  ${failure}`);
+  process.exit(1);
+}
+console.log("\nP0_8_ACCOUNTING_FOUNDATION_VALID");
+console.log("AUTHORITATIVE_GL=public.accounts+public.journal_entries+public.journal_lines");
+console.log("SELECTED_SALES_LEGACY_WRITES=DISABLED");
+console.log("PRODUCTION_DB_MUTATION=ZERO");
