@@ -117,6 +117,8 @@ alter table public.sales_transaction_idempotency_keys
 alter table public.sales_transaction_idempotency_keys
   drop constraint if exists sales_transaction_idempotency_unique;
 
+drop index if exists public.sales_transaction_idempotency_unique;
+
 alter table public.sales_transaction_idempotency_keys
   alter column organization_id set not null,
   alter column actor_user_id set not null,
