@@ -152,3 +152,43 @@ comment on function public.has_permission_for_user(uuid, uuid, text) is
   'P0-5 service-only organization permission check using active Phase 10 membership and role permissions.';
 comment on function public.has_branch_access_for_user(uuid, uuid, uuid) is
   'P0-5 service-only explicit branch-grant check; NULL branch is never wildcard access.';
+
+-- Replace broad/recursive Phase 10 SELECT policies with explicit authenticated,
+-- fail-closed read policies. Organization-member administration stays behind
+-- the trusted backend service boundary; browser users may inspect only their
+-- own membership rows.
+drop policy if exists memberships_select_self_or_same_org on public.organization_memberships;
+create policy memberships_select_self on public.organization_memberships
+for select
+to authenticated
+using (
+  (select auth.uid()) is not null
+  and user_id = (select auth.uid())
+);
+
+drop policy if exists organizations_select_member on public.organizations;
+create policy organizations_select_member on public.organizations
+for select
+to authenticated
+using (
+  (select auth.uid()) is not null
+  and exists (
+    select 1
+    from public.organization_memberships om
+    where om.organization_id = organizations.id
+      and om.user_id = (select auth.uid())
+      and om.status = 'active'
+  )
+);
+
+drop policy if exists permissions_select_authenticated on public.permissions;
+create policy permissions_select_authenticated on public.permissions
+for select
+to authenticated
+using ((select auth.uid()) is not null);
+
+drop policy if exists role_permissions_select_authenticated on public.role_permissions;
+create policy role_permissions_select_authenticated on public.role_permissions
+for select
+to authenticated
+using ((select auth.uid()) is not null);

@@ -14,11 +14,12 @@ Authorization is organization-first and fail-closed. An active organization memb
 
 ## Repository implementation
 
-- `backend/src/auth/tenant-access.types.ts` defines branch-independent tenant context and the authorization gateway contract.
+- `backend/src/auth/tenant-access.types.ts` defines branch-independent tenant context and an explicit organization-vs-branch authorization scope.
 - `backend/src/auth/tenant-access.service.ts` enforces explicit organization membership, permission, and branch-grant checks.
 - `backend/src/auth/supabase-authorization.gateway.ts` uses service-only RPCs for membership, permission, and branch checks.
 - `backend/src/auth/phase21-org-context.ts` remains a compatibility boundary but no longer treats null branch as organization-wide wildcard branch authority.
 - `supabase/migrations/20260829062845_p0_5_membership_branch_access_foundation.sql` adds forward-only service RPCs and least-privilege table/function hardening. It performs no business-data DML and is not applied to production in P0-5.
+- The pending migration replaces the recursive/broad Phase 10 membership SELECT policy with an authenticated self-membership read policy; membership administration remains backend-managed.
 - `scripts/validate-p0-5-authorization-foundation.mjs` fail-closes if core P0-5 invariants are removed.
 - Stage 11 release readiness invokes the P0-5 validator.
 
@@ -39,6 +40,10 @@ The service-only RPCs are `SECURITY INVOKER`, use an empty search path, and are 
 
 The migration does not add `branch_id` to organization membership and does not create or assign any user, organization, membership, branch, grant, or ownership value.
 
+## RLS / privilege hardening
+
+The pending migration does not weaken RLS. It removes anonymous table access to Phase 10 identity/permission tables, removes authenticated write privileges, preserves authenticated reads behind RLS, and rewrites the membership SELECT policy so authenticated users can read only their own membership rows. Organization administration remains behind the trusted backend/service boundary. P0-4 branch tables remain browser-fail-closed with no authenticated access policy.
+
 ## Validation
 
 Deterministic targeted authorization validation covers:
@@ -52,5 +57,7 @@ Deterministic targeted authorization validation covers:
 7. invalid organization/branch relationship denied;
 8. unauthorized permission denied;
 9. missing tenant context denied.
+
+The P0-5 repository validator also has negative controls proving it rejects `SECURITY DEFINER`, null-branch guard removal, and recreation of the deprecated recursive membership policy.
 
 The P0-1R execution-environment blocker remains separate. P0-5 does not claim authoritative migration replay or full GitHub CI while runners remain unavailable.

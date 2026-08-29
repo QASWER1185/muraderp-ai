@@ -38,12 +38,19 @@ for (const functionName of [
 }
 
 for (const invariant of [
+  "create policy memberships_select_self on public.organization_memberships",
+  "to authenticated",
+  "user_id = (select auth.uid())",
   "om.status = 'active'",
   "bag.status = 'active'",
   "b.status = 'active'",
   "p_branch_id is not null",
 ]) {
-  if (!migration.includes(invariant)) fail(`missing branch authorization invariant: ${invariant}`);
+  if (!migration.includes(invariant)) fail(`missing authorization invariant: ${invariant}`);
+}
+
+if (/memberships_select_self_or_same_org[\s\S]*?create policy memberships_select_self_or_same_org/i.test(migration)) {
+  fail("recursive same-organization membership policy must not be recreated");
 }
 
 if (!tenantService.includes("TENANT_CONTEXT_REQUIRED")) fail("tenant context must fail closed");
