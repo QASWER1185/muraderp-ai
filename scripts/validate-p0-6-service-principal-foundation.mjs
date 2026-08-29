@@ -10,9 +10,9 @@ const authSource = readFileSync(resolve(root, "backend/src/middleware/internal-a
 const gatewaySource = readFileSync(resolve(root, "backend/src/auth/supabase-authorization.gateway.ts"), "utf8");
 const supabaseSource = readFileSync(resolve(root, "backend/src/config/supabase.ts"), "utf8");
 const erpRoute = readFileSync(resolve(root, "backend/src/routes/erp.routes.ts"), "utf8");
-const appSource = readFileSync(root, "backend/src/app.ts"), "utf8");
-const copilotRoute = readFileSync(root, "backend/src/routes/ai-copilot.routes.ts"), "utf8");
-const salesAdapter = readFileSync(root, "backend/src/services/supabase-sales-transaction.adapter.ts"), "utf8");
+const appSource = readFileSync(resolve(root, "backend/src/app.ts"), "utf8");
+const copilotRoute = readFileSync(resolve(root, "backend/src/routes/ai-copilot.routes.ts"), "utf8");
+const salesAdapter = readFileSync(resolve(root, "backend/src/services/supabase-sales-transaction.adapter.ts"), "utf8");
 const p05Migration = readFileSync(resolve(root, "supabase/migrations/20260829062845_p0_5_membership_branch_access_foundation.sql"), "utf8");
 
 const failures = [];
