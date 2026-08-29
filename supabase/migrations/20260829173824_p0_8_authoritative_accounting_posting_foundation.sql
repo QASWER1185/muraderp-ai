@@ -93,6 +93,7 @@ alter table public.stock_movements
 alter table public.invoices
   drop constraint if exists invoices_invoice_number_key;
 drop index if exists public.invoices_invoice_number_key;
+drop index if exists public.invoices_invoice_number_unique;
 create unique index invoices_p0_8_organization_invoice_number_key
   on public.invoices(organization_id, invoice_number)
   where organization_id is not null;

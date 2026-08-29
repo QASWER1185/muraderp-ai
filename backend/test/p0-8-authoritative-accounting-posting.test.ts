@@ -47,6 +47,7 @@ describe("P0-8 authoritative accounting posting foundation", () => {
 
   it("scopes invoice-number uniqueness to the organization", () => {
     expect(migration).toContain("drop constraint if exists invoices_invoice_number_key");
+    expect(migration).toContain("drop index if exists public.invoices_invoice_number_unique");
     expect(migration).toContain("invoices_p0_8_organization_invoice_number_key");
     expect(migration).toContain("organization_id, invoice_number");
   });
