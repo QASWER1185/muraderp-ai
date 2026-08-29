@@ -40,8 +40,8 @@ export function assertSalesTransactionRequest(request: SalesTransactionRequest):
   if (!request.idempotency_key.trim() || request.idempotency_key.length > 255) throw new Error("idempotency_key is required and must be at most 255 characters");
   if (request.lines.length === 0) throw new Error("invoice must contain at least one line");
   if (request.invoice.discount_total > request.invoice.subtotal) throw new Error("discount_total cannot exceed subtotal");
-  if (!closeEnough(request.invoice.grand_total, request.invoice.subtotal - request.invoice.discount_total + request.invoice.pass_through_rent)) {
-    throw new Error("grand_total must equal subtotal minus discount plus pass-through rent");
+  if (!closeEnough(request.invoice.grand_total, request.invoice.subtotal - request.invoice.discount_total)) {
+    throw new Error("grand_total must equal subtotal minus discount");
   }
   if (request.invoice.source_type === "DIRECT" && request.invoice.source_estimate_id !== null) throw new Error("DIRECT invoice cannot have source_estimate_id");
   if (request.invoice.source_type === "FROM_ESTIMATE" && request.invoice.source_estimate_id === null) throw new Error("FROM_ESTIMATE invoice requires source_estimate_id");

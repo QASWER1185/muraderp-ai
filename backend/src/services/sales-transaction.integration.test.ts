@@ -15,7 +15,7 @@ const request: SalesTransactionRequest = {
     [{ line_number: 1, product_id: 10, quantity: 2, unit: "piece", unit_price: 1500, pricing_source: "RESOLVED_RATE", rate_list_id: 4, rate_list_selection_source: "MANUAL_OVERRIDE" }],
     3000,
     0,
-    3200,
+    3000,
     200,
   ),
   warehouse_id: 2,
@@ -49,7 +49,7 @@ describe("Sales transaction P0-8 integration contract", () => {
       p_warehouse_id: 2,
       p_idempotency_key: "invoice-e2e-001",
       p_lines: request.lines,
-      p_invoice: expect.objectContaining({ grand_total: 3200, pass_through_rent: 200 }),
+      p_invoice: expect.objectContaining({ grand_total: 3000, pass_through_rent: 200 }),
     }));
     expect(result).toMatchObject({
       invoice: { id: 101, status: "POSTED" },

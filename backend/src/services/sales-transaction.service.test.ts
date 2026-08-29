@@ -26,7 +26,7 @@ const request: SalesTransactionRequest = {
     lines: [],
     subtotal: 10000,
     discount_total: 500,
-    grand_total: 10500,
+    grand_total: 9500,
     pass_through_rent: 1000,
   },
   warehouse_id: 1,
@@ -73,10 +73,10 @@ describe("SalesTransactionService", () => {
     })).rejects.toThrow("cogs_total mismatch on line 1");
   });
 
-  it("rejects the legacy rent arithmetic before mutation", async () => {
+  it("rejects folding pass-through rent into grand_total before mutation", async () => {
     await expect(new SalesTransactionService(transaction).createInvoice({
       ...request,
-      invoice: { ...request.invoice, grand_total: 9500 },
-    })).rejects.toThrow("grand_total must equal subtotal minus discount plus pass-through rent");
+      invoice: { ...request.invoice, grand_total: 10500 },
+    })).rejects.toThrow("grand_total must equal subtotal minus discount");
   });
 });

@@ -87,6 +87,19 @@ alter table public.stock_movements
   add column if not exists organization_id uuid,
   add column if not exists branch_id uuid;
 
+-- Invoice numbers are tenant-scoped once organization ownership is present.
+-- Legacy/unscoped drafts retain uniqueness among themselves without blocking
+-- separate organizations from using the same business invoice number.
+alter table public.invoices
+  drop constraint if exists invoices_invoice_number_key;
+drop index if exists public.invoices_invoice_number_key;
+create unique index invoices_p0_8_organization_invoice_number_key
+  on public.invoices(organization_id, invoice_number)
+  where organization_id is not null;
+create unique index invoices_p0_8_unscoped_invoice_number_key
+  on public.invoices(invoice_number)
+  where organization_id is null;
+
 alter table public.invoices
   add constraint invoices_p0_8_organization_fkey foreign key (organization_id) references public.organizations(id) on delete restrict,
   add constraint invoices_p0_8_branch_organization_fkey foreign key (organization_id, branch_id) references public.branches(organization_id, id) on delete restrict,
@@ -192,7 +205,7 @@ do $$
 begin
   if not exists (select 1 from public.accounts where code='1100' and account_type='ASSET' and normal_balance='DEBIT' and is_active)
      or not exists (select 1 from public.accounts where code='1200' and account_type='ASSET' and normal_balance='DEBIT' and is_active)
-     or not exists (select 1 from public.accounts where code='2100' and account_type='LIABILITY' and normal_balance='CREDIT' and is_active)
+     or not exists (select 1 from public.accounts where code='2100' and name='Rent Payable' and account_type='LIABILITY' and normal_balance='CREDIT' and is_active)
      or not exists (select 1 from public.accounts where code='4000' and account_type='REVENUE' and normal_balance='CREDIT' and is_active)
      or not exists (select 1 from public.accounts where code='5000' and account_type='EXPENSE' and normal_balance='DEBIT' and is_active) then
     raise exception 'P0-8 authoritative chart of accounts is missing or incompatible';
@@ -352,6 +365,18 @@ revoke all on function public.post_journal_entry(date, text, text, uuid, text, j
 -- preserved but unreachable to service/browser roles.
 revoke all on function public.post_invoice_atomic(jsonb,jsonb,bigint,text,text) from public, anon, authenticated, service_role;
 
+-- A P0-8 invoice cannot be reversed through the historical VOID writer because
+-- that function writes the legacy accounting_journal_* model. Until an
+-- authoritative reversal boundary exists, fail closed rather than create a
+-- second accounting truth for the same invoice.
+do $$
+begin
+  if to_regprocedure('public.void_invoice_atomic(bigint,text)') is not null then
+    execute 'revoke all on function public.void_invoice_atomic(bigint,text) from public, anon, authenticated, service_role';
+  end if;
+end
+$$;
+
 -- Older repository history may contain record_sales_transaction even though the
 -- targeted live database path does not. Disable it if present; do not require it.
 do $$
@@ -476,8 +501,8 @@ begin
   if v_discount > v_subtotal then
     raise exception using errcode='22023', message='discount_total cannot exceed subtotal';
   end if;
-  if v_grand_total <> v_subtotal - v_discount + v_rent then
-    raise exception using errcode='23514', message='grand_total must equal subtotal minus discount plus pass-through rent';
+  if v_grand_total <> v_subtotal - v_discount then
+    raise exception using errcode='23514', message='grand_total must equal subtotal minus discount';
   end if;
   if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception using errcode='22023', message='invoice must contain at least one line';
@@ -558,7 +583,7 @@ begin
     select coalesce(sum(ii.cogs_total), 0) into v_cogs
     from public.invoice_items ii
     where ii.invoice_id = v_existing_invoice_id;
-    select i.grand_total - i.pass_through_rent, i.pass_through_rent
+    select i.grand_total, i.pass_through_rent
       into v_revenue, v_rent
     from public.invoices i
     where i.id = v_existing_invoice_id and i.organization_id = p_organization_id;
@@ -705,7 +730,7 @@ begin
     reference_id, debit, credit, currency_code, entry_date, description
   ) values (
     p_organization_id, p_branch_id, v_customer_id, 'INVOICE', 'INVOICE',
-    v_invoice_id, v_grand_total, 0, v_currency_code, v_issue_date, v_invoice_number
+    v_invoice_id, v_grand_total + v_rent, 0, v_currency_code, v_issue_date, v_invoice_number
   );
 
   insert into public.journal_entries(
@@ -720,7 +745,7 @@ begin
   ) returning id into v_journal_entry_id;
 
   insert into public.journal_lines(journal_entry_id, account_id, debit, credit, memo)
-  values (v_journal_entry_id, v_ar_account, v_grand_total, 0, 'Customer receivable');
+  values (v_journal_entry_id, v_ar_account, v_grand_total + v_rent, 0, 'Customer receivable');
 
   if v_revenue > 0 then
     insert into public.journal_lines(journal_entry_id, account_id, debit, credit, memo)

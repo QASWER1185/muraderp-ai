@@ -15,6 +15,8 @@ check(migration.includes("organization_id, source_type, source_record_id, postin
 check(migration.includes("sales_transaction_idempotency_p0_8_scope_key"), "organization-scoped sales idempotency exists");
 check(migration.includes("organization_id, principal_id, operation_scope, idempotency_key"), "idempotency scope includes organization/principal/operation/key");
 check(migration.includes("drop index if exists public.sales_transaction_idempotency_unique"), "legacy global sales idempotency uniqueness is removed");
+check(migration.includes("drop constraint if exists invoices_invoice_number_key"), "legacy global invoice-number uniqueness is removed");
+check(migration.includes("invoices_p0_8_organization_invoice_number_key") && migration.includes("organization_id, invoice_number"), "invoice-number uniqueness is organization-scoped");
 check(migration.includes("request_fingerprint"), "request fingerprint is persisted");
 check(migration.includes("posted journal total debits must equal total credits"), "database balance equality is enforced");
 check(migration.includes("posted journal total debit must be greater than zero"), "database positive-debit invariant is enforced");
@@ -28,17 +30,22 @@ check(migration.includes("customer ownership is not assigned to the authorized o
 check(migration.includes("inventory ownership is not assigned to the authorized organization"), "unknown inventory ownership fails closed");
 check(!/insert\s+into\s+public\.accounting_journal_(entries|lines)/i.test(migration), "selected sales path does not write legacy accounting journal");
 check(!migration.includes("RENT_RECEIVABLE"), "rent does not create a second receivable debit");
+check(migration.includes("v_grand_total <> v_subtotal - v_discount"), "grand_total remains product total after discount");
+check(!migration.includes("v_grand_total <> v_subtotal - v_discount + v_rent"), "rent is not folded into grand_total");
+check(migration.includes("v_ar_account, v_grand_total + v_rent, 0"), "accounts receivable includes pass-through rent exactly once");
 check(migration.includes("v_rent_payable_account, 0, v_rent"), "rent is credited to authoritative Rent Payable");
 check(!migration.includes("purchase_price"), "P0-8 does not invent a costing policy fallback");
 check(migration.includes("revoke all on function public.post_invoice_atomic(jsonb,jsonb,bigint,text,text)"), "legacy P0-6 sales wrapper is disabled");
 check(migration.includes("record_sales_transaction"), "legacy/missing repository RPC is explicitly disabled if present");
+check(migration.includes("void_invoice_atomic(bigint,text)") && migration.includes("from public, anon, authenticated, service_role"), "legacy invoice void path cannot write competing accounting");
 check(migration.includes("grant execute on function public.post_invoice_atomic(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb,bigint) to service_role"), "new authoritative RPC is service-role-only");
 check(repository.includes('client.rpc("post_invoice_atomic"'), "repository targets authoritative post_invoice_atomic RPC");
 check(!repository.includes('client.rpc("record_sales_transaction"'), "repository no longer targets record_sales_transaction");
 check(repository.includes('p_operation_scope: OPERATION_SCOPE'), "backend passes deterministic operation scope");
 check(repository.includes('p_request_fingerprint: fingerprint(request)'), "backend sends deterministic fingerprint");
 check(route.includes('X-Organization-Id') && route.includes('X-Actor-User-Id'), "sales route requires explicit tenant/actor context");
-check(types.includes("grand_total must equal subtotal minus discount plus pass-through rent"), "backend enforces accepted rent total semantics");
+check(types.includes("grand_total must equal subtotal minus discount"), "backend preserves domain grand_total semantics separate from rent");
+check(!types.includes("grand_total must equal subtotal minus discount plus pass-through rent"), "backend rejects folding rent into grand_total");
 check(types.includes("costing is not inferred"), "backend requires explicit posted cost basis");
 check(adapter.includes("SupabaseSalesTransactionRepository"), "legacy adapter delegates to one canonical RPC mapping");
 

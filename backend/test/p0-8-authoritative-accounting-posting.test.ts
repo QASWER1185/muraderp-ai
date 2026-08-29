@@ -17,7 +17,7 @@ function request(overrides: Partial<SalesTransactionRequest> = {}): SalesTransac
       [],
       1000,
       0,
-      1100,
+      1000,
       100,
     ),
     warehouse_id: 1,
@@ -45,6 +45,12 @@ describe("P0-8 authoritative accounting posting foundation", () => {
     expect(migration).toContain("request_fingerprint");
   });
 
+  it("scopes invoice-number uniqueness to the organization", () => {
+    expect(migration).toContain("drop constraint if exists invoices_invoice_number_key");
+    expect(migration).toContain("invoices_p0_8_organization_invoice_number_key");
+    expect(migration).toContain("organization_id, invoice_number");
+  });
+
   it("requires P0-5 permissions and optional explicit branch access", () => {
     expect(migration).toContain("is_organization_member_for_user");
     expect(migration).toContain("has_permission_for_user(p_actor_user_id, p_organization_id, 'sales.create')");
@@ -61,9 +67,10 @@ describe("P0-8 authoritative accounting posting foundation", () => {
     expect(migration).toContain("deferrable initially deferred");
   });
 
-  it("posts rent exactly once as AR plus Rent Payable without Rent Receivable", () => {
-    expect(migration).toContain("v_grand_total <> v_subtotal - v_discount + v_rent");
-    expect(migration).toContain("v_ar_account, v_grand_total, 0, 'Customer receivable'");
+  it("keeps grand_total product-only and posts rent exactly once through AR and Rent Payable", () => {
+    expect(migration).toContain("v_grand_total <> v_subtotal - v_discount");
+    expect(migration).not.toContain("v_grand_total <> v_subtotal - v_discount + v_rent");
+    expect(migration).toContain("v_ar_account, v_grand_total + v_rent, 0, 'Customer receivable'");
     expect(migration).toContain("v_rent_payable_account, 0, v_rent, 'Pass-through rent payable'");
     expect(migration).not.toContain("RENT_RECEIVABLE");
   });
@@ -73,16 +80,17 @@ describe("P0-8 authoritative accounting posting foundation", () => {
     expect(migration).not.toContain("purchase_price");
   });
 
-  it("disables legacy sales posting entry points for service/browser roles", () => {
+  it("disables legacy sales posting and void entry points for service/browser roles", () => {
     expect(migration).toContain("revoke all on function public.post_invoice_atomic(jsonb,jsonb,bigint,text,text)");
     expect(migration).toContain("record_sales_transaction");
+    expect(migration).toContain("void_invoice_atomic(bigint,text)");
     expect(migration).toContain("from public, anon, authenticated, service_role");
   });
 
   it("validates the accepted rent arithmetic and explicit COGS contract", () => {
     expect(() => assertSalesTransactionRequest(request())).not.toThrow();
-    const invalidRent = request({ invoice: { ...request().invoice, grand_total: 1000 } });
-    expect(() => assertSalesTransactionRequest(invalidRent)).toThrow("grand_total must equal subtotal minus discount plus pass-through rent");
+    const rentFoldedIntoGrandTotal = request({ invoice: { ...request().invoice, grand_total: 1100 } });
+    expect(() => assertSalesTransactionRequest(rentFoldedIntoGrandTotal)).toThrow("grand_total must equal subtotal minus discount");
     const missingCost = request({ lines: [{ ...request().lines[0]!, unit_cost: null, cogs_total: null }] });
     expect(() => assertSalesTransactionRequest(missingCost)).toThrow("costing is not inferred");
   });
