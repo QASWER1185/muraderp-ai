@@ -1,11 +1,13 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
+import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
 import { requireServicePrincipal } from "../security/service-principal.js";
 import { SalesTransactionService } from "../services/sales-transaction.service.js";
 import { SupabaseSalesTransactionRepository } from "../repositories/sales-transaction.repository.js";
 
 const id = z.coerce.number().int().positive();
+const uuid = z.string().uuid();
 const lineSchema = z.strictObject({
   line_number: id,
   product_id: id,
@@ -13,8 +15,8 @@ const lineSchema = z.strictObject({
   unit: z.string().trim().min(1).max(50),
   unit_price: z.number().finite().nonnegative(),
   line_total: z.number().finite().nonnegative(),
-  unit_cost: z.number().finite().nonnegative().nullable(),
-  cogs_total: z.number().finite().nonnegative().nullable(),
+  unit_cost: z.number().finite().nonnegative(),
+  cogs_total: z.number().finite().nonnegative(),
 });
 const invoiceSchema = z.strictObject({
   id: z.literal(0),
@@ -32,10 +34,25 @@ const invoiceSchema = z.strictObject({
   lines: z.array(z.any()),
   subtotal: z.number().finite().nonnegative(),
   discount_total: z.number().finite().nonnegative(),
-  grand_total: z.number().finite().nonnegative(),
+  grand_total: z.number().finite().positive(),
   pass_through_rent: z.number().finite().nonnegative(),
 });
 const requestSchema = z.strictObject({ invoice: invoiceSchema, warehouse_id: id, lines: z.array(lineSchema).min(1).max(500) });
+
+function requiredUuidHeader(request: Request, name: string): string {
+  const value = request.header(name)?.trim();
+  const parsed = uuid.safeParse(value);
+  if (!parsed.success) throw new ApiError(400, "TENANT_CONTEXT_REQUIRED", `${name} must be a valid UUID`);
+  return parsed.data;
+}
+
+function optionalUuidHeader(request: Request, name: string): string | null {
+  const value = request.header(name)?.trim();
+  if (!value) return null;
+  const parsed = uuid.safeParse(value);
+  if (!parsed.success) throw new ApiError(400, "TENANT_CONTEXT_INVALID", `${name} must be a valid UUID when provided`);
+  return parsed.data;
+}
 
 export function createSalesRouter(internalApiToken: string | undefined, servicePrincipalId: string | undefined): Router {
   const router = Router();
@@ -43,15 +60,21 @@ export function createSalesRouter(internalApiToken: string | undefined, serviceP
 
   router.post("/invoices", authorize, async (request, response) => {
     const principal = requireServicePrincipal(request.servicePrincipal);
+    const organizationId = requiredUuidHeader(request, "X-Organization-Id");
+    const actorUserId = requiredUuidHeader(request, "X-Actor-User-Id");
+    const branchId = optionalUuidHeader(request, "X-Branch-Id");
     const service = new SalesTransactionService(new SupabaseSalesTransactionRepository(principal.id));
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
-    if (!idempotencyKey) {
-      response.status(400).json({ error: { code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key header is required" } });
-      return;
+    if (!idempotencyKey || idempotencyKey.length > 255) {
+      throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required");
     }
+
     const body = requestSchema.parse(request.body);
     const normalized = {
       ...body,
+      organization_id: organizationId,
+      branch_id: branchId,
+      actor_user_id: actorUserId,
       invoice: {
         ...body.invoice,
         definition: {
