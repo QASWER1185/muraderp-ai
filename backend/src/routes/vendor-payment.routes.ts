@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
+import { requireServicePrincipal } from "../security/service-principal.js";
 import { SupabaseVendorPaymentService, type VendorPaymentInput, type VendorPaymentService } from "../services/vendor-payment.service.js";
 
 const id = z.coerce.number().int().positive();
@@ -34,19 +35,19 @@ function fingerprint(input: VendorPaymentInput): string {
 
 export function createVendorPaymentRouter(
   internalApiToken: string | undefined,
-  principalId: string | undefined,
+  servicePrincipalId: string | undefined,
   service: VendorPaymentService = new SupabaseVendorPaymentService(),
 ): Router {
   const router = Router();
-  const authorize = createInternalApiAuth(internalApiToken);
+  const authorize = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/", authorize, async (request, response) => {
-    if (!principalId) throw new ApiError(503, "ERP_NOT_CONFIGURED", "Vendor payment principal is not configured");
+    const principal = requireServicePrincipal(request.servicePrincipal);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required");
     const input = requestSchema.parse(request.body) as VendorPaymentInput;
     const result = await service.recordPayment(input, {
-      principalScope: principalId,
+      principalScope: principal.id,
       operation: "vendor-payment.create",
       idempotencyKey,
       requestFingerprint: fingerprint(input),

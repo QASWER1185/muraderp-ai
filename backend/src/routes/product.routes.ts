@@ -4,10 +4,10 @@ import { ProductController } from "../controllers/product.controller.js";
 import { SupabaseProductRepository } from "../repositories/product.repository.js";
 import { ProductService } from "../services/product.service.js";
 
-export function createProductRouter(internalApiToken?: string): Router {
+export function createProductRouter(internalApiToken?: string, servicePrincipalId?: string): Router {
   const router = Router();
   const controller = new ProductController(new ProductService(new SupabaseProductRepository()));
-  const auth = createInternalApiAuth(internalApiToken);
+  const auth = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.use(auth);
   router.get("/", controller.list);

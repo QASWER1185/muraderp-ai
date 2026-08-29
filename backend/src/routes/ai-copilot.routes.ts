@@ -10,9 +10,13 @@ const draftSchema = z.strictObject({ organizationId: z.string().uuid(), userId: 
 function headerValue(request: { header(name: string): string | string[] | undefined }, name: string): string | undefined { const value = request.header(name); return Array.isArray(value) ? value[0] : value; }
 function toAiDraft(input: z.output<typeof draftSchema>) { return { organizationId: input.organizationId, intent: input.intent, source: input.source, ...(input.customerId ? { customerId: { value: input.customerId, confidence: input.confidence, source: input.source } } : {}), ...(input.vendorId ? { vendorId: { value: input.vendorId, confidence: input.confidence, source: input.source } } : {}), ...(input.documentNumber ? { documentNumber: { value: input.documentNumber, confidence: input.confidence, source: input.source } } : {}), lines: input.lines.map((line) => ({ productName: { value: line.productName, confidence: input.confidence, source: input.source, ...(line.brandHint ? { rawText: line.brandHint } : {}) }, ...(line.productId !== undefined ? { productId: { value: line.productId, confidence: input.confidence, source: input.source } } : {}), quantity: { value: line.quantity, confidence: input.confidence, source: input.source }, ...(line.unit ? { unit: { value: line.unit, confidence: input.confidence, source: input.source } } : {}), ...(line.unitRate !== undefined ? { unitRate: { value: line.unitRate, confidence: input.confidence, source: input.source } } : {}), ...(line.sourceItemId !== undefined ? { sourceItemId: { value: line.sourceItemId, confidence: input.confidence, source: input.source } } : {}) })), confidence: input.confidence, requiresHumanConfirmation: true as const }; }
 
-export function createAiCopilotRouter(internalApiToken?: string, runtime?: CopilotRuntime) {
+export function createAiCopilotRouter(
+  internalApiToken?: string,
+  runtime?: CopilotRuntime,
+  servicePrincipalId?: string,
+) {
   const router = Router();
-  const authorize = createCopilotAuth(internalApiToken);
+  const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
   let activeRuntime = runtime;
   const getRuntime = () => { activeRuntime ??= new CopilotRuntime(); return activeRuntime; };
 

@@ -1,42 +1,29 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseAdminClient } from "../config/supabase.js";
+import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import type { Database } from "../types/database.types.js";
 import type { InvoiceTransactionResult } from "../types/invoice.types.js";
 import type { SalesTransactionPort, SalesTransactionRequest } from "../types/sales-transaction.types.js";
+import { normalizeServicePrincipalId } from "../security/service-principal.js";
 
-interface RpcResponse<T> {
-  data: T | null;
-  error: PostgrestError | null;
-}
-
-type RpcInvoker = <T>(
-  functionName: string,
-  args: Record<string, unknown>,
-) => Promise<RpcResponse<T>>;
-
-interface AtomicInvoiceRpcResult {
-  invoice_id: number;
-  replayed: boolean;
-  revenue: number;
-  cogs: number;
-  rent: number;
-  profit: number;
-}
-
-function rpcError(error: PostgrestError): Error {
-  return new Error(`Invoice transaction failed: ${error.message}`);
-}
+interface RpcResponse<T> { data: T | null; error: PostgrestError | null }
+type RpcInvoker = <T>(functionName: string, args: Record<string, unknown>) => Promise<RpcResponse<T>>;
+interface AtomicInvoiceRpcResult { invoice_id: number; replayed: boolean; revenue: number; cogs: number; rent: number; profit: number }
+function rpcError(error: PostgrestError): Error { return new Error(`Invoice transaction failed: ${error.message}`); }
 
 export class SupabaseSalesTransactionAdapter implements SalesTransactionPort {
+  constructor(clientFactory: () => SupabaseClient<Database>, principalId: string);
   constructor(
-    private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient,
-    private readonly principalId = "backend",
+    private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseServiceRoleClient,
+    private readonly principalId?: string,
   ) {}
 
   async execute(request: SalesTransactionRequest): Promise<InvoiceTransactionResult> {
+    const principalId = normalizeServicePrincipalId(this.principalId);
+    if (!principalId) {
+      throw new Error("Explicit sales transaction service principal is required");
+    }
     const client = this.clientFactory();
     const rpc = client.rpc as unknown as RpcInvoker;
-
     const { data, error } = await rpc<AtomicInvoiceRpcResult>("post_invoice_atomic", {
       p_invoice: {
         invoice_number: request.invoice.definition.invoice_number,
@@ -54,19 +41,13 @@ export class SupabaseSalesTransactionAdapter implements SalesTransactionPort {
       },
       p_lines: request.lines,
       p_warehouse_id: request.warehouse_id,
-      p_principal_id: this.principalId,
+      p_principal_id: principalId,
       p_idempotency_key: request.idempotency_key,
     });
-
     if (error) throw rpcError(error);
     if (!data) throw new Error("Invoice transaction returned no result");
-
     return {
-      invoice: {
-        ...request.invoice,
-        id: data.invoice_id,
-        status: "POSTED",
-      },
+      invoice: { ...request.invoice, id: data.invoice_id, status: "POSTED" },
       inventory_decreased: true,
       customer_receivable_updated: true,
       revenue_recorded: true,

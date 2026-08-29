@@ -7,7 +7,7 @@ const validProductionEnv = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SECRET_KEY: `sb_secret_${"x".repeat(40)}`,
   INTERNAL_API_TOKEN: "t".repeat(64),
-  INTERNAL_API_PRINCIPAL_ID: "internal-system",
+  INTERNAL_API_PRINCIPAL_ID: "muraderp-api-prod-01",
 };
 
 describe("production configuration guardrails", () => {
@@ -16,39 +16,29 @@ describe("production configuration guardrails", () => {
   });
 
   it("rejects partial ERP production configuration", () => {
-    const result = parseEnv({
-      ...validProductionEnv,
-      INTERNAL_API_TOKEN: undefined,
-    });
+    expect(parseEnv({ ...validProductionEnv, INTERNAL_API_TOKEN: undefined }).success).toBe(false);
+    expect(parseEnv({ ...validProductionEnv, INTERNAL_API_PRINCIPAL_ID: undefined }).success).toBe(false);
+  });
 
-    expect(result.success).toBe(false);
+  it("rejects generic/default service principal identities", () => {
+    for (const principal of ["internal-system", "backend", "service_role", "default", "system"]) {
+      expect(parseEnv({ ...validProductionEnv, INTERNAL_API_PRINCIPAL_ID: principal }).success).toBe(false);
+    }
   });
 
   it("rejects HTTP Supabase URLs in production", () => {
-    const result = parseEnv({
-      ...validProductionEnv,
-      SUPABASE_URL: "http://example.supabase.co",
-    });
-
-    expect(result.success).toBe(false);
+    expect(parseEnv({ ...validProductionEnv, SUPABASE_URL: "http://example.supabase.co" }).success).toBe(false);
   });
 
   it("rejects placeholder production secrets", () => {
-    const result = parseEnv({
-      ...validProductionEnv,
-      SUPABASE_SECRET_KEY:
-        "sb_secret_" + "replace_me_12345678901234567890",
-    });
-
-    expect(result.success).toBe(false);
+    expect(parseEnv({ ...validProductionEnv, SUPABASE_SECRET_KEY: "sb_secret_" + "replace_me_12345678901234567890" }).success).toBe(false);
   });
 
   it("rejects placeholder internal tokens in production", () => {
-    const result = parseEnv({
-      ...validProductionEnv,
-      INTERNAL_API_TOKEN: "replace_with_a_long_random_internal_token_123456789",
-    });
+    expect(parseEnv({ ...validProductionEnv, INTERNAL_API_TOKEN: "replace_with_a_long_random_internal_token_123456789" }).success).toBe(false);
+  });
 
-    expect(result.success).toBe(false);
+  it("rejects placeholder service principal identifiers in production", () => {
+    expect(parseEnv({ ...validProductionEnv, INTERNAL_API_PRINCIPAL_ID: "replace_with_unique_service_principal_id" }).success).toBe(false);
   });
 });

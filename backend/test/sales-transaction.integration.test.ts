@@ -11,6 +11,8 @@ const request: SalesTransactionRequest = {
   idempotency_key: "invoice-e2e-001",
 };
 
+const principalId = "principal-e2e";
+
 describe("Sales transaction integration contract", () => {
   it("rejects an invalid request before any database adapter call", async () => {
     const execute = vi.fn();
@@ -26,22 +28,22 @@ describe("Sales transaction integration contract", () => {
 
   it("maps one authoritative invoice transaction to the atomic RPC", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: { invoice_id: 101, replayed: false, revenue: 3000, cogs: 1800, rent: 200, profit: 1200 }, error: null });
-    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, "principal-e2e");
+    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, principalId);
     const result = await adapter.execute(request);
     expect(rpc).toHaveBeenCalledOnce();
-    expect(rpc).toHaveBeenCalledWith("post_invoice_atomic", expect.objectContaining({ p_warehouse_id: 2, p_principal_id: "principal-e2e", p_idempotency_key: "invoice-e2e-001", p_lines: request.lines }));
+    expect(rpc).toHaveBeenCalledWith("post_invoice_atomic", expect.objectContaining({ p_warehouse_id: 2, p_principal_id: principalId, p_idempotency_key: "invoice-e2e-001", p_lines: request.lines }));
     expect(result).toMatchObject({ invoice: { id: 101, status: "POSTED" }, inventory_decreased: true, customer_receivable_updated: true, revenue_recorded: true, cogs_recorded: true, profit_loss_recorded: true, pass_through_rent_recorded: true });
   });
 
   it("surfaces atomic RPC failure without fabricating a successful transaction", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "insufficient inventory" } });
-    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never);
+    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, principalId);
     await expect(adapter.execute(request)).rejects.toThrow("Invoice transaction failed: insufficient inventory");
   });
 
   it("returns the replay result without changing the authoritative result contract", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: { invoice_id: 101, replayed: true, revenue: 0, cogs: 0, rent: 0, profit: 0 }, error: null });
-    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never);
+    const adapter = new SupabaseSalesTransactionAdapter(() => ({ rpc }) as never, principalId);
     const result = await adapter.execute(request);
     expect(result.invoice.id).toBe(101);
     expect(result.invoice.status).toBe("POSTED");

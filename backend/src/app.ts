@@ -33,9 +33,7 @@ export function createApp(options: AppOptions = {}) {
         paths: ["req.headers.authorization", "req.headers.cookie"],
         censor: "[REDACTED]",
       },
-      customProps: (request) => ({
-        requestId: request.id,
-      }),
+      customProps: (request) => ({ requestId: request.id }),
     }),
   );
   app.use(express.json({ limit: "1mb" }));
@@ -44,16 +42,20 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api/v1/health", healthRouter);
   app.use("/api/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
-  app.use("/api/v1", createErpRouter(options.internalApiToken ?? env.INTERNAL_API_TOKEN, options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID, options.erpService ?? new SupabaseErpService()));
+
   const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
   const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
-  app.use("/api/v1/ai/copilot", createAiCopilotRouter(internalApiToken));
-  app.use("/api/v1/products", createProductRouter(internalApiToken));
-  app.use("/api/v1/inventory", createInventoryRouter(internalApiToken));
+
+  app.use("/api/v1", createErpRouter(internalApiToken, internalApiPrincipalId, options.erpService ?? new SupabaseErpService()));
+  app.use("/api/v1/ai/copilot", createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
+  app.use("/api/v1/products", createProductRouter(internalApiToken, internalApiPrincipalId));
+  app.use("/api/v1/inventory", createInventoryRouter(internalApiToken, internalApiPrincipalId));
   app.use("/api/v1/sales", createSalesRouter(internalApiToken, internalApiPrincipalId));
   app.use("/api/v1/customer-payments", createCustomerPaymentRouter(internalApiToken, internalApiPrincipalId, options.customerPaymentService ?? new SupabaseCustomerPaymentService()));
   app.use("/api/v1/vendor-payments", createVendorPaymentRouter(internalApiToken, internalApiPrincipalId, options.vendorPaymentService ?? new SupabaseVendorPaymentService()));
   app.use("/api/v1/sales-returns", createSalesReturnRouter(internalApiToken, internalApiPrincipalId));
   app.use("/frontend", express.static(frontendRoot, { index: "index.html", fallthrough: false }));
-  app.use(notFoundHandler); app.use(errorHandler); return app;
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+  return app;
 }

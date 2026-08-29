@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
+import { requireServicePrincipal } from "../security/service-principal.js";
 import { SalesTransactionService } from "../services/sales-transaction.service.js";
 import { SupabaseSalesTransactionRepository } from "../repositories/sales-transaction.repository.js";
 
@@ -36,16 +37,13 @@ const invoiceSchema = z.strictObject({
 });
 const requestSchema = z.strictObject({ invoice: invoiceSchema, warehouse_id: id, lines: z.array(lineSchema).min(1).max(500) });
 
-export function createSalesRouter(internalApiToken: string | undefined, principalId: string | undefined): Router {
+export function createSalesRouter(internalApiToken: string | undefined, servicePrincipalId: string | undefined): Router {
   const router = Router();
-  const authorize = createInternalApiAuth(internalApiToken);
-  const service = principalId ? new SalesTransactionService(new SupabaseSalesTransactionRepository(principalId)) : null;
+  const authorize = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/invoices", authorize, async (request, response) => {
-    if (!service) {
-      response.status(503).json({ error: { code: "ERP_NOT_CONFIGURED", message: "Sales transaction principal is not configured" } });
-      return;
-    }
+    const principal = requireServicePrincipal(request.servicePrincipal);
+    const service = new SalesTransactionService(new SupabaseSalesTransactionRepository(principal.id));
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey) {
       response.status(400).json({ error: { code: "IDEMPOTENCY_KEY_REQUIRED", message: "Idempotency-Key header is required" } });

@@ -1,4 +1,7 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { env } from "../config/env.js";
+import { getSupabaseServiceRoleClient } from "../config/supabase.js";
+import { ApiError } from "../errors/api-error.js";
 import type { Database } from "../types/database.types.js";
 import type { AuthorizationGateway } from "./authorization.service.js";
 import type { PermissionCode } from "./authorization.types.js";
@@ -12,10 +15,7 @@ export class SupabaseAuthorizationGateway implements AuthorizationGateway, Tenan
       data: boolean | null;
       error: { message: string } | null;
     };
-
-    if (error) {
-      throw new Error(`Authorization lookup failed: ${error.message}`);
-    }
+    if (error) throw new Error(`Authorization lookup failed: ${error.message}`);
     return data === true;
   }
 
@@ -27,11 +27,7 @@ export class SupabaseAuthorizationGateway implements AuthorizationGateway, Tenan
     });
   }
 
-  async hasPermission(
-    userId: string,
-    organizationId: string,
-    permission: PermissionCode,
-  ): Promise<boolean> {
+  async hasPermission(userId: string, organizationId: string, permission: PermissionCode): Promise<boolean> {
     if (!userId.trim() || !organizationId.trim() || !permission.trim()) return false;
     return this.booleanRpc("has_permission_for_user", {
       p_user_id: userId,
@@ -50,8 +46,18 @@ export class SupabaseAuthorizationGateway implements AuthorizationGateway, Tenan
   }
 }
 
-export function createAuthorizationClient(url: string, secretKey: string) {
-  return createClient<Database>(url, secretKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+export function createServiceRoleAuthorizationGateway(): SupabaseAuthorizationGateway {
+  return new SupabaseAuthorizationGateway(getSupabaseServiceRoleClient());
+}
+
+/**
+ * P0-6 compatibility bridge for existing callers. It no longer constructs a
+ * client from caller-supplied credentials: both values must match the validated
+ * server environment, and the shared service-role client is returned.
+ */
+export function createAuthorizationClient(url: string, secretKey: string): SupabaseClient<Database> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY || url !== env.SUPABASE_URL || secretKey !== env.SUPABASE_SECRET_KEY) {
+    throw new ApiError(503, "SERVICE_PRINCIPAL_MISMATCH", "Authorization client must use the configured backend service principal");
+  }
+  return getSupabaseServiceRoleClient();
 }

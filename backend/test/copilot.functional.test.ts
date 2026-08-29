@@ -5,6 +5,7 @@ import { createAiCopilotRouter } from "../src/routes/ai-copilot.routes.js";
 import { createCopilotPlanFromDraft } from "../src/ai-copilot/copilot.service.js";
 
 const AUTH_TOKEN = "phase22-test-token-123456789012345678901234567890";
+const SERVICE_PRINCIPAL = "muraderp-copilot-test";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001";
 const USER_ID = "00000000-0000-4000-8000-000000000002";
 const SOURCE = "text" as const;
@@ -59,7 +60,7 @@ describe("Phase 22 Copilot functional contract", () => {
     };
     const app = express();
     app.use(express.json());
-    app.use("/test-copilot", createAiCopilotRouter(AUTH_TOKEN, runtime as any));
+    app.use("/test-copilot", createAiCopilotRouter(AUTH_TOKEN, runtime as any, SERVICE_PRINCIPAL));
 
     const draftResponse = await request(app)
       .post("/test-copilot/drafts")

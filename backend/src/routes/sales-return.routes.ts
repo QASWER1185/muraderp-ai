@@ -3,14 +3,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
+import { requireServicePrincipal } from "../security/service-principal.js";
 import { SupabaseSalesReturnService, type SalesReturnInput, type SalesReturnService } from "../services/sales-return.service.js";
 
 const id = z.coerce.number().int().positive();
-const itemSchema = z.strictObject({
-  invoice_item_id: id,
-  warehouse_id: id,
-  quantity: z.number().finite().positive(),
-});
+const itemSchema = z.strictObject({ invoice_item_id: id, warehouse_id: id, quantity: z.number().finite().positive() });
 const requestSchema = z.strictObject({
   credit_note_number: z.string().trim().min(1).max(100),
   invoice_id: id,
@@ -35,29 +32,26 @@ function fingerprint(input: SalesReturnInput): string {
 
 export function createSalesReturnRouter(
   internalApiToken: string | undefined,
-  principalId: string | undefined,
+  servicePrincipalId: string | undefined,
   service: SalesReturnService = new SupabaseSalesReturnService(),
 ): Router {
   const router = Router();
-  const authorize = createInternalApiAuth(internalApiToken);
+  const authorize = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/", authorize, async (request, response) => {
-    if (!principalId) {
-      throw new ApiError(503, "ERP_NOT_CONFIGURED", "Sales return principal is not configured");
-    }
+    const principal = requireServicePrincipal(request.servicePrincipal);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) {
       throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required");
     }
     const input = requestSchema.parse(request.body) as SalesReturnInput;
     const result = await service.recordSalesReturn(input, {
-      principalScope: principalId,
+      principalScope: principal.id,
       operation: "sales-return.create",
       idempotencyKey,
       requestFingerprint: fingerprint(input),
     });
     response.status(201).json({ success: true, data: result });
   });
-
   return router;
 }
