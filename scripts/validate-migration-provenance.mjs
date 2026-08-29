@@ -30,12 +30,21 @@ const phase21DispositionPath = path.join(
 
 const failures = [];
 
+// Git may expose text files as CRLF in Windows working trees even when the
+// repository blob is LF. Fingerprints are bound to canonical repository text,
+// so normalize only that checkout conversion; all other byte changes still fail.
+function canonicalRepositoryText(value) {
+  return value.replace(/\r\n/g, "\n");
+}
+
 function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
+  return createHash("sha256")
+    .update(canonicalRepositoryText(value))
+    .digest("hex");
 }
 
 function gitBlobSha(value) {
-  const bytes = Buffer.from(value);
+  const bytes = Buffer.from(canonicalRepositoryText(value));
   return createHash("sha1")
     .update(`blob ${bytes.length}\0`)
     .update(bytes)
@@ -49,7 +58,7 @@ function check(condition, message) {
 }
 
 function normalizedSql(value) {
-  return value.replace(/\r\n/g, "\n").trimEnd();
+  return canonicalRepositoryText(value).trimEnd();
 }
 
 function migrationVersion(filename) {
