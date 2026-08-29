@@ -14,6 +14,7 @@ check(migration.includes("journal_entries_p0_8_source_key"), "organization-aware
 check(migration.includes("organization_id, source_type, source_record_id, posting_kind"), "source tuple matches P0-7");
 check(migration.includes("sales_transaction_idempotency_p0_8_scope_key"), "organization-scoped sales idempotency exists");
 check(migration.includes("organization_id, principal_id, operation_scope, idempotency_key"), "idempotency scope includes organization/principal/operation/key");
+check(migration.includes("drop index if exists public.sales_transaction_idempotency_unique"), "legacy global sales idempotency uniqueness is removed");
 check(migration.includes("request_fingerprint"), "request fingerprint is persisted");
 check(migration.includes("posted journal total debits must equal total credits"), "database balance equality is enforced");
 check(migration.includes("posted journal total debit must be greater than zero"), "database positive-debit invariant is enforced");
