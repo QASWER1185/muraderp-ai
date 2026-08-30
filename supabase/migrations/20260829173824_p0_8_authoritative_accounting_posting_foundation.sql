@@ -91,7 +91,8 @@ alter table public.stock_movements
 -- Legacy/unscoped drafts retain uniqueness among themselves without blocking
 -- separate organizations from using the same business invoice number.
 alter table public.invoices
-  drop constraint if exists invoices_invoice_number_key;
+  drop constraint if exists invoices_invoice_number_key,
+  drop constraint if exists invoices_invoice_number_unique;
 drop index if exists public.invoices_invoice_number_key;
 drop index if exists public.invoices_invoice_number_unique;
 create unique index invoices_p0_8_organization_invoice_number_key

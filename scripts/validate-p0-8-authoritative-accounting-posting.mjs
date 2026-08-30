@@ -16,7 +16,8 @@ check(migration.includes("sales_transaction_idempotency_p0_8_scope_key"), "organ
 check(migration.includes("organization_id, principal_id, operation_scope, idempotency_key"), "idempotency scope includes organization/principal/operation/key");
 check(migration.includes("drop index if exists public.sales_transaction_idempotency_unique"), "legacy global sales idempotency uniqueness is removed");
 check(migration.includes("drop constraint if exists invoices_invoice_number_key"), "legacy constraint-style invoice-number uniqueness is removed if present");
-check(migration.includes("drop index if exists public.invoices_invoice_number_unique"), "live legacy global invoice-number uniqueness is removed");
+check(migration.includes("drop constraint if exists invoices_invoice_number_unique"), "live constraint-style invoice-number uniqueness is removed");
+check(migration.includes("drop index if exists public.invoices_invoice_number_unique"), "standalone live invoice-number index is removed if present");
 check(migration.includes("invoices_p0_8_organization_invoice_number_key") && migration.includes("organization_id, invoice_number"), "invoice-number uniqueness is organization-scoped");
 check(migration.includes("request_fingerprint"), "request fingerprint is persisted");
 check(migration.includes("posted journal total debits must equal total credits"), "database balance equality is enforced");
