@@ -25,8 +25,8 @@ check(migration.includes("posted journal total debit must be greater than zero")
 check(migration.includes("deferrable initially deferred"), "balance enforcement supports atomic multi-line construction");
 check(migration.includes("journal status transition must be DRAFT to POSTED"), "authoritative posting transition is explicit");
 check(migration.includes("authoritative journal lines are immutable after insert"), "posted journal lines cannot be edited/deleted");
-check(migration.includes("has_permission_for_user(p_actor_user_id, p_organization_id, 'sales.create')"), "sales permission is enforced");
-check(migration.includes("has_permission_for_user(p_actor_user_id, p_organization_id, 'accounting.post')"), "accounting permission is enforced");
+check(migration.includes("has_permission_for_user(p_actor_user_id, p_organization_id, 'sales.create')"), "sales-domain permission is enforced");
+check(!migration.includes("has_permission_for_user(p_actor_user_id, p_organization_id, 'accounting.post')"), "invoice posting does not require direct/manual accounting.post permission");
 check(migration.includes("has_branch_access_for_user"), "optional branch scope uses P0-5 explicit grants");
 check(migration.includes("customer ownership is not assigned to the authorized organization"), "unknown customer ownership fails closed");
 check(migration.includes("inventory ownership is not assigned to the authorized organization"), "unknown inventory ownership fails closed");

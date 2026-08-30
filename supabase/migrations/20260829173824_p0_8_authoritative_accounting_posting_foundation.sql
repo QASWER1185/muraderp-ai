@@ -471,9 +471,9 @@ begin
   if not public.has_permission_for_user(p_actor_user_id, p_organization_id, 'sales.create') then
     raise exception using errcode='42501', message='sales.create permission is required';
   end if;
-  if not public.has_permission_for_user(p_actor_user_id, p_organization_id, 'accounting.post') then
-    raise exception using errcode='42501', message='accounting.post permission is required';
-  end if;
+  -- Invoice posting is authorized by the sales domain. The authoritative GL
+  -- write is a mandatory internal side effect of this service-role-only RPC;
+  -- accounting.post remains reserved for direct/manual accounting operations.
   if p_branch_id is not null
      and not public.has_branch_access_for_user(p_actor_user_id, p_organization_id, p_branch_id) then
     raise exception using errcode='42501', message='Explicit branch access is required';

@@ -53,10 +53,10 @@ describe("P0-8 authoritative accounting posting foundation", () => {
     expect(migration).toContain("organization_id, invoice_number");
   });
 
-  it("requires P0-5 permissions and optional explicit branch access", () => {
+  it("requires the P0-5 sales-domain permission and optional explicit branch access", () => {
     expect(migration).toContain("is_organization_member_for_user");
     expect(migration).toContain("has_permission_for_user(p_actor_user_id, p_organization_id, 'sales.create')");
-    expect(migration).toContain("has_permission_for_user(p_actor_user_id, p_organization_id, 'accounting.post')");
+    expect(migration).not.toContain("has_permission_for_user(p_actor_user_id, p_organization_id, 'accounting.post')");
     expect(migration).toContain("has_branch_access_for_user");
   });
 

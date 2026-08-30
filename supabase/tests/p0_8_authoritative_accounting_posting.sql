@@ -35,7 +35,7 @@ begin
     (v_org, 'P0-8 Regression Org', 'p0-8-regression-' || substr(v_org::text, 1, 8)),
     (v_other_org, 'P0-8 Other Org', 'p0-8-other-' || substr(v_other_org::text, 1, 8));
   insert into public.organization_memberships(organization_id, user_id, role, status)
-  values (v_org, v_user, 'owner', 'active');
+  values (v_org, v_user, 'sales', 'active');
 
   insert into public.customers(name, phone, city, organization_id)
   values ('P0-8 Customer', '0000000000', 'Test', v_org)
