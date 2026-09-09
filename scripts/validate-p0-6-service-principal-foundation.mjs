@@ -10,6 +10,7 @@ const authSource = readFileSync(resolve(root, "backend/src/middleware/internal-a
 const gatewaySource = readFileSync(resolve(root, "backend/src/auth/supabase-authorization.gateway.ts"), "utf8");
 const supabaseSource = readFileSync(resolve(root, "backend/src/config/supabase.ts"), "utf8");
 const erpRoute = readFileSync(resolve(root, "backend/src/routes/erp.routes.ts"), "utf8");
+const transactionContextSource = readFileSync(resolve(root, "backend/src/routes/authoritative-transaction-context.ts"), "utf8");
 const appSource = readFileSync(resolve(root, "backend/src/app.ts"), "utf8");
 const copilotRoute = readFileSync(resolve(root, "backend/src/routes/ai-copilot.routes.ts"), "utf8");
 const salesAdapter = readFileSync(resolve(root, "backend/src/services/supabase-sales-transaction.adapter.ts"), "utf8");
@@ -77,7 +78,9 @@ requireText(supabaseSource, "getSupabaseServiceRoleClient", "database privileged
 
 forbidText(erpRoute, 'internalApiPrincipalId = "internal-system"', "ERP route has no default audit principal");
 forbidText(salesAdapter, 'principalId = "backend"', "sales transaction adapter has no default backend principal");
-requireText(erpRoute, "requireServicePrincipal(request.servicePrincipal)", "purchase audit principal comes from authenticated service context");
+requireText(erpRoute, "requireAuthoritativeTransactionIdentity(request)", "purchase route uses the authoritative transaction identity boundary");
+requireText(transactionContextSource, "requireServicePrincipal(request.servicePrincipal)", "authoritative transaction identity requires the authenticated service principal");
+requireText(transactionContextSource, "servicePrincipalId: principal.id", "purchase audit principal comes from authenticated service context");
 requireText(salesAdapter, "Explicit sales transaction service principal is required", "sales adapter fails closed without an explicit principal");
 requireText(appSource, "createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId)", "AI Copilot internal credential receives the explicit server service principal");
 requireText(copilotRoute, "createCopilotAuth(internalApiToken, servicePrincipalId)", "AI Copilot internal auth uses the explicit service-principal boundary");
