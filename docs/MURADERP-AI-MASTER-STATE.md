@@ -55,6 +55,82 @@ QuickBooks is a familiar workflow reference where helpful. MuradERP-AI is not a 
 
 The founder/product owner is recorded in `README.md` as **Qaswer Hussain**.
 
+## Authoritative product vision and architectural intent
+
+This section preserves the intended final product described in the Master Engineering Handoff. It records **AGREED product direction and requirements**, not proof that every capability is implemented or production ready. Completion status must come from the verified implementation, test, deployment, and recovery evidence recorded elsewhere in this Master State and in [`PRODUCTION-CLOSURE-STATUS.md`](PRODUCTION-CLOSURE-STATUS.md).
+
+### Intended final product
+
+MuradERP-AI is being built as a production-grade, AI-native ERP and accounting platform for building-material, electrical, sanitary, hardware, cement, steel, plumbing, and related trading businesses. QuickBooks may inform familiar accounting and workflow patterns, but MuradERP-AI is an original product rather than a QuickBooks clone. Its intended advantage is the controlled use of AI for business input, interpretation, matching, pricing, review, and orchestration while retaining reliable transactional accounting and inventory foundations.
+
+The required core ERP scope includes:
+
+- Customers, Vendors, Products, Brands, Warehouses, and Inventory.
+- Purchases, Sales, Estimates, Invoices, Payments, and Returns.
+- Customer Ledger and profit/accounting workflows.
+- Stock movements and other source-linked inventory and accounting effects required by those workflows.
+
+### Required AI-native capabilities
+
+The intended product must support:
+
+- text-based AI business data entry;
+- voice-based business data entry;
+- camera/image extraction for invoices and estimates;
+- supplier rate-list scanning and conversion into structured ERP data;
+- OCR/vision extraction;
+- product and rate matching;
+- AI-assisted generation of structured ERP data;
+- AI Copilot workflows; and
+- future AI/ML business intelligence.
+
+These are end-product requirements. Provider-neutral contracts, draft services, tests, or partial UI elements do not by themselves establish that the production capability is complete.
+
+### Required pricing and rate-list capabilities
+
+Pricing must support dynamic Rate Lists, versioned pricing, company/supplier-specific pricing, and deterministic price resolution. The product must also support controlled one-click adaptation or conversion of a bill, Rate List, or pricing context from one company, brand, supplier, or business context to another. A proposed conversion must be resolved through deterministic business rules and presented for human/business-rule validation before any consequential mutation.
+
+This direction extends the verified mixed-brand Rate List and Estimate foundation. It must not create a parallel pricing engine or weaken pricing provenance, authorization, preview, confirmation, atomicity, tenant isolation, or idempotency.
+
+### AI authority and controlled mutation
+
+AI must never become direct database authority. AI may read, understand, extract, suggest, match, organize, and explain. Final consequential ERP mutations must pass through validated business services and controlled database transactions with the required user confirmation and authorization.
+
+The governing architectural principles are reliability, auditability, atomicity, security, deterministic business rules, and human control of consequential actions. AI is an intelligent input and orchestration layer, not an uncontrolled transaction engine.
+
+The required camera and OCR flow is:
+
+```text
+Camera/Image
+  -> OCR/Vision
+  -> Extraction
+  -> Product/Rate Matching
+  -> Human Review/Validation
+  -> Business Service
+  -> Database
+```
+
+The required voice flow is:
+
+```text
+Voice
+  -> Speech/Intent
+  -> Validation
+  -> Business Service
+  -> Confirmation
+  -> Database
+```
+
+### Product state separation
+
+Future agents must preserve three distinct states:
+
+1. **Product Vision / Intended Final Product** records what MuradERP-AI is required to become.
+2. **Verified / Completed Engineering Work** records only capabilities supported by named evidence at a specific revision.
+3. **Remaining Production Closure Work** records requirements that are incomplete, blocked, or not yet proven in production.
+
+Never promote a vision requirement to IMPLEMENTED, VERIFIED, or PRODUCTION READY solely because it appears in the Master Engineering Handoff or another historical document.
+
 ## Non-negotiable requirements
 
 - Manual ERP entry remains first-class; AI is optional.
