@@ -1,13 +1,20 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
-import type {
-  CustomerPaymentResult,
-  CustomerPaymentService,
+import {
+  SupabaseCustomerPaymentService,
+  type CustomerPaymentInput,
+  type CustomerPaymentResult,
+  type CustomerPaymentService,
 } from "../src/services/customer-payment.service.js";
 
 const internalToken = "test_internal_token_1234567890abcdef";
 const principalId = "test-principal";
+const transactionHeaders = {
+  "X-Organization-Id": "11111111-1111-4111-8111-111111111111",
+  "X-Branch-Id": "22222222-2222-4222-8222-222222222222",
+  "X-Actor-User-Id": "33333333-3333-4333-8333-333333333333",
+};
 
 function serviceStub(overrides: Partial<CustomerPaymentService> = {}): CustomerPaymentService {
   return { ...overrides } as CustomerPaymentService;
@@ -55,6 +62,7 @@ describe("customer payments API", () => {
     const response = await request(app)
       .post("/api/v1/customer-payments")
       .set("Authorization", `Bearer ${internalToken}`)
+      .set(transactionHeaders)
       .send({ customer_id: 11, payment_date: "2026-08-14", amount: 100, currency_code: "PKR", payment_method: "CASH", allocations: [{ invoice_id: 501, amount: 100 }] });
 
     expect(response.status).toBe(400);
@@ -69,6 +77,7 @@ describe("customer payments API", () => {
     const response = await request(app)
       .post("/api/v1/customer-payments")
       .set("Authorization", `Bearer ${internalToken}`)
+      .set(transactionHeaders)
       .set("Idempotency-Key", "payment-validation-701")
       .send({ customer_id: 11, payment_date: "2026-08-14", amount: 100, currency_code: "PKR", payment_method: "CASH", allocations: [{ invoice_id: 501, amount: 99 }] });
 
@@ -84,6 +93,7 @@ describe("customer payments API", () => {
     const response = await request(app)
       .post("/api/v1/customer-payments")
       .set("Authorization", `Bearer ${internalToken}`)
+      .set(transactionHeaders)
       .set("Idempotency-Key", "payment-key-701")
       .send({
         customer_id: 11,
@@ -109,7 +119,14 @@ describe("customer payments API", () => {
       notes: "test receipt",
       allocations: [{ invoice_id: 501, amount: 100 }],
     });
-    expect(recordPayment.mock.calls[0]![1]).toMatchObject({ principalScope: principalId, operation: "customer-payment.create", idempotencyKey: "payment-key-701" });
+    expect(recordPayment.mock.calls[0]![1]).toMatchObject({
+      organizationId: transactionHeaders["X-Organization-Id"],
+      branchId: transactionHeaders["X-Branch-Id"],
+      actorUserId: transactionHeaders["X-Actor-User-Id"],
+      servicePrincipalId: principalId,
+      operation: "customer-payment.create",
+      idempotencyKey: "payment-key-701",
+    });
     expect(recordPayment.mock.calls[0]![1].requestFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -125,10 +142,33 @@ describe("customer payments API", () => {
       allocations: [{ invoice_id: 501, amount: 100 }, { invoice_id: 502, amount: 50 }],
     };
 
-    await request(app).post("/api/v1/customer-payments").set("Authorization", `Bearer ${internalToken}`).set("Idempotency-Key", "fingerprint-1").send(base);
-    await request(app).post("/api/v1/customer-payments").set("Authorization", `Bearer ${internalToken}`).set("Idempotency-Key", "fingerprint-2").send({ ...base, allocations: [{ invoice_id: 502, amount: 50 }, { invoice_id: 501, amount: 100 }] });
+    await request(app).post("/api/v1/customer-payments").set("Authorization", `Bearer ${internalToken}`).set(transactionHeaders).set("Idempotency-Key", "fingerprint-1").send(base);
+    await request(app).post("/api/v1/customer-payments").set("Authorization", `Bearer ${internalToken}`).set(transactionHeaders).set("Idempotency-Key", "fingerprint-2").send({ ...base, allocations: [{ invoice_id: 502, amount: 50 }, { invoice_id: 501, amount: 100 }] });
 
     expect(recordPayment).toHaveBeenCalledTimes(2);
     expect(recordPayment.mock.calls[0]![1].requestFingerprint).toBe(recordPayment.mock.calls[1]![1].requestFingerprint);
+  });
+
+  it("maps an in-progress database request to the idempotency conflict contract", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "P0003", message: "busy" } });
+    const service = new SupabaseCustomerPaymentService(() => ({ rpc } as never));
+    const input: CustomerPaymentInput = {
+      customer_id: 11,
+      payment_date: "2026-08-14",
+      amount: 100,
+      currency_code: "PKR",
+      payment_method: "CASH",
+      allocations: [{ invoice_id: 501, amount: 100 }],
+    };
+
+    await expect(service.recordPayment(input, {
+      organizationId: transactionHeaders["X-Organization-Id"],
+      branchId: transactionHeaders["X-Branch-Id"],
+      actorUserId: transactionHeaders["X-Actor-User-Id"],
+      servicePrincipalId: principalId,
+      operation: "customer-payment.create",
+      idempotencyKey: "in-progress",
+      requestFingerprint: "a".repeat(64),
+    })).rejects.toMatchObject({ status: 409, code: "IDEMPOTENCY_REQUEST_IN_PROGRESS" });
   });
 });

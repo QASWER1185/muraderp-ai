@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdminClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
+import type { AuthoritativeTransactionContext } from "../types/authoritative-transaction.types.js";
 import type { Database, Json } from "../types/database.types.js";
 
 export type PaymentMethod = "CASH" | "BANK_TRANSFER" | "CARD" | "CHEQUE" | "OTHER";
@@ -16,12 +17,8 @@ export interface CustomerPaymentInput {
   notes?: string | undefined;
   allocations: CustomerPaymentAllocationInput[];
 }
-export interface CustomerPaymentIdempotencyContext {
-  principalScope: string;
-  operation: "customer-payment.create";
-  idempotencyKey: string;
-  requestFingerprint: string;
-}
+export type CustomerPaymentIdempotencyContext =
+  AuthoritativeTransactionContext<"customer-payment.create">;
 export interface CustomerPayment {
   id: number;
   customer_id: number;
@@ -44,10 +41,11 @@ function databaseError(error: { code?: string; message?: string }, operation: st
   switch (error.code) {
     case "P0001": return new ApiError(409, "IDEMPOTENCY_KEY_REUSED", "The Idempotency-Key was already used for a different payment request");
     case "P0002": return new ApiError(409, "OVERPAYMENT", "Payment allocation exceeds invoice outstanding balance");
+    case "P0003": return new ApiError(409, "IDEMPOTENCY_REQUEST_IN_PROGRESS", "The Idempotency-Key is currently being processed; retry shortly");
     case "23503": return new ApiError(409, "REFERENCE_CONFLICT", "A related customer or invoice was not found");
     case "23505": return new ApiError(409, "DUPLICATE_RECORD", "A payment allocation already exists");
     case "22023": return new ApiError(400, "BUSINESS_RULE_VIOLATION", error.message ?? "The payment violates a business rule");
-    case "42501": return new ApiError(503, "DATABASE_ACCESS_DENIED", "Database access is not configured correctly");
+    case "42501": return new ApiError(403, "AUTHORIZATION_DENIED", error.message ?? "The customer payment is not authorized for this organization or branch");
     default: return new ApiError(502, "DATABASE_OPERATION_FAILED", `${operation} could not be completed`);
   }
 }
@@ -70,8 +68,11 @@ export class SupabaseCustomerPaymentService implements CustomerPaymentService {
       p_reference_number: input.reference_number ?? null,
       p_notes: input.notes ?? null,
       p_allocations: allocations,
-      p_principal_scope: idempotency.principalScope,
-      p_operation: idempotency.operation,
+      p_organization_id: idempotency.organizationId,
+      p_branch_id: idempotency.branchId,
+      p_actor_user_id: idempotency.actorUserId,
+      p_service_principal: idempotency.servicePrincipalId,
+      p_operation_scope: idempotency.operation,
       p_idempotency_key: idempotency.idempotencyKey,
       p_request_fingerprint: idempotency.requestFingerprint,
     });

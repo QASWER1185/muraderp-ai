@@ -5,6 +5,7 @@ import type { CopilotActionPlan, CopilotInputSource } from "./copilot.types.js";
 
 export interface CopilotDraftContext {
   userId: string;
+  branchId?: string;
   warehouseId?: number;
   rateListId?: number;
   documentNumber?: string;
@@ -39,6 +40,7 @@ function toPlannerLine(line: AiDraftLine, defaultRateListId?: number) {
     unit?: string;
     explicitUnitRate?: number;
     rateListId?: number;
+    rateListSelectionSource?: "INHERITED" | "LINE_OVERRIDE";
     sourceItemId?: number;
   } = { productName, quantity };
 
@@ -46,12 +48,19 @@ function toPlannerLine(line: AiDraftLine, defaultRateListId?: number) {
   if (productId !== undefined) result.productId = productId;
   const sourceItemId = positiveInteger(line.sourceItemId?.value, "sourceItemId");
   if (sourceItemId !== undefined) result.sourceItemId = sourceItemId;
+  const lineRateListId = positiveInteger(line.rateListId?.value, "rateListId");
+  if (lineRateListId !== undefined) result.rateListId = lineRateListId;
 
   const brandHint = line.productName?.rawText?.trim();
   if (brandHint && brandHint !== productName) result.brandHint = brandHint;
   if (line.unit?.value?.trim()) result.unit = line.unit.value.trim();
   if (line.unitRate?.value !== undefined) result.explicitUnitRate = line.unitRate.value;
-  else if (defaultRateListId !== undefined) result.rateListId = defaultRateListId;
+  else if (lineRateListId === undefined && defaultRateListId !== undefined) {
+    result.rateListId = defaultRateListId;
+    result.rateListSelectionSource = "INHERITED";
+  } else if (lineRateListId !== undefined) {
+    result.rateListSelectionSource = "LINE_OVERRIDE";
+  }
   return result;
 }
 
@@ -69,6 +78,7 @@ export function createCopilotPlanFromDraft(
   const documentNumber = context.documentNumber ?? draft.documentNumber?.value;
   const input = {
     organizationId: draft.organizationId,
+    ...(context.branchId !== undefined ? { branchId: context.branchId } : {}),
     userId: context.userId,
     source: draft.source as CopilotInputSource,
     target: draft.intent,
@@ -91,7 +101,8 @@ export function assertCopilotDraftExecution(
   organizationId: string,
   userId: string,
   expectedIntent: AiInputIntent,
+  branchId?: string,
 ): void {
-  assertCopilotExecutionContext(plan, organizationId, userId);
+  assertCopilotExecutionContext(plan, organizationId, userId, branchId);
   if (plan.target !== expectedIntent) throw new Error("copilot action intent mismatch");
 }

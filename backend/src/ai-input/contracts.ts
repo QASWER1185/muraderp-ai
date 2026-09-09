@@ -21,6 +21,8 @@ export interface AiDraftLine {
   quantity?: AiDraftField<number>;
   unit?: AiDraftField<string>;
   unitRate?: AiDraftField<number>;
+  /** Optional explicit list per line; required for mixed-brand pricing. */
+  rateListId?: AiDraftField<string | number>;
   sourceItemId?: AiDraftField<number>;
 }
 

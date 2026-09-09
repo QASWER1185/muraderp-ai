@@ -8,6 +8,7 @@ const AUTH_TOKEN = "phase22-test-token-123456789012345678901234567890";
 const SERVICE_PRINCIPAL = "muraderp-copilot-test";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000001";
 const USER_ID = "00000000-0000-4000-8000-000000000002";
+const BRANCH_ID = "00000000-0000-4000-8000-000000000004";
 const SOURCE = "text" as const;
 
 function field<T>(value: T) {
@@ -65,6 +66,7 @@ describe("Phase 22 Copilot functional contract", () => {
     const draftResponse = await request(app)
       .post("/test-copilot/drafts")
       .set("Authorization", `Bearer ${AUTH_TOKEN}`)
+      .set("X-Branch-Id", BRANCH_ID)
       .set("Idempotency-Key", "phase22-copilot-draft-1")
       .send({
         organizationId: ORGANIZATION_ID,
@@ -84,6 +86,7 @@ describe("Phase 22 Copilot functional contract", () => {
       .post("/test-copilot/drafts/00000000-0000-4000-8000-000000000003/confirm")
       .set("Authorization", `Bearer ${AUTH_TOKEN}`)
       .set("X-Organization-Id", ORGANIZATION_ID)
+      .set("X-Branch-Id", BRANCH_ID)
       .set("X-User-Id", USER_ID)
       .set("Idempotency-Key", "phase22-copilot-draft-1");
     expect(confirmResponse.status).toBe(200);

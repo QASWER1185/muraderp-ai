@@ -26,7 +26,11 @@ function resolvePricing(line: CopilotPlannerInput["lines"][number]): {
     const selection: EstimatePricingSelection = {
       mode: "RATE_LIST",
       rate_list_id: line.rateListId,
-      source: line.brandHint?.trim() ? "AI_SUGGESTED" : "INHERITED",
+      source: line.brandHint?.trim()
+        ? "AI_SUGGESTED"
+        : line.rateListSelectionSource ?? (line.rateListId !== undefined
+          ? "LINE_OVERRIDE"
+          : "INHERITED"),
     };
     assertEstimatePricingSelection(selection);
     return { rateSource: "SELECTED_RATE_LIST", pricingSelection: selection };
@@ -76,6 +80,7 @@ export function createTransactionActionPlan(input: CopilotPlannerInput): Copilot
     lines,
     requiresConfirmation: true,
   };
+  if (input.branchId?.trim()) plan.branchId = input.branchId.trim();
   if (input.customerId?.trim()) plan.customerId = input.customerId.trim();
   if (input.vendorId?.trim()) plan.vendorId = input.vendorId.trim();
   if (input.warehouseId !== undefined) plan.warehouseId = input.warehouseId;

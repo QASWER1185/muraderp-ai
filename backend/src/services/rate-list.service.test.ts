@@ -4,6 +4,7 @@ import type { RateListRepository } from "../repositories/rate-list.repository.js
 import type { RateListDefinition } from "../types/pricing.types.js";
 
 const valid: RateListDefinition = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
   name: "Default Sale Rates",
   code: "SALE-DEFAULT",
   price_type: "SALE",

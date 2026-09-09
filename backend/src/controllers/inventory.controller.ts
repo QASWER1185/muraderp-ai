@@ -8,12 +8,14 @@ export class InventoryController {
     const filter: { product_id?: number; warehouse_id?: number } = {};
     if (request.query.product_id !== undefined) filter.product_id = Number(request.query.product_id);
     if (request.query.warehouse_id !== undefined) filter.warehouse_id = Number(request.query.warehouse_id);
-    const data = await this.service.listBalances(filter);
+    const context = request.organizationContext!;
+    const data = await this.service.listBalances(context.organizationId, filter);
     response.status(200).json({ success: true, data });
   };
 
   getBalance = async (request: Request, response: Response): Promise<void> => {
-    const data = await this.service.getBalance(Number(request.params.productId), Number(request.params.warehouseId));
+    const context = request.organizationContext!;
+    const data = await this.service.getBalance(context.organizationId, Number(request.params.productId), Number(request.params.warehouseId));
     if (!data) {
       response.status(404).json({ error: { code: "INVENTORY_NOT_FOUND", message: "Inventory balance not found" } });
       return;
@@ -26,7 +28,8 @@ export class InventoryController {
     if (request.query.product_id !== undefined) filter.product_id = Number(request.query.product_id);
     if (request.query.warehouse_id !== undefined) filter.warehouse_id = Number(request.query.warehouse_id);
     if (typeof request.query.movement_type === "string") filter.movement_type = request.query.movement_type;
-    const data = await this.service.listMovements(filter);
+    const context = request.organizationContext!;
+    const data = await this.service.listMovements(context.organizationId, context.branchId!, filter);
     response.status(200).json({ success: true, data });
   };
 }

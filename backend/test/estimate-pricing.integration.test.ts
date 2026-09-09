@@ -23,7 +23,7 @@ describe("DefaultEstimatePricingService", () => {
 
     const result = await service.priceLine(
       { line_number: 1, product_id: 25, quantity: 50, unit: "pcs", rate_list_id: 4 },
-      { price_type: "SALE", as_of: "2026-08-15T10:00:00Z", customer_id: 7 },
+      { organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", as_of: "2026-08-15T10:00:00Z", customer_id: 7 },
     );
 
     expect(result.unit_price).toBe(185);
@@ -41,7 +41,7 @@ describe("DefaultEstimatePricingService", () => {
 
     const result = await service.priceLine(
       { line_number: 1, product_id: 25, quantity: 50, unit: "pcs", unit_price: 210 },
-      { price_type: "SALE", as_of: "2026-08-15T10:00:00Z", customer_id: 7 },
+      { organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", as_of: "2026-08-15T10:00:00Z", customer_id: 7 },
     );
 
     expect(result.unit_price).toBe(210);
@@ -55,7 +55,7 @@ describe("DefaultEstimatePricingService", () => {
 
     await expect(service.priceLine(
       { line_number: 1, product_id: 25, quantity: 50, unit: "pcs", rate_list_id: 4 },
-      { price_type: "SALE", as_of: "2026-08-15T10:00:00Z", customer_id: 7 },
+      { organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", as_of: "2026-08-15T10:00:00Z", customer_id: 7 },
     )).rejects.toThrow("unable to resolve price for estimate line 1");
   });
 });

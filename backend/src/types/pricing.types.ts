@@ -12,6 +12,7 @@ export type RateListSelectionSource =
   | "MANUAL_OVERRIDE";
 
 export interface RateListDefinition {
+  organization_id: string;
   name: string;
   code: string;
   price_type: RateListPriceType;
@@ -39,6 +40,7 @@ export interface RateListItemDefinition {
 }
 
 export interface PriceResolutionContext {
+  organization_id: string;
   price_type: RateListPriceType;
   product_id: number;
   quantity: number;

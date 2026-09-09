@@ -1,8 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const root = new URL(".", import.meta.url).pathname;
+const root = fileURLToPath(new URL(".", import.meta.url));
 const files = readdirSync(root).filter((file) => file.endsWith(".js") && !file.endsWith(".test.js"));
 for (const file of files) {
   execFileSync(process.execPath, ["--check", resolve(root, file)], { stdio: "inherit" });

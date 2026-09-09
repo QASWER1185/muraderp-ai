@@ -8,22 +8,22 @@ function validateId(value: number, name: string): void {
 export class InventoryService {
   constructor(private readonly repository: InventoryRepository) {}
 
-  async listBalances(filter: InventoryListFilter = {}): Promise<InventoryBalance[]> {
+  async listBalances(organizationId: string, filter: InventoryListFilter = {}): Promise<InventoryBalance[]> {
     if (filter.product_id !== undefined) validateId(filter.product_id, "product_id");
     if (filter.warehouse_id !== undefined) validateId(filter.warehouse_id, "warehouse_id");
-    return this.repository.listBalances(filter);
+    return this.repository.listBalances(organizationId, filter);
   }
 
-  async getBalance(productId: number, warehouseId: number): Promise<InventoryBalance | null> {
+  async getBalance(organizationId: string, productId: number, warehouseId: number): Promise<InventoryBalance | null> {
     validateId(productId, "product_id");
     validateId(warehouseId, "warehouse_id");
-    return this.repository.getBalance(productId, warehouseId);
+    return this.repository.getBalance(organizationId, productId, warehouseId);
   }
 
-  async listMovements(filter: MovementListFilter = {}): Promise<InventoryMovement[]> {
+  async listMovements(organizationId: string, branchId: string, filter: MovementListFilter = {}): Promise<InventoryMovement[]> {
     if (filter.product_id !== undefined) validateId(filter.product_id, "product_id");
     if (filter.warehouse_id !== undefined) validateId(filter.warehouse_id, "warehouse_id");
     if (filter.movement_type !== undefined && !filter.movement_type.trim()) throw new Error("movement_type cannot be empty");
-    return this.repository.listMovements(filter);
+    return this.repository.listMovements(organizationId, branchId, filter);
   }
 }

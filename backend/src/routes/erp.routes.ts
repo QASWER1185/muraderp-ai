@@ -1,27 +1,27 @@
-import { createHash } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
+import type { PermissionCode } from "../auth/authorization.types.js";
+import { createServiceRoleAuthorizationGateway } from "../auth/supabase-authorization.gateway.js";
+import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
-import { requireServicePrincipal } from "../security/service-principal.js";
 import {
   SupabaseErpService,
-  type Brand,
-  type BrandInput,
   type Customer,
   type CustomerInput,
   type ErpService,
   type Patch,
-  type Product,
-  type ProductInput,
   type RecordPurchaseInput,
   type Vendor,
   type VendorInput,
-  type Warehouse,
-  type WarehouseInput,
 } from "../services/erp.service.js";
+import {
+  authoritativeRequestFingerprint,
+  requireAuthoritativeTransactionIdentity,
+} from "./authoritative-transaction-context.js";
 
 const idSchema = z.coerce.number().int().positive();
+const PURCHASE_OPERATION = "purchase.create" as const;
 const pageSchema = z.object({ cursor: idSchema.optional(), limit: z.coerce.number().int().min(1).max(100).default(50) });
 const inventoryPageSchema = pageSchema.extend({ product_id: idSchema.optional(), warehouse_id: idSchema.optional() });
 const shortText = z.string().trim().min(1).max(200);
@@ -63,6 +63,7 @@ interface CrudActions<CreateInput, UpdateInput, Entity extends { id: number }> {
 }
 
 type ErpServiceList<Entity extends { id: number }> = (page: z.output<typeof pageSchema>) => Promise<{ data: Entity[]; next_cursor: number | null }>;
+type TenantAuthorizer = Pick<TenantAccessService, "assertAuthorized">;
 
 function registerCrud<CreateInput, UpdateInput, Entity extends { id: number }>(
   router: Router,
@@ -105,20 +106,51 @@ function normalizedPurchaseForFingerprint(input: RecordPurchaseInput): RecordPur
     notes: input.notes?.trim(),
   };
 }
-function purchaseFingerprint(input: RecordPurchaseInput): string {
-  return createHash("sha256").update(JSON.stringify(normalizedPurchaseForFingerprint(input)), "utf8").digest("hex");
-}
-
 export function createErpRouter(
   internalApiToken?: string,
   servicePrincipalId?: string,
   service: ErpService = new SupabaseErpService(),
+  tenantAuthorizer?: TenantAuthorizer,
 ) {
   const router = Router();
   const authorize = createInternalApiAuth(internalApiToken, servicePrincipalId);
+  let productTenantAuthorizer = tenantAuthorizer;
 
-  registerCrud<BrandInput, Patch<BrandInput>, Brand>(router, "/brands", "Brand", authorize, brandSchema, atLeastOneField(brandSchema), {
-    list: (page) => service.listBrands(page), get: (id) => service.getBrand(id), create: (input) => service.createBrand(input), update: (id, input) => service.updateBrand(id, input), delete: (id) => service.deleteBrand(id),
+  async function authorizeProduct(request: Parameters<typeof requireAuthoritativeTransactionIdentity>[0], permission: PermissionCode) {
+    const identity = requireAuthoritativeTransactionIdentity(request);
+    productTenantAuthorizer ??= new TenantAccessService(createServiceRoleAuthorizationGateway());
+    await productTenantAuthorizer.assertAuthorized(
+      { userId: identity.actorUserId, organizationId: identity.organizationId },
+      permission,
+      { kind: "branch", branchId: identity.branchId },
+    );
+    return identity;
+  }
+
+  router.get("/brands", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.read");
+    response.status(200).json(await service.listBrands(pageSchema.parse(request.query), identity.organizationId));
+  });
+  router.get("/brands/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.read");
+    const brand = await service.getBrand(idSchema.parse(request.params.id), identity.organizationId);
+    if (!brand) throw new ApiError(404, "NOT_FOUND", "Brand was not found");
+    response.status(200).json({ data: brand });
+  });
+  router.post("/brands", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.write");
+    response.status(201).json({ data: await service.createBrand(brandSchema.parse(request.body), identity.organizationId) });
+  });
+  router.patch("/brands/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.write");
+    const brand = await service.updateBrand(idSchema.parse(request.params.id), atLeastOneField(brandSchema).parse(request.body), identity.organizationId);
+    if (!brand) throw new ApiError(404, "NOT_FOUND", "Brand was not found");
+    response.status(200).json({ data: brand });
+  });
+  router.delete("/brands/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.write");
+    if (!await service.deleteBrand(idSchema.parse(request.params.id), identity.organizationId)) throw new ApiError(404, "NOT_FOUND", "Brand was not found");
+    response.status(204).send();
   });
   registerCrud<CustomerInput, Patch<CustomerInput>, Customer>(router, "/customers", "Customer", authorize, partySchema, atLeastOneField(partySchema), {
     list: (page) => service.listCustomers(page), get: (id) => service.getCustomer(id), create: (input) => service.createCustomer(input), update: (id, input) => service.updateCustomer(id, input), delete: (id) => service.deleteCustomer(id),
@@ -126,33 +158,93 @@ export function createErpRouter(
   registerCrud<VendorInput, Patch<VendorInput>, Vendor>(router, "/vendors", "Vendor", authorize, partySchema, atLeastOneField(partySchema), {
     list: (page) => service.listVendors(page), get: (id) => service.getVendor(id), create: (input) => service.createVendor(input), update: (id, input) => service.updateVendor(id, input), delete: (id) => service.deleteVendor(id),
   });
-  registerCrud<ProductInput, Patch<ProductInput>, Product>(router, "/products", "Product", authorize, productSchema, atLeastOneField(productSchema), {
-    list: (page) => service.listProducts(page), get: (id) => service.getProduct(id), create: (input) => service.createProduct(input), update: (id, input) => service.updateProduct(id, input), delete: (id) => service.deleteProduct(id),
+  router.get("/products", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.read");
+    response.status(200).json(await service.listProducts(pageSchema.parse(request.query), identity.organizationId));
   });
-  registerCrud<WarehouseInput, Patch<WarehouseInput>, Warehouse>(router, "/warehouses", "Warehouse", authorize, warehouseSchema, atLeastOneField(warehouseSchema), {
-    list: (page) => service.listWarehouses(page), get: (id) => service.getWarehouse(id), create: (input) => service.createWarehouse(input), update: (id, input) => service.updateWarehouse(id, input), delete: (id) => service.deleteWarehouse(id),
+  router.get("/products/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.read");
+    const product = await service.getProduct(idSchema.parse(request.params.id), identity.organizationId);
+    if (!product) throw new ApiError(404, "NOT_FOUND", "Product was not found");
+    response.status(200).json({ data: product });
+  });
+  router.post("/products", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.write");
+    const product = await service.createProduct(productSchema.parse(request.body), identity.organizationId);
+    response.status(201).json({ data: product });
+  });
+  router.patch("/products/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.write");
+    const product = await service.updateProduct(
+      idSchema.parse(request.params.id),
+      atLeastOneField(productSchema).parse(request.body),
+      identity.organizationId,
+    );
+    if (!product) throw new ApiError(404, "NOT_FOUND", "Product was not found");
+    response.status(200).json({ data: product });
+  });
+  router.delete("/products/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "products.write");
+    const deleted = await service.deleteProduct(idSchema.parse(request.params.id), identity.organizationId);
+    if (!deleted) throw new ApiError(404, "NOT_FOUND", "Product was not found");
+    response.status(204).send();
+  });
+  router.get("/warehouses", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.read");
+    response.status(200).json(await service.listWarehouses(pageSchema.parse(request.query), identity.organizationId));
+  });
+  router.get("/warehouses/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.read");
+    const warehouse = await service.getWarehouse(idSchema.parse(request.params.id), identity.organizationId);
+    if (!warehouse) throw new ApiError(404, "NOT_FOUND", "Warehouse was not found");
+    response.status(200).json({ data: warehouse });
+  });
+  router.post("/warehouses", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.adjust");
+    response.status(201).json({ data: await service.createWarehouse(warehouseSchema.parse(request.body), identity.organizationId) });
+  });
+  router.patch("/warehouses/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.adjust");
+    const warehouse = await service.updateWarehouse(idSchema.parse(request.params.id), atLeastOneField(warehouseSchema).parse(request.body), identity.organizationId);
+    if (!warehouse) throw new ApiError(404, "NOT_FOUND", "Warehouse was not found");
+    response.status(200).json({ data: warehouse });
+  });
+  router.delete("/warehouses/:id", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.adjust");
+    if (!await service.deleteWarehouse(idSchema.parse(request.params.id), identity.organizationId)) throw new ApiError(404, "NOT_FOUND", "Warehouse was not found");
+    response.status(204).send();
   });
 
-  router.get("/inventory", authorize, async (request, response) => { response.status(200).json(await service.listInventory(inventoryPageSchema.parse(request.query))); });
-  router.get("/stock-movements", authorize, async (request, response) => { response.status(200).json(await service.listStockMovements(inventoryPageSchema.parse(request.query))); });
-  router.get("/purchases", authorize, async (request, response) => { response.status(200).json(await service.listPurchases(pageSchema.parse(request.query))); });
+  router.get("/inventory", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.read");
+    response.status(200).json(await service.listInventory(inventoryPageSchema.parse(request.query), identity.organizationId));
+  });
+  router.get("/stock-movements", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "inventory.read");
+    response.status(200).json(await service.listStockMovements(inventoryPageSchema.parse(request.query), identity.organizationId, identity.branchId));
+  });
+  router.get("/purchases", authorize, async (request, response) => {
+    const identity = await authorizeProduct(request, "purchases.read");
+    response.status(200).json(await service.listPurchases(pageSchema.parse(request.query), identity.organizationId, identity.branchId));
+  });
   router.get("/purchases/:id", authorize, async (request, response) => {
-    const purchase = await service.getPurchase(idSchema.parse(request.params.id));
+    const identity = await authorizeProduct(request, "purchases.read");
+    const purchase = await service.getPurchase(idSchema.parse(request.params.id), identity.organizationId, identity.branchId);
     if (!purchase) throw new ApiError(404, "NOT_FOUND", "Purchase was not found");
     response.status(200).json({ data: purchase });
   });
 
   router.post("/purchases", authorize, async (request, response) => {
-    const principal = requireServicePrincipal(request.servicePrincipal);
+    const identity = requireAuthoritativeTransactionIdentity(request);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
     const parsedInput = purchaseSchema.parse(request.body);
     const normalizedInput = normalizedPurchaseForFingerprint(parsedInput);
     const purchase = await service.recordPurchase(normalizedInput, {
-      principalScope: principal.id,
-      operation: "purchase.create",
+      ...identity,
+      operation: PURCHASE_OPERATION,
       idempotencyKey,
-      requestFingerprint: purchaseFingerprint(parsedInput),
+      requestFingerprint: authoritativeRequestFingerprint(identity, PURCHASE_OPERATION, normalizedInput),
     });
     response.status(201).json({ data: purchase });
   });

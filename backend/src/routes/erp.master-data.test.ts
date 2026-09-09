@@ -4,6 +4,13 @@ import { createApp } from "../app.js";
 import type { ErpService } from "../services/erp.service.js";
 
 const TOKEN = "phase5-test-token-012345678901234567890123456789";
+const PRINCIPAL = "muraderp-api-test-01";
+const TENANT_HEADERS = {
+  "X-Organization-Id": "11111111-1111-4111-8111-111111111111",
+  "X-Branch-Id": "22222222-2222-4222-8222-222222222222",
+  "X-Actor-User-Id": "33333333-3333-4333-8333-333333333333",
+};
+const tenantAccessService = { assertAuthorized: vi.fn(async () => undefined) };
 
 function makeService(): ErpService {
   const rows = {
@@ -63,7 +70,7 @@ describe("Phase 5 master-data acceptance", () => {
   ] as const;
 
   it("requires the internal API token", async () => {
-    const app = createApp({ erpService: makeService(), internalApiToken: TOKEN });
+    const app = createApp({ erpService: makeService(), tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
     const response = await request(app).get("/api/v1/brands");
     expect(response.status).toBe(401);
     expect(response.body.error.code).toBe("UNAUTHORIZED");
@@ -72,8 +79,8 @@ describe("Phase 5 master-data acceptance", () => {
   for (const resource of resources) {
     it(`${resource.path} supports list/create/update/delete`, async () => {
       const service = makeService();
-      const app = createApp({ erpService: service, internalApiToken: TOKEN });
-      const auth = { Authorization: `Bearer ${TOKEN}` };
+      const app = createApp({ erpService: service, tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
+      const auth = { Authorization: `Bearer ${TOKEN}`, ...TENANT_HEADERS };
 
       expect((await request(app).get(`/api/v1/${resource.path}`).set(auth)).status).toBe(200);
       expect((await request(app).post(`/api/v1/${resource.path}`).set(auth).send(resource.valid)).status).toBe(201);
@@ -82,10 +89,11 @@ describe("Phase 5 master-data acceptance", () => {
     });
 
     it(`${resource.path} rejects unknown create fields`, async () => {
-      const app = createApp({ erpService: makeService(), internalApiToken: TOKEN });
+      const app = createApp({ erpService: makeService(), tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
       const response = await request(app)
         .post(`/api/v1/${resource.path}`)
         .set("Authorization", `Bearer ${TOKEN}`)
+        .set(TENANT_HEADERS)
         .send({ ...resource.valid, unexpected: "blocked" });
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe("VALIDATION_ERROR");
@@ -94,10 +102,11 @@ describe("Phase 5 master-data acceptance", () => {
 
   it("rejects invalid pagination without reaching the service", async () => {
     const service = makeService();
-    const app = createApp({ erpService: service, internalApiToken: TOKEN });
+    const app = createApp({ erpService: service, tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
     const response = await request(app)
       .get("/api/v1/products?limit=101")
-      .set("Authorization", `Bearer ${TOKEN}`);
+      .set("Authorization", `Bearer ${TOKEN}`)
+      .set(TENANT_HEADERS);
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");
     expect(service.listProducts).not.toHaveBeenCalled();

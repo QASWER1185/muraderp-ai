@@ -6,7 +6,7 @@ import type { EstimateLineDraft, EstimatePricingService, PricedEstimateLine } fr
 const estimate: EstimateDocument = {
   id: 15,
   status: "READY",
-  definition: { customer_id: 7, estimate_number: "EST-0015", issue_date: "2026-08-13", currency_code: "PKR" },
+  definition: { organization_id: "11111111-1111-4111-8111-111111111111", customer_id: 7, estimate_number: "EST-0015", issue_date: "2026-08-13", currency_code: "PKR" },
   lines: [{ line_number: 1, product_id: 25, quantity: 10, unit: "bag", unit_price: 1000, pricing_source: "RESOLVED_RATE" }],
   totals: { subtotal: 10000, discount_total: 500, grand_total: 9500, customer_payable_total: 10500, pass_through_rent: 1000 },
 };
@@ -79,7 +79,7 @@ describe("DefaultInvoiceService", () => {
       { invoice_number: "INV-0093", customer_id: 7, issue_date: "2026-08-13", currency_code: "PKR" },
       [directLine],
       pricing(),
-      { price_type: "SALE", as_of: "2026-08-13", rate_list_id: 10 },
+      { organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", as_of: "2026-08-13", rate_list_id: 10 },
       12500,
       0,
       12500,
@@ -96,7 +96,7 @@ describe("DefaultInvoiceService", () => {
       { invoice_number: "INV-0094", customer_id: 7, issue_date: "2026-08-13", currency_code: "PKR" },
       [directLine],
       pricing(),
-      { price_type: "SALE", as_of: "2026-08-13", rate_list_id: null },
+      { organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", as_of: "2026-08-13", rate_list_id: null },
       500,
       0,
       500,

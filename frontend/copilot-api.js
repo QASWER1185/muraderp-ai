@@ -7,17 +7,17 @@ async function api(path, options = {}) {
   return body;
 }
 
-export async function createCopilotDraft(input) {
+export async function createCopilotDraft(input, branchId) {
   return api("/api/v1/ai/copilot/drafts", {
     method: "POST",
-    headers: { "Idempotency-Key": newIdempotencyKey("copilot-draft") },
+    headers: { "X-Branch-Id": branchId, "Idempotency-Key": newIdempotencyKey("copilot-draft") },
     body: JSON.stringify(input),
   });
 }
 
-export async function confirmCopilotDraft({ id, organizationId, userId, idempotencyKey }) {
+export async function confirmCopilotDraft({ id, organizationId, branchId, userId, idempotencyKey }) {
   return api(`/api/v1/ai/copilot/drafts/${encodeURIComponent(id)}/confirm`, {
     method: "POST",
-    headers: { "X-Organization-Id": organizationId, ...(userId ? { "X-User-Id": userId } : {}), "Idempotency-Key": idempotencyKey },
+    headers: { "X-Organization-Id": organizationId, "X-Branch-Id": branchId, ...(userId ? { "X-User-Id": userId } : {}), "Idempotency-Key": idempotencyKey },
   });
 }

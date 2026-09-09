@@ -43,6 +43,7 @@ describe("SupabaseRateListRepository price resolution", () => {
 
     const repository = new SupabaseRateListRepository(() => client as never);
     const context: PriceResolutionContext = {
+      organization_id: "11111111-1111-4111-8111-111111111111",
       price_type: "SALE",
       product_id: 10,
       quantity: 10,
@@ -70,7 +71,7 @@ describe("SupabaseRateListRepository price resolution", () => {
       },
     };
     const repository = new SupabaseRateListRepository(() => client as never);
-    await expect(repository.findBestRateListItem({ price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z", customer_id: 7, rate_list_id: 2 })).resolves.toMatchObject({ rate_list_id: 2, unit_price: 1400 });
+    await expect(repository.findBestRateListItem({ organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z", customer_id: 7, rate_list_id: 2 })).resolves.toMatchObject({ rate_list_id: 2, unit_price: 1400 });
   });
 
   it("returns null when the effective window is not active", async () => {
@@ -82,6 +83,6 @@ describe("SupabaseRateListRepository price resolution", () => {
       },
     };
     const repository = new SupabaseRateListRepository(() => client as never);
-    await expect(repository.findBestRateListItem({ price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z" })).resolves.toBeNull();
+    await expect(repository.findBestRateListItem({ organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z" })).resolves.toBeNull();
   });
 });

@@ -3,7 +3,10 @@ import type { EstimateLineDraft, PricedEstimateLine, EstimatePricingService } fr
 import type { CreateEstimateInput, EstimateRepository } from "../repositories/estimate.repository.js";
 
 export interface EstimateService {
-  createDraft(draft: EstimateDraft, source?: Pick<CreateEstimateInput, "source_type" | "source_reference">): Promise<EstimateDocument>;
+  createDraft(
+    draft: EstimateDraft,
+    source?: Pick<CreateEstimateInput, "source_type" | "source_reference" | "branch_id" | "actor_user_id" | "idempotency_key">,
+  ): Promise<EstimateDocument>;
 }
 
 function assertPositiveInteger(value: number, field: string): void {
@@ -13,7 +16,7 @@ function assertPositiveInteger(value: number, field: string): void {
 function calculateTotals(lines: PricedEstimateLine[], passThroughRent = 0): EstimateTotals {
   if (!Number.isFinite(passThroughRent) || passThroughRent < 0) throw new Error("pass_through_rent must be zero or greater");
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
-  const discount_total = 0;
+  const discount_total = lines.reduce((sum, line) => sum + (line.discount_amount ?? 0), 0);
   const grand_total = subtotal - discount_total;
   return { subtotal, discount_total, grand_total, customer_payable_total: grand_total + passThroughRent, pass_through_rent: passThroughRent };
 }
@@ -28,6 +31,9 @@ function validateLines(lines: PricedEstimateLine[]): void {
     assertPositiveInteger(line.product_id, "product_id");
     if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error("quantity must be greater than zero");
     if (!Number.isFinite(line.unit_price) || line.unit_price < 0) throw new Error("unit_price must be zero or greater");
+    const discount = line.discount_amount ?? 0;
+    if (!Number.isFinite(discount) || discount < 0) throw new Error("discount_amount must be zero or greater");
+    if (line.quantity * line.unit_price - discount < 0) throw new Error("discount_amount cannot exceed line total");
     if (!line.unit.trim()) throw new Error("unit is required");
   }
 }
@@ -37,7 +43,7 @@ export class DefaultEstimateService implements EstimateService {
 
   async createDraft(
     draft: EstimateDraft,
-    source: Pick<CreateEstimateInput, "source_type" | "source_reference"> = {},
+    source: Pick<CreateEstimateInput, "source_type" | "source_reference" | "branch_id" | "actor_user_id" | "idempotency_key"> = {},
   ): Promise<EstimateDocument> {
     assertPositiveInteger(draft.definition.customer_id, "customer_id");
     if (!draft.definition.estimate_number.trim()) throw new Error("estimate_number is required");
@@ -49,13 +55,18 @@ export class DefaultEstimateService implements EstimateService {
     let pricedLines: PricedEstimateLine[] = draft.lines;
     if (this.pricingService) {
       pricedLines = await Promise.all(draft.lines.map(async (line) => {
-        const selectedRateListId = line.rate_list_id ?? draft.definition.default_rate_list_id ?? null;
+        // A captured brand/company hint is not an instruction to use the
+        // estimate default. It must be paired with an explicit line-level list.
+        const selectedRateListId = line.rate_list_id ?? (line.brand_hint?.trim()
+          ? null
+          : draft.definition.default_rate_list_id ?? null);
         const candidate: EstimateLineDraft = selectedRateListId != null && line.rate_list_selection_source == null
           ? { ...line, rate_list_id: selectedRateListId, rate_list_selection_source: "ESTIMATE_DEFAULT" }
           : selectedRateListId != null
             ? { ...line, rate_list_id: selectedRateListId }
             : { ...line };
         return this.pricingService!.priceLine(candidate, {
+          organization_id: draft.definition.organization_id,
           price_type: "SALE",
           as_of: draft.definition.issue_date,
           customer_id: draft.definition.customer_id,
@@ -64,8 +75,11 @@ export class DefaultEstimateService implements EstimateService {
     }
 
     validateLines(pricedLines);
-    const record = await this.repository.createEstimate({ definition: draft.definition, ...source, lines: pricedLines });
-    for (const line of pricedLines) await this.repository.createEstimateItem(record.id, line);
+    const input: CreateEstimateInput = { definition: draft.definition, ...source, lines: pricedLines };
+    if (!this.repository.createEstimateAtomic) {
+      throw new Error("atomic estimate repository operation is required");
+    }
+    const { record } = await this.repository.createEstimateAtomic(input);
 
     return {
       id: record.id,

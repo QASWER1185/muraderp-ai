@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { ApiError } from "../errors/api-error.js";
 import { getSupabaseAdminClient } from "../config/supabase.js";
 import { AuthorizationService } from "../auth/authorization.service.js";
 import type { PermissionCode } from "../auth/authorization.types.js";
+import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth/supabase-authorization.gateway.js";
 import { env } from "../config/env.js";
 import { SupabaseErpService, type ErpService } from "../services/erp.service.js";
@@ -9,14 +11,20 @@ import { DefaultEstimateService, type EstimateService } from "../services/estima
 import { SupabaseEstimateRepository } from "../repositories/estimate.repository.js";
 import { DefaultEstimatePricingService } from "../services/estimate-pricing.service.js";
 import { DefaultPricingService, type PricingService } from "../services/pricing.service.js";
-import { SupabasePricingRepository } from "../repositories/pricing.repository.js";
+import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
 import { SupabaseSalesTransactionAdapter } from "../services/supabase-sales-transaction.adapter.js";
 import { SupabaseSalesReturnService, type SalesReturnService } from "../services/sales-return.service.js";
+import { normalizeServicePrincipalId } from "../security/service-principal.js";
 import { buildDirectInvoice, type InvoiceDocument } from "../types/invoice.types.js";
-import type { SalesTransactionLine } from "../types/sales-transaction.types.js";
+import type { SalesTransactionLine, SalesTransactionPort } from "../types/sales-transaction.types.js";
+import type { RateListSelectionSource } from "../types/pricing.types.js";
 import type { AiDraft } from "../ai-input/contracts.js";
 import type { CopilotActionPlan } from "./copilot.types.js";
 import { createCopilotPlanFromDraft, assertCopilotDraftExecution } from "./copilot.service.js";
+import {
+  SupabaseCopilotReferenceResolver,
+  type CopilotReferenceResolver,
+} from "./copilot-reference.resolver.js";
 
 const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> = {
   estimate: "sales.create",
@@ -65,22 +73,31 @@ type RuntimeLine = {
   unit?: string;
   rate?: number;
   rateListId?: number;
-  rateListSelectionSource?: "ESTIMATE_DEFAULT" | "LINE_OVERRIDE";
+  rateListSelectionSource?: RateListSelectionSource;
+  brandHint?: string;
   sourceItemId?: number;
 };
 
 function requireLineProducts(plan: CopilotActionPlan): RuntimeLine[] {
   return plan.lines.map((line) => {
     if (line.productId === undefined) throw new Error(`product resolution is required for ${line.productName}`);
+    if (line.rateSource === "UNRESOLVED_BRAND_HINT") {
+      throw new ApiError(422, "UNRESOLVED_BRAND_HINT", `Brand/company hint for ${line.productName} could not be resolved to an explicit rate list`);
+    }
     const result: RuntimeLine = { productId: line.productId, quantity: line.quantity };
     if (line.unit !== undefined) result.unit = line.unit;
     if (line.explicitUnitRate !== undefined) result.rate = line.explicitUnitRate;
     const rateListId = line.pricingSelection?.mode === "RATE_LIST" ? line.pricingSelection.rate_list_id : undefined;
     if (rateListId != null) {
       result.rateListId = rateListId;
-      result.rateListSelectionSource = line.explicitUnitRate !== undefined ? "LINE_OVERRIDE" : "ESTIMATE_DEFAULT";
+      result.rateListSelectionSource = line.pricingSelection?.source === "AI_SUGGESTED"
+        ? "OCR_BRAND_MATCH"
+        : line.pricingSelection?.source === "LINE_OVERRIDE"
+          ? "LINE_OVERRIDE"
+          : "ESTIMATE_DEFAULT";
     }
     if (line.sourceItemId !== undefined) result.sourceItemId = line.sourceItemId;
+    if (line.brandHint !== undefined) result.brandHint = line.brandHint;
     return result;
   });
 }
@@ -93,31 +110,41 @@ function sourceType(source: CopilotActionPlan["source"]): "VOICE" | "OCR" | "AI_
 
 export interface CopilotRuntimeDependencies {
   authorization: Pick<AuthorizationService, "assertPermission">;
+  branchAccess?: Pick<TenantAccessService, "assertBranchAccess">;
+  references?: Pick<CopilotReferenceResolver, "assertOwnedReferences">;
   erp: ErpService;
   pricing: PricingService;
   estimate: EstimateService;
-  salesTransaction: { execute(input: { invoice: InvoiceDocument; warehouse_id: number; lines: SalesTransactionLine[]; idempotency_key: string }): Promise<unknown> };
+  salesTransaction: Pick<SalesTransactionPort, "execute">;
   returns: Pick<SalesReturnService, "recordSalesReturn">;
   database: () => any;
+  servicePrincipalId?: string;
 }
 
 function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
-  const pricing = new DefaultPricingService(new SupabasePricingRepository());
+  const pricing = new DefaultPricingService(new SupabaseRateListRepository());
+  const servicePrincipalId = normalizeServicePrincipalId(env.INTERNAL_API_PRINCIPAL_ID);
+  if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
+    throw new Error("Supabase configuration is required for AI Copilot execution");
+  }
+  const authorizationGateway = new SupabaseAuthorizationGateway(
+    createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY),
+  );
   return {
-    authorization: (() => {
-      if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new Error("Supabase configuration is required for AI Copilot execution");
-      const authClient = createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
-      return new AuthorizationService(new SupabaseAuthorizationGateway(authClient));
-    })(),
+    authorization: new AuthorizationService(authorizationGateway),
+    branchAccess: new TenantAccessService(authorizationGateway),
+    references: new SupabaseCopilotReferenceResolver(client),
     erp,
     pricing,
     estimate: new DefaultEstimateService(
       new SupabaseEstimateRepository(),
       new DefaultEstimatePricingService(pricing),
     ),
-    salesTransaction: new SupabaseSalesTransactionAdapter(getSupabaseAdminClient, "ai-copilot"),
+    salesTransaction: new SupabaseSalesTransactionAdapter(getSupabaseAdminClient, servicePrincipalId),
     returns: new SupabaseSalesReturnService(),
     database: client,
+    servicePrincipalId,
   };
 }
 
@@ -128,10 +155,34 @@ export class CopilotRuntime {
     this.dependencies = dependencies ?? defaultDependencies(erp);
   }
 
+  private async assertPlanAuthorized(plan: CopilotActionPlan): Promise<void> {
+    if (!plan.branchId) throw new ApiError(403, "BRANCH_CONTEXT_REQUIRED", "Explicit branch context is required");
+    if (!this.dependencies.branchAccess) {
+      throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Copilot branch authorization is not configured");
+    }
+    await this.dependencies.authorization.assertPermission(
+      plan.userId,
+      plan.organizationId,
+      PERMISSION_BY_INTENT[plan.target],
+    );
+    await this.dependencies.branchAccess.assertBranchAccess(
+      { userId: plan.userId, organizationId: plan.organizationId },
+      plan.branchId,
+    );
+  }
+
+  private async assertPlanReferences(plan: CopilotActionPlan): Promise<void> {
+    if (!this.dependencies.references) {
+      throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Copilot reference resolution is not configured");
+    }
+    await this.dependencies.references.assertOwnedReferences(plan);
+  }
+
   async createDraft(
     draft: AiDraft,
     context: {
       userId: string;
+      branchId?: string;
       warehouseId?: number;
       rateListId?: number;
       documentNumber?: string;
@@ -142,7 +193,8 @@ export class CopilotRuntime {
     idempotencyKey: string,
   ) {
     const plan = createCopilotPlanFromDraft(draft, context).plan;
-    await this.dependencies.authorization.assertPermission(plan.userId, plan.organizationId, PERMISSION_BY_INTENT[plan.target]);
+    await this.assertPlanAuthorized(plan);
+    await this.assertPlanReferences(plan);
     const fingerprint = copilotFingerprint(plan);
     const db = this.dependencies.database();
     const { data: existing, error: existingError } = await db
@@ -174,7 +226,7 @@ export class CopilotRuntime {
     return data;
   }
 
-  async confirmAndExecute(actionId: string, organizationId: string, userId: string, idempotencyKey: string) {
+  async confirmAndExecute(actionId: string, organizationId: string, userId: string, idempotencyKey: string, branchId?: string) {
     const db = this.dependencies.database();
     const { data: action, error } = await db.from("ai_copilot_actions").select("*").eq("id", actionId).maybeSingle();
     if (error) throw error;
@@ -183,8 +235,9 @@ export class CopilotRuntime {
     if (action.user_id !== userId) throw new Error("copilot action user mismatch");
     if (action.idempotency_key !== idempotencyKey) throw new Error("copilot confirmation idempotency mismatch");
     const plan = action.action_plan as CopilotActionPlan;
-    assertCopilotDraftExecution(plan, organizationId, userId, plan.target);
-    await this.dependencies.authorization.assertPermission(userId, organizationId, PERMISSION_BY_INTENT[plan.target]);
+    assertCopilotDraftExecution(plan, organizationId, userId, plan.target, branchId);
+    await this.assertPlanAuthorized(plan);
+    await this.assertPlanReferences(plan);
     if (action.status === "EXECUTED") return action;
     if (action.status === "CONFIRMED") throw new Error("Copilot action is already being executed");
     if (action.status !== "DRAFT") throw new Error(`Copilot action cannot be confirmed from ${action.status}`);
@@ -223,6 +276,7 @@ export class CopilotRuntime {
     const date = isoDate(plan.documentDate);
     const currency = plan.currencyCode ?? "PKR";
     const estimatePricing = new DefaultEstimatePricingService(this.dependencies.pricing);
+    const servicePrincipalId = normalizeServicePrincipalId(this.dependencies.servicePrincipalId);
 
     if (plan.target === "estimate") {
       const customerId = positiveId(plan.customerId, "customerId");
@@ -232,18 +286,27 @@ export class CopilotRuntime {
         quantity: line.quantity,
         unit: line.unit ?? "unit",
         ...(line.rate !== undefined ? { unit_price: line.rate } : {}),
+        ...(line.brandHint !== undefined ? { brand_hint: line.brandHint } : {}),
         ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, ...(line.rateListSelectionSource ? { rate_list_selection_source: line.rateListSelectionSource } : {}) } : {}),
-      }, { price_type: "SALE", as_of: date, customer_id: customerId })));
+      }, { organization_id: plan.organizationId, price_type: "SALE", as_of: date, customer_id: customerId })));
       return this.dependencies.estimate.createDraft({
         definition: {
+          organization_id: plan.organizationId,
           customer_id: customerId,
           estimate_number: plan.documentNumber ?? `AI-${Date.now()}`,
           issue_date: date,
           currency_code: currency,
           notes: plan.reason ?? null,
+          ...(plan.branchId !== undefined ? { branch_id: plan.branchId } : {}),
         },
         lines: pricedLines,
-      }, { source_type: sourceType(plan.source), source_reference: `ai-copilot:${idempotencyKey}` });
+      }, {
+        source_type: sourceType(plan.source),
+        source_reference: `ai-copilot:${idempotencyKey}`,
+        ...(plan.branchId !== undefined ? { branch_id: plan.branchId } : {}),
+        actor_user_id: plan.userId,
+        idempotency_key: idempotencyKey,
+      });
     }
 
     if (plan.target === "invoice") {
@@ -255,8 +318,9 @@ export class CopilotRuntime {
         quantity: line.quantity,
         unit: line.unit ?? "unit",
         ...(line.rate !== undefined ? { unit_price: line.rate } : {}),
+        ...(line.brandHint !== undefined ? { brand_hint: line.brandHint } : {}),
         ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, ...(line.rateListSelectionSource ? { rate_list_selection_source: line.rateListSelectionSource } : {}) } : {}),
-      }, { price_type: "SALE", as_of: date, customer_id: customerId })));
+      }, { organization_id: plan.organizationId, price_type: "SALE", as_of: date, customer_id: customerId })));
       const subtotal = pricedLines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
       const invoice: InvoiceDocument = buildDirectInvoice({
         invoice_number: plan.documentNumber ?? `AI-${Date.now()}`,
@@ -275,16 +339,28 @@ export class CopilotRuntime {
         unit_cost: null,
         cogs_total: null,
       }));
-      return this.dependencies.salesTransaction.execute({ invoice, warehouse_id: plan.warehouseId, lines: transactionLines, idempotency_key: idempotencyKey });
+      if (!plan.branchId) throw new Error("branchId is required for invoice");
+      return this.dependencies.salesTransaction.execute({
+        organization_id: plan.organizationId,
+        branch_id: plan.branchId,
+        actor_user_id: plan.userId,
+        invoice,
+        warehouse_id: plan.warehouseId,
+        lines: transactionLines,
+        idempotency_key: idempotencyKey,
+      });
     }
 
     if (plan.target === "supplier_bill") {
+      if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
       const vendorId = positiveId(plan.vendorId, "vendorId");
       if (!plan.warehouseId) throw new Error("warehouseId is required for supplier bill");
+      if (!plan.branchId) throw new Error("branchId is required for supplier bill");
       const purchaseLines = await Promise.all(lines.map(async (line) => {
         let unitCost = line.rate;
         if (unitCost === undefined) {
           const resolved = await this.dependencies.pricing.resolvePrice({
+            organization_id: plan.organizationId,
             product_id: line.productId,
             quantity: line.quantity,
             price_type: "PURCHASE",
@@ -306,7 +382,10 @@ export class CopilotRuntime {
         ...(plan.reason !== undefined ? { notes: plan.reason } : {}),
       };
       return this.dependencies.erp.recordPurchase(purchaseInput, {
-        principalScope: plan.organizationId,
+        organizationId: plan.organizationId,
+        branchId: plan.branchId,
+        actorUserId: plan.userId,
+        servicePrincipalId,
         operation: "purchase.create",
         idempotencyKey,
         requestFingerprint: copilotFingerprint(plan),
@@ -314,10 +393,12 @@ export class CopilotRuntime {
     }
 
     if (plan.target === "customer_return") {
+      if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
       const customerId = positiveId(plan.customerId, "customerId");
       if (!plan.documentNumber) throw new Error("documentNumber must contain the source invoice id for customer return");
       const invoiceId = positiveId(plan.documentNumber, "invoiceId");
       if (!plan.warehouseId) throw new Error("warehouseId is required for customer return");
+      if (!plan.branchId) throw new Error("branchId is required for customer return");
       if (!plan.reason?.trim()) throw new Error("reason is required for customer return");
       if (lines.some((line) => line.sourceItemId === undefined)) throw new Error("sourceItemId is required for every customer return line");
       return this.dependencies.returns.recordSalesReturn({
@@ -328,25 +409,26 @@ export class CopilotRuntime {
         currency_code: currency,
         reason: plan.reason,
         items: lines.map((line) => ({ invoice_item_id: line.sourceItemId!, warehouse_id: plan.warehouseId!, quantity: line.quantity })),
-      }, { principalScope: plan.organizationId, operation: "sales-return.create", idempotencyKey, requestFingerprint: copilotFingerprint(plan) });
+      }, {
+        organizationId: plan.organizationId,
+        branchId: plan.branchId,
+        actorUserId: plan.userId,
+        servicePrincipalId,
+        operation: "sales-return.create",
+        idempotencyKey,
+        requestFingerprint: copilotFingerprint(plan),
+      });
     }
 
     if (plan.target === "inventory_adjustment") {
       if (!plan.warehouseId) throw new Error("warehouseId is required for inventory adjustment");
       if (!plan.reason?.trim()) throw new Error("reason is required for inventory adjustment");
       if (lines.length !== 1) throw new Error("inventory adjustment requires exactly one line");
-      const line = lines[0]!;
-      const { data, error } = await this.dependencies.database().rpc("record_inventory_adjustment", {
-        p_product_id: line.productId,
-        p_warehouse_id: plan.warehouseId,
-        p_new_quantity: line.quantity,
-        p_reason: plan.reason,
-        p_principal_id: plan.userId,
-        p_idempotency_key: idempotencyKey,
-        p_request_fingerprint: copilotFingerprint(plan),
-      });
-      if (error) throw error;
-      return data;
+      throw new ApiError(
+        409,
+        "AUTHORITATIVE_INVENTORY_ADJUSTMENT_UNAVAILABLE",
+        "Inventory adjustment requires a costed, accounting-safe authoritative transaction engine",
+      );
     }
 
     throw new Error(`Unsupported Copilot intent: ${plan.target}`);

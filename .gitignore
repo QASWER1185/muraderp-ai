@@ -7,3 +7,4 @@ coverage/
 .idea/
 *.log
 supabase/.temp/
+.supabase-cli-home/

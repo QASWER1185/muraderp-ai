@@ -25,6 +25,7 @@ const lines: PricedEstimateLine[] = [
 function repository(): EstimateRepository {
   const record: EstimateRecord = {
     id: 100,
+    organization_id: "11111111-1111-4111-8111-111111111111",
     customer_id: 7,
     estimate_number: "EST-0001",
     issue_date: "2026-08-13",
@@ -55,6 +56,7 @@ function repository(): EstimateRepository {
       created_at: "2026-08-13T10:00:00Z",
       updated_at: "2026-08-13T10:00:00Z",
     }),
+    createEstimateAtomic: async () => ({ record, items: [] }),
   };
 }
 
@@ -64,6 +66,7 @@ describe("DefaultEstimateService", () => {
 
     const result = await service.createDraft({
       definition: {
+        organization_id: "11111111-1111-4111-8111-111111111111",
         customer_id: 7,
         estimate_number: "EST-0001",
         issue_date: "2026-08-13",
@@ -88,6 +91,7 @@ describe("DefaultEstimateService", () => {
     await expect(
       service.createDraft({
         definition: {
+          organization_id: "11111111-1111-4111-8111-111111111111",
           customer_id: 7,
           estimate_number: "EST-0002",
           issue_date: "2026-08-13",
@@ -106,6 +110,7 @@ describe("DefaultEstimateService", () => {
     await expect(
       service.createDraft({
         definition: {
+          organization_id: "11111111-1111-4111-8111-111111111111",
           customer_id: 7,
           estimate_number: "EST-0003",
           issue_date: "2026-08-13",

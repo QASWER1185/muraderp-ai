@@ -6,6 +6,7 @@ const estimate: EstimateDocument = {
   id: 1,
   status: "DRAFT",
   definition: {
+    organization_id: "11111111-1111-4111-8111-111111111111",
     customer_id: 10,
     estimate_number: "EST-0001",
     issue_date: "2026-08-13",

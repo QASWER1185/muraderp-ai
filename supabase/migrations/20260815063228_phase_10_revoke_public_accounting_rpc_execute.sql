@@ -1,0 +1,1 @@
+revoke execute on function public.assert_journal_entry_balanced(uuid) from public; revoke execute on function public.post_journal_entry(date,text,text,uuid,text,jsonb) from public;

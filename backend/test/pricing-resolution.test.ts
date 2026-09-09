@@ -3,6 +3,7 @@ import { DefaultPricingService } from "../src/services/pricing.service.js";
 import type { PriceResolutionContext, ResolvedPrice } from "../src/types/pricing.types.js";
 
 const baseContext: PriceResolutionContext = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
   price_type: "SALE",
   product_id: 10,
   quantity: 5,

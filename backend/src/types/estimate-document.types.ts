@@ -4,6 +4,9 @@ import type { EstimateLayoutKey } from "./estimate-layout.types.js";
 export type EstimateStatus = "DRAFT" | "READY" | "CONVERTED" | "CANCELLED";
 
 export interface EstimateDefinition {
+  organization_id: string;
+  /** Branch in which the estimate is authored. Required by the authoritative atomic path. */
+  branch_id?: string | null;
   customer_id: number;
   estimate_number: string;
   issue_date: string;

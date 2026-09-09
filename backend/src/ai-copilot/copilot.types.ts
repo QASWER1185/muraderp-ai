@@ -24,6 +24,7 @@ export interface CopilotLineCandidate {
 
 export interface CopilotActionPlan {
   organizationId: string;
+  branchId?: string;
   userId: string;
   source: CopilotInputSource;
   target: CopilotTarget;
@@ -40,6 +41,7 @@ export interface CopilotActionPlan {
 
 export interface CopilotPlannerInput {
   organizationId: string;
+  branchId?: string;
   userId: string;
   source: CopilotInputSource;
   target: CopilotTarget;
@@ -58,6 +60,7 @@ export interface CopilotPlannerInput {
     unit?: string;
     explicitUnitRate?: number;
     rateListId?: number;
+    rateListSelectionSource?: "INHERITED" | "LINE_OVERRIDE";
     sourceItemId?: number;
   }>;
 }

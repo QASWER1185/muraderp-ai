@@ -20,6 +20,7 @@ export interface InvoiceTransactionPort {
 }
 
 export interface InvoicePricingContext {
+  organization_id: string;
   price_type: "SALE";
   as_of: string;
   vendor_id?: number | null;

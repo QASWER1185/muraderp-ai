@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
-import { requireServicePrincipal } from "../security/service-principal.js";
+import {
+  authoritativeRequestFingerprint,
+  requireAuthoritativeTransactionIdentity,
+} from "./authoritative-transaction-context.js";
 import {
   SupabaseCustomerPaymentService,
   type CustomerPaymentInput,
@@ -11,6 +13,7 @@ import {
 } from "../services/customer-payment.service.js";
 
 const idSchema = z.coerce.number().int().positive();
+const OPERATION = "customer-payment.create" as const;
 const paymentMethodSchema = z.enum(["CASH", "BANK_TRANSFER", "CARD", "CHEQUE", "OTHER"]);
 const allocationSchema = z.strictObject({ invoice_id: idSchema, amount: z.number().finite().positive() });
 const paymentSchema = z.strictObject({
@@ -41,10 +44,6 @@ function normalizedPaymentForFingerprint(input: CustomerPaymentInput): CustomerP
   };
 }
 
-function paymentFingerprint(input: CustomerPaymentInput): string {
-  return createHash("sha256").update(JSON.stringify(normalizedPaymentForFingerprint(input)), "utf8").digest("hex");
-}
-
 export function createCustomerPaymentRouter(
   internalApiToken: string | undefined,
   servicePrincipalId: string | undefined,
@@ -54,7 +53,7 @@ export function createCustomerPaymentRouter(
   const authorize: RequestHandler = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/", authorize, async (request, response) => {
-    const principal = requireServicePrincipal(request.servicePrincipal);
+    const identity = requireAuthoritativeTransactionIdentity(request);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) {
       throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
@@ -63,10 +62,10 @@ export function createCustomerPaymentRouter(
     const parsedInput = paymentSchema.parse(request.body) as CustomerPaymentInput;
     const normalizedInput = normalizedPaymentForFingerprint(parsedInput);
     const result = await service.recordPayment(normalizedInput, {
-      principalScope: principal.id,
-      operation: "customer-payment.create",
+      ...identity,
+      operation: OPERATION,
       idempotencyKey,
-      requestFingerprint: paymentFingerprint(parsedInput),
+      requestFingerprint: authoritativeRequestFingerprint(identity, OPERATION, normalizedInput),
     });
 
     response.status(201).json({ data: result });

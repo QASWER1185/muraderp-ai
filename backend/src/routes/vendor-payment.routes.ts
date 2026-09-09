@@ -1,12 +1,15 @@
-import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
-import { requireServicePrincipal } from "../security/service-principal.js";
 import { SupabaseVendorPaymentService, type VendorPaymentInput, type VendorPaymentService } from "../services/vendor-payment.service.js";
+import {
+  authoritativeRequestFingerprint,
+  requireAuthoritativeTransactionIdentity,
+} from "./authoritative-transaction-context.js";
 
 const id = z.coerce.number().int().positive();
+const OPERATION = "vendor-payment.create" as const;
 const allocationSchema = z.strictObject({ purchase_id: id, amount: z.number().finite().positive() });
 const requestSchema = z.strictObject({
   vendor_id: id,
@@ -23,14 +26,13 @@ const requestSchema = z.strictObject({
   }
 });
 
-function fingerprint(input: VendorPaymentInput): string {
-  const normalized = {
+function normalizedForFingerprint(input: VendorPaymentInput): VendorPaymentInput {
+  return {
     ...input,
     reference: input.reference?.trim(),
     notes: input.notes?.trim(),
     allocations: [...input.allocations].sort((a, b) => a.purchase_id - b.purchase_id),
   };
-  return createHash("sha256").update(JSON.stringify(normalized), "utf8").digest("hex");
 }
 
 export function createVendorPaymentRouter(
@@ -42,15 +44,16 @@ export function createVendorPaymentRouter(
   const authorize = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/", authorize, async (request, response) => {
-    const principal = requireServicePrincipal(request.servicePrincipal);
+    const identity = requireAuthoritativeTransactionIdentity(request);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required");
     const input = requestSchema.parse(request.body) as VendorPaymentInput;
+    const normalizedInput = normalizedForFingerprint(input);
     const result = await service.recordPayment(input, {
-      principalScope: principal.id,
-      operation: "vendor-payment.create",
+      ...identity,
+      operation: OPERATION,
       idempotencyKey,
-      requestFingerprint: fingerprint(input),
+      requestFingerprint: authoritativeRequestFingerprint(identity, OPERATION, normalizedInput),
     });
     response.status(201).json({ success: true, data: result });
   });
