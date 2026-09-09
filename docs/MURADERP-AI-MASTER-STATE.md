@@ -2,9 +2,15 @@
 
 Canonical entry point
 
-Last evidence audit: 2026-09-09 (Asia/Karachi)
+Last evidence audit and release verification: 2026-09-09 (Asia/Karachi)
 
-Audited by: Codex, repository/workspace read-only discovery plus documentation-only changes
+Authoritative status: **AUDIT CLOSED — RELEASE CANDIDATE VERIFIED**
+
+Verified release candidate: `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`
+
+Release-baseline parent: `e8aad251c67c2e54bc06e760fcb3fc0b948c5e9d`
+
+Audited by: Codex, repository/workspace discovery, controlled baseline creation, and exact-commit verification
 
 ## Future session entry rule
 
@@ -17,6 +23,8 @@ Every future ChatGPT/Codex session must begin by reading, in order:
 5. only the relevant detailed ADR, audit, phase, or handoff documents needed for the task.
 
 Then inspect the current Git branch, HEAD, and status before changing anything. Do not rely on the Git snapshot below after the repository changes.
+
+Do not start another comprehensive audit. Areas recorded VERIFIED at the release-candidate commit are CLOSED/FROZEN unless a concrete regression, security finding, relevant code/schema change, or changed requirement invalidates their evidence. The next phase is **PRODUCTION CLOSURE**.
 
 ## Source-of-truth order
 
@@ -106,19 +114,31 @@ Controlled release-baseline staging snapshot (2026-09-09, Asia/Karachi):
 - The working tree matches the index for every tracked path; there are zero non-ignored untracked files. No commit or push has occurred.
 - The staged migration-provenance set is atomic: 28 active migrations added, one active migration modified, 35 old active paths removed, 36 precanonical SQL files archived, plus the archive README/manifest, canonical-chain manifest, and provenance validator. The resulting index has 36 active migrations and 36 archived SQL files.
 
-The worktree contains substantial uncommitted work beyond HEAD, including migration provenance/canonicalization, P0 authorization/accounting convergence, Products security, and Estimate mixed-brand/clone-reprice changes. Local verification of a dirty tree does not replace exact-commit CI.
+Current verified release-candidate state:
+
+- Branch: `p0-8-authoritative-accounting-posting-20260829`.
+- HEAD: `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` — `fix(security): align P0-6 principal validator with context boundary`.
+- Parent/baseline commit: `e8aad251c67c2e54bc06e760fcb3fc0b948c5e9d` — `chore(release): establish MuradERP-AI baseline`.
+- Worktree: **CLEAN** after exact-commit verification.
+- Remote push: **NOT PERFORMED**. The local branch is two commits ahead of its configured upstream reference.
+- The P0-6 release-candidate correction changes only `scripts/validate-p0-6-service-principal-foundation.mjs`; no application runtime code, migration, or SQL regression file changed in that correction.
 
 ## Current implementation state
 
-### Verified in the current worktree
+### Verified at release candidate `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`
 
-The latest local evidence immediately before this documentation audit reports:
+The exact-commit verification reports:
 
-- Backend: 83 Vitest files, zero failed; TypeScript typecheck PASS; production build PASS.
-- Frontend: 6 Vitest files, zero failed; syntax/typecheck gate PASS for 10 modules; production asset build PASS for 11 assets.
-- Active database chain: provenance validator PASS; all 36 migrations applied to a clean local PostgreSQL base; latest version `20260907120000`.
-- Estimate SQL regression PASS after the clean migration application.
-- `git diff --check` PASS, with Windows LF/CRLF conversion warnings only.
+- Backend: **83 Vitest files / 400 tests PASS**; TypeScript typecheck PASS; production build PASS.
+- Frontend: **6 Vitest files / 18 tests PASS**; typecheck/syntax PASS; production build PASS.
+- P0-6 validator PASS; P0-6 focused tests **5/5 PASS**.
+- Stage 11 release readiness PASS.
+- Production dependency audit at high threshold PASS.
+- Private-key scan and concrete-credential scan PASS.
+- `git diff --check` PASS.
+- Migration provenance PASS; P0-7 accounting-decision validator PASS; P0-8 authoritative-posting validator PASS.
+- A clean local replay applied all **36 active migrations**; the migration ledger latest version is `20260907120000`.
+- On the required fresh replay, non-sales convergence, Estimate conversion, Products final-gate, and P0-8 authoritative-accounting SQL regressions all PASS.
 
 Current locally verified backend boundaries include:
 
@@ -134,6 +154,8 @@ Current locally verified backend boundaries include:
 - authoritative Chart of Accounts, balanced immutable journal, General Ledger, and Trial Balance foundations;
 - Copilot draft/confirm audit and authoritative Estimate/Invoice/Purchase/Return execution with deterministic reference and authorization checks.
 
+The verified Rate List and Estimate foundation is CLOSED/FROZEN. It supports deterministic line-level pricing, mixed-brand pricing, controlled target-rate-list repricing, preserve-line-brand-context, clone/reprice preview, pricing provenance, pricing revalidation, atomic persistence, tenant/branch authorization, and idempotency. Conversions such as Popular → Dura → Company C → Company D are supported when the corresponding target Rate Lists exist. Production Closure must extend this foundation, not rebuild or fork it.
+
 Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUCTION-CLOSURE-STATUS.md`](PRODUCTION-CLOSURE-STATUS.md).
 
 ### Implemented but not fully verified as an end-user/production capability
@@ -145,7 +167,7 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 - Copilot UI/API for structured IDs and one-line draft input; not the full conversational voice/image/matching experience accepted in Phase 22.
 - Offline service worker and durable draft outbox; contract/static tests pass, but current real-browser offline/reconnect E2E evidence is absent.
 - Estimate rendering/printing/share and WhatsApp delivery-intent model; no provider-backed WhatsApp delivery or demonstrated PDF storage/delivery lifecycle.
-- CI, configuration, secret, observability, and release-readiness controls; historical CI evidence exists, but the current dirty worktree is not an exact clean CI revision.
+- CI, configuration, secret, observability, and release-readiness controls are exact-commit verified locally; remote CI, deployment, and operational evidence remain Production Closure work because the release candidate has not been pushed or deployed.
 
 ### Remaining or blocked
 
@@ -158,20 +180,20 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 - Customer credits/refunds/deposits/unapplied receipts, which were explicitly deferred by the payment decision.
 - Explicit inventory-costing decision beyond the current persisted product-cost foundation before complete production valuation claims.
 - Phase 23 Stage 9: actual isolated backup/snapshot restore and post-restore verification.
-- A clean, reviewed, versioned release baseline for all current worktree changes, exact-commit CI, controlled deployment, and deployed smoke/rollback evidence.
+- Remote CI confirmation, controlled deployment, and deployed smoke/rollback evidence for the verified release candidate.
+- Professional Estimate and Invoice document implementation: business branding/logo, customer details, document number/date, item table, quantity, rate, applicable discount/tax, subtotal, grand total, notes/terms, authorization/signature, A4/print layout, PDF output, and WhatsApp-ready PDF.
 
 ## Current production-readiness state
 
-**Overall current worktree: NOT PRODUCTION READY / BLOCKED FOR RELEASE.**
+**AUDIT CLOSED — RELEASE CANDIDATE VERIFIED. The whole product is NOT YET PRODUCTION READY; proceed to PRODUCTION CLOSURE.**
 
 This does not invalidate verified module behavior. It means the whole-product release claim is not supported because:
 
-1. the current implementation is staged across 194 reviewed paths, with the generated telemetry file ignored, but no exact release commit or exact-commit CI result exists yet;
-2. recovery Stage 9 is still open;
-3. the active bank schema conflicts with the Phase 16 repository/closure record;
-4. most ERP screens remain placeholders;
-5. production OCR/voice/LLM/WhatsApp transports are absent;
-6. no concrete deployment target/manifest or deployed current-version smoke evidence was found.
+1. recovery Stage 9 is still open;
+2. the active bank schema conflicts with the Phase 16 repository/closure record;
+3. most ERP screens remain placeholders;
+4. production OCR/voice/LLM/WhatsApp transports are absent;
+5. no concrete deployment target/manifest or deployed release-candidate smoke evidence was found.
 
 No reliable completion percentage is reported. Product requirements are not frozen into a weighted checklist, and backend verification, end-user completeness, deployment, and operational recovery have materially different states. Do not derive percentages from phase numbers, test counts, or historical "100%" labels.
 
@@ -225,13 +247,13 @@ The concise authoritative index is [`ARCHITECTURE-DECISIONS.md`](ARCHITECTURE-DE
 5. Two ADR files use number 024.
 6. Stage 9's document reports a 22-migration baseline; current active chain contains 36 migrations.
 7. Stage 13 records a merge but still requires post-merge verification; no later canonical Stage 13 PASS record was found.
-8. Historical CI evidence applies to committed ancestors, not the current dirty changes.
-9. The Supabase CLI `db reset --local` wrapper currently crashes in the bundled Realtime seed with exit 132 on this host. PostgreSQL base initialization and all 36 project migrations succeeded through `migration up --local --include-all`, and the post-migration Estimate SQL gate passed. Treat the Realtime crash as a local tooling compatibility risk, not a project migration failure.
+8. Historical CI evidence applies only to its recorded commits; the current authoritative local release evidence is the exact-commit verification at `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`.
+9. Supabase Realtime image `public.ecr.aws/supabase/realtime:v2.129.3` crashes with SIGILL/exit 132 on this host because its Intel i5 M520 CPU does not expose the required AVX/AVX2 instructions. This occurs during the Realtime BEAM seed before MuradERP migrations begin. Temporarily disabling Realtime locally allowed `supabase db reset --local --no-seed` to replay all 36 migrations; Realtime configuration was restored afterward. This is a local environment limitation, not an application or migration defect. Never commit a Realtime-disabled production configuration.
 
 ## Known risks
 
 - A future agent may trust optimistic phase labels and unintentionally skip current UI/schema/operational gaps.
-- A broad cleanup/reset could destroy intentional migration-provenance and feature work in the dirty tree.
+- Restoring archived historical migrations to the active chain would undo the verified migration-provenance baseline.
 - Legacy and authoritative journal tables coexist; a new legacy writer would recreate accounting divergence.
 - Provider/integration claims can be overstated because adapter contracts and unit tests exist without production transports.
 - Static frontend tests verify source markers more than real user journeys.
@@ -240,7 +262,7 @@ The concise authoritative index is [`ARCHITECTURE-DECISIONS.md`](ARCHITECTURE-DE
 
 ## Anti-repeat rule
 
-Do not re-audit a VERIFIED area from scratch unless one of these is true:
+The audit is CLOSED. Do not re-audit or rebuild a VERIFIED area from scratch unless one of these is true:
 
 - relevant code changed;
 - relevant schema/migration changed;
@@ -266,23 +288,40 @@ When re-verification is needed, start from the exact evidence and closure condit
 
 ## Current recommended next action
 
-Do not begin a new feature. Workspace attribution and controlled staging are complete; the next task requires explicit authorization to create the **exact-commit release baseline**:
+Begin **PRODUCTION CLOSURE** from verified release candidate `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`. Do not reopen the closed audit or rebuild the verified pricing/Estimate foundation. Production Closure execution must address only genuinely incomplete production requirements:
 
-1. preserve the reviewed 194-path staged index exactly as prepared;
-2. create the baseline commit only with explicit authorization;
-3. run required tests/provenance/security/build gates on the exact resulting commit;
-4. update these canonical documents with that SHA and evidence;
-5. then resolve the bank-schema contradiction and execute Stage 9 restore verification as separate controlled closure work.
+1. AI Copilot production experience;
+2. text → ERP data;
+3. voice → ERP data;
+4. image/OCR → ERP data;
+5. file attachment → ERP data;
+6. AI-assisted Estimate creation;
+7. AI-assisted Invoice creation;
+8. AI-assisted Rate List entry/import;
+9. mandatory confirmation before consequential ERP actions;
+10. Dynamic Rate Lists and deterministic pricing product workflows built on the verified foundation;
+11. brand/company target Rate List conversion workflows;
+12. professional Estimate and Invoice documents, A4/print/PDF output, and WhatsApp-ready PDFs;
+13. provider-backed WhatsApp PDF sending with delivery audit/retry;
+14. remaining core ERP production workflows;
+15. inventory and reporting where genuinely incomplete;
+16. offline/recovery requirements;
+17. bank-schema reconciliation and other recorded integrity blockers;
+18. backup/restore proof;
+19. deployment configuration and remote exact-commit CI;
+20. final deployed smoke and rollback checks.
+
+Do not claim these capabilities complete until their implementation and production evidence satisfy the closure conditions in `PRODUCTION-CLOSURE-STATUS.md`.
 
 ## CURRENT RESUME POINT
 
-**Complete:** The repository has a canonical source-of-truth documentation set, an exact 202-entry pre-staging classification, and a reviewed 194-path staged release-baseline manifest. Backend foundations, current transaction/pricing/security boundaries, and Estimate mixed-brand clone/reprice are locally verified as described above.
+**Complete:** **AUDIT CLOSED. RELEASE CANDIDATE VERIFIED.** Commit `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` passed the recorded backend, frontend, security, migration, and fresh-replay SQL gates. The worktree was clean after verification, and nothing was pushed.
 
-**Currently being worked on:** No product feature. The 194-path baseline is staged; the preserved local telemetry file is ignored; nothing is committed or pushed.
+**Currently being worked on:** Documentation continuity only. No product implementation is authorized by this update.
 
-**Next exact task:** Explicitly authorized baseline commit using the reviewed staged index, followed by exact-commit verification; no behavior or architecture change.
+**Next exact task:** Start from **PRODUCTION CLOSURE**. The remaining AI/Copilot/Voice/Image/File/Rate-List/PDF/WhatsApp/core ERP work is the next execution scope. Do not re-audit verified work.
 
-**Must NOT be changed:** Do not reset/clean/revert the dirty tree; do not restore archived historical migrations into the active chain; do not create parallel pricing/accounting/inventory/Copilot engines; do not weaken organization/branch/RBAC/idempotency/confirmation boundaries; do not mark provider contracts or placeholder UI as production complete.
+**Must NOT be changed:** Do not rewrite or bypass the verified release-candidate baseline; do not restore archived historical migrations into the active chain; do not create parallel pricing/accounting/inventory/Copilot engines; do not weaken organization/branch/RBAC/idempotency/confirmation boundaries; do not mark provider contracts or placeholder UI as production complete.
 
 **Read first next session:**
 
