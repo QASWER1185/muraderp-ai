@@ -237,6 +237,8 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 ### Implemented but not fully verified as an end-user/production capability
 
 - The first Production Closure vertical slice implements the manual Customer product workflow: a browser-session-safe gateway, explicit organization/branch permission checks, organization-scoped persistence, live list/create/edit UI, loading/empty/error/permission states, and responsive/PWA integration. Focused backend tests (**3 files / 29 tests**), focused frontend tests (**3 files / 15 tests**), both typechecks, and both production builds pass in the implementation worktree. Authenticated real-browser E2E and deployed evidence remain open, so this is not yet a production-ready claim.
+- The second Production Closure vertical slice implements the manual Vendor product workflow through the same established security architecture while retaining Vendor-specific contracts: browser-session-safe/internal caller authentication, explicit organization/branch checks, `vendors.read`/`vendors.write`, organization-scoped Vendor persistence, live list/create/edit UI, loading/empty/error/authentication/permission states, server-error display without resetting entered form data, sign-out clearing the rendered workspace, and responsive/PWA integration. Focused backend tests (**4 files / 35 tests**) and frontend tests (**5 files / 24 tests**) pass; both typechecks and both production builds pass in the implementation worktree. Authenticated real-browser E2E and deployed evidence remain open.
+- Vendor slice files: `backend/src/app.ts`, `backend/src/routes/vendor.routes.ts`, `backend/src/routes/erp.routes.ts`, `backend/src/routes/erp.master-data.test.ts`, `backend/src/services/erp.service.ts`, `backend/src/types/database.types.ts`, `backend/test/vendor-browser.routes.test.ts`, `backend/test/erp.test.ts`, `frontend/app.js`, `frontend/build-check.mjs`, `frontend/vendor-api.js`, `frontend/vendor-api.test.js`, `frontend/vendors.js`, `frontend/vendors.test.js`, `frontend/styles.css`, `frontend/sw.js`, this Master State, and `PRODUCTION-CLOSURE-STATUS.md`. The focused commit subject is `feat(vendors): add authenticated production workflow`; its exact immutable SHA is the Git commit containing this atomic implementation/documentation record.
 - Inventory intelligence query/adjustment-draft contracts; Copilot authoritative inventory adjustment remains deliberately unavailable.
 - Reporting/dashboard service contracts; no reporting router is mounted and the UI has no live drill-down.
 - AI input/document-intelligence contracts, validation, review lifecycle, and tests; current generic pipeline includes in-memory/no-op infrastructure and no production OCR/speech provider.
@@ -248,7 +250,7 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 
 ### Remaining or blocked
 
-- Complete the remaining manual frontend workflows for Vendors, Brands, Products, Warehouses, Inventory, Purchases, Estimates, Invoices, Returns, Payments, Rate Lists, accounting, and reporting. Customers now has a live implementation; most other navigation pages still render `generic()` placeholders.
+- Complete the remaining manual frontend workflows for Brands, Products, Warehouses, Inventory, Purchases, Estimates, Invoices, Returns, Payments, Rate Lists, accounting, and reporting. Customers and Vendors now have live implementations; most other navigation pages still render `generic()` placeholders.
 - Production OCR/vision, speech-to-text, and LLM adapters plus secure source-media/audit storage and extraction review UX.
 - Full WhatsApp transport, delivery audit/retry, and any inbound integration policy.
 - Bank-feed/reconciliation schema reconciliation: service/repository code exists, but the active 36-migration chain does not create its referenced bank/reconciliation tables.
@@ -268,7 +270,7 @@ This does not invalidate verified module behavior. It means the whole-product re
 
 1. recovery Stage 9 is still open;
 2. the active bank schema conflicts with the Phase 16 repository/closure record;
-3. most ERP screens other than the newly implemented Customer workflow remain placeholders;
+3. most ERP screens other than the newly implemented Customer and Vendor workflows remain placeholders;
 4. production OCR/voice/LLM/WhatsApp transports are absent;
 5. no concrete deployment target/manifest or deployed release-candidate smoke evidence was found.
 
@@ -392,11 +394,11 @@ Do not claim these capabilities complete until their implementation and producti
 
 ## CURRENT RESUME POINT
 
-**Complete:** **AUDIT CLOSED. RELEASE CANDIDATE VERIFIED.** Commit `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` passed the recorded backend, frontend, security, migration, and fresh-replay SQL gates. The first Production Closure slice also implements the manual Customer workflow with focused tests, typechecks, and builds passing. Nothing has been pushed.
+**Complete:** **AUDIT CLOSED. RELEASE CANDIDATE VERIFIED.** Commit `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` passed the recorded backend, frontend, security, migration, and fresh-replay SQL gates. The first two Production Closure slices implement the manual Customer and Vendor workflows with focused tests, typechecks, and builds passing. Nothing has been pushed.
 
-**Currently being worked on:** Production Closure implementation, one vertical product slice at a time. The Customer slice is implemented and locally verified; authenticated browser E2E and deployment evidence remain open.
+**Currently being worked on:** Production Closure implementation, one vertical product slice at a time. The Customer and Vendor slices are implemented and locally verified; authenticated browser E2E and deployment evidence remain open for both.
 
-**Next exact task:** Continue **PRODUCTION CLOSURE** with the next approved core ERP vertical slice, beginning with the manual Vendor workflow. Do not re-audit verified work or reopen the completed Customer implementation without a concrete failure.
+**Next exact task:** Continue **PRODUCTION CLOSURE** with the next core ERP vertical slice: the manual Product workflow, integrating existing Brand data where the current product contract requires it. Do not re-audit verified work or reopen the completed Customer or Vendor implementations without a concrete failure.
 
 **Must NOT be changed:** Do not rewrite or bypass the verified release-candidate baseline; do not restore archived historical migrations into the active chain; do not create parallel pricing/accounting/inventory/Copilot engines; do not weaken organization/branch/RBAC/idempotency/confirmation boundaries; do not mark provider contracts or placeholder UI as production complete.
 

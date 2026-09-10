@@ -26,7 +26,7 @@ describe("database-backed ERP API", () => {
   });
 
   it("keeps database-backed ERP routes unavailable when server-only credentials are not configured", async () => {
-    const response = await request(createApp()).get("/api/v1/vendors");
+    const response = await request(createApp()).get("/api/v1/purchases");
     expect(response.status).toBe(503);
     expect(response.body.error.code).toBe("ERP_NOT_CONFIGURED");
   });

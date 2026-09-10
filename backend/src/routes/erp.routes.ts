@@ -1,4 +1,4 @@
-import { Router, type RequestHandler } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import type { PermissionCode } from "../auth/authorization.types.js";
@@ -8,10 +8,7 @@ import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
 import {
   SupabaseErpService,
   type ErpService,
-  type Patch,
   type RecordPurchaseInput,
-  type Vendor,
-  type VendorInput,
 } from "../services/erp.service.js";
 import {
   authoritativeRequestFingerprint,
@@ -25,7 +22,6 @@ const inventoryPageSchema = pageSchema.extend({ product_id: idSchema.optional(),
 const shortText = z.string().trim().min(1).max(200);
 const nullableText = z.string().trim().min(1).max(500).nullable().optional();
 const brandSchema = z.strictObject({ name: shortText });
-const partySchema = z.strictObject({ name: shortText, phone: z.string().trim().min(1).max(50), city: z.string().trim().min(1).max(120) });
 const productSchema = z.strictObject({
   brand_id: idSchema.nullable().optional(),
   name: shortText,
@@ -52,44 +48,7 @@ const purchaseSchema = z.strictObject({
   notes: z.string().trim().min(1).max(2_000).optional(),
 });
 
-interface CrudActions<CreateInput, UpdateInput, Entity extends { id: number }> {
-  list: ErpServiceList<Entity>;
-  get: (id: number) => Promise<Entity | null>;
-  create: (input: CreateInput) => Promise<Entity>;
-  update: (id: number, input: UpdateInput) => Promise<Entity | null>;
-  delete: (id: number) => Promise<boolean>;
-}
-
-type ErpServiceList<Entity extends { id: number }> = (page: z.output<typeof pageSchema>) => Promise<{ data: Entity[]; next_cursor: number | null }>;
 type TenantAuthorizer = Pick<TenantAccessService, "assertAuthorized">;
-
-function registerCrud<CreateInput, UpdateInput, Entity extends { id: number }>(
-  router: Router,
-  path: string,
-  resourceName: string,
-  authorize: RequestHandler,
-  createSchema: z.ZodType<CreateInput>,
-  updateSchema: z.ZodType<UpdateInput>,
-  actions: CrudActions<CreateInput, UpdateInput, Entity>,
-) {
-  router.get(path, authorize, async (request, response) => { response.status(200).json(await actions.list(pageSchema.parse(request.query))); });
-  router.get(`${path}/:id`, authorize, async (request, response) => {
-    const record = await actions.get(idSchema.parse(request.params.id));
-    if (!record) throw new ApiError(404, "NOT_FOUND", `${resourceName} was not found`);
-    response.status(200).json({ data: record });
-  });
-  router.post(path, authorize, async (request, response) => { const record = await actions.create(createSchema.parse(request.body)); response.status(201).json({ data: record }); });
-  router.patch(`${path}/:id`, authorize, async (request, response) => {
-    const record = await actions.update(idSchema.parse(request.params.id), updateSchema.parse(request.body));
-    if (!record) throw new ApiError(404, "NOT_FOUND", `${resourceName} was not found`);
-    response.status(200).json({ data: record });
-  });
-  router.delete(`${path}/:id`, authorize, async (request, response) => {
-    const deleted = await actions.delete(idSchema.parse(request.params.id));
-    if (!deleted) throw new ApiError(404, "NOT_FOUND", `${resourceName} was not found`);
-    response.status(204).send();
-  });
-}
 
 function effectivePurchaseDate(input: RecordPurchaseInput): string { return input.purchase_date ?? new Date().toISOString().slice(0, 10); }
 function normalizedPurchaseForFingerprint(input: RecordPurchaseInput): RecordPurchaseInput {
@@ -149,9 +108,6 @@ export function createErpRouter(
     const identity = await authorizeProduct(request, "products.write");
     if (!await service.deleteBrand(idSchema.parse(request.params.id), identity.organizationId)) throw new ApiError(404, "NOT_FOUND", "Brand was not found");
     response.status(204).send();
-  });
-  registerCrud<VendorInput, Patch<VendorInput>, Vendor>(router, "/vendors", "Vendor", authorize, partySchema, atLeastOneField(partySchema), {
-    list: (page) => service.listVendors(page), get: (id) => service.getVendor(id), create: (input) => service.createVendor(input), update: (id, input) => service.updateVendor(id, input), delete: (id) => service.deleteVendor(id),
   });
   router.get("/products", authorize, async (request, response) => {
     const identity = await authorizeProduct(request, "products.read");
