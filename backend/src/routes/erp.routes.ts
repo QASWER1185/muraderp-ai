@@ -7,8 +7,6 @@ import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
 import {
   SupabaseErpService,
-  type Customer,
-  type CustomerInput,
   type ErpService,
   type Patch,
   type RecordPurchaseInput,
@@ -151,9 +149,6 @@ export function createErpRouter(
     const identity = await authorizeProduct(request, "products.write");
     if (!await service.deleteBrand(idSchema.parse(request.params.id), identity.organizationId)) throw new ApiError(404, "NOT_FOUND", "Brand was not found");
     response.status(204).send();
-  });
-  registerCrud<CustomerInput, Patch<CustomerInput>, Customer>(router, "/customers", "Customer", authorize, partySchema, atLeastOneField(partySchema), {
-    list: (page) => service.listCustomers(page), get: (id) => service.getCustomer(id), create: (input) => service.createCustomer(input), update: (id, input) => service.updateCustomer(id, input), delete: (id) => service.deleteCustomer(id),
   });
   registerCrud<VendorInput, Patch<VendorInput>, Vendor>(router, "/vendors", "Vendor", authorize, partySchema, atLeastOneField(partySchema), {
     list: (page) => service.listVendors(page), get: (id) => service.getVendor(id), create: (input) => service.createVendor(input), update: (id, input) => service.updateVendor(id, input), delete: (id) => service.deleteVendor(id),

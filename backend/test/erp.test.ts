@@ -26,7 +26,7 @@ describe("database-backed ERP API", () => {
   });
 
   it("keeps database-backed ERP routes unavailable when server-only credentials are not configured", async () => {
-    const response = await request(createApp()).get("/api/v1/customers");
+    const response = await request(createApp()).get("/api/v1/vendors");
     expect(response.status).toBe(503);
     expect(response.body.error.code).toBe("ERP_NOT_CONFIGURED");
   });
@@ -41,13 +41,14 @@ describe("database-backed ERP API", () => {
   });
 
   it("returns keyset-paginated database customers to an authorized caller", async () => {
-    const listCustomers = vi.fn().mockResolvedValue({ data: [{ id: 101, name: "test_customer_101", phone: "n/a", city: "test_city", created_at: "2026-08-09T00:00:00.000Z", updated_at: "2026-08-09T00:00:00.000Z" }], next_cursor: 101 });
-    const app = createApp({ erpService: serviceStub({ listCustomers }), internalApiToken: internalToken, internalApiPrincipalId: principalId });
-    const response = await request(app).get("/api/v1/customers?cursor=100&limit=1").set("Authorization", `Bearer ${internalToken}`);
+    const listCustomers = vi.fn().mockResolvedValue({ data: [{ id: 101, organization_id: transactionHeaders["X-Organization-Id"], name: "test_customer_101", phone: "n/a", city: "test_city", created_at: "2026-08-09T00:00:00.000Z", updated_at: "2026-08-09T00:00:00.000Z" }], next_cursor: 101 });
+    const tenantAccessService = { assertAuthorized: vi.fn().mockResolvedValue(undefined) };
+    const app = createApp({ erpService: serviceStub({ listCustomers }), tenantAccessService, internalApiToken: internalToken, internalApiPrincipalId: principalId });
+    const response = await request(app).get("/api/v1/customers?cursor=100&limit=1").set("Authorization", `Bearer ${internalToken}`).set(transactionHeaders);
     expect(response.status).toBe(200);
     expect(response.body.next_cursor).toBe(101);
     expect(response.body.data).toHaveLength(1);
-    expect(listCustomers).toHaveBeenCalledWith({ cursor: 100, limit: 1 });
+    expect(listCustomers).toHaveBeenCalledWith({ cursor: 100, limit: 1 }, transactionHeaders["X-Organization-Id"]);
   });
 
   it("requires Idempotency-Key before purchase persistence", async () => {

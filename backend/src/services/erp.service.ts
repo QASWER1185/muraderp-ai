@@ -75,11 +75,11 @@ export interface ErpService {
   updateBrand(id: number, input: Patch<BrandInput>, organizationId: string): Promise<Brand | null>;
   deleteBrand(id: number, organizationId: string): Promise<boolean>;
 
-  listCustomers(page: PageRequest): Promise<PageResult<Customer>>;
-  getCustomer(id: number): Promise<Customer | null>;
-  createCustomer(input: CustomerInput): Promise<Customer>;
-  updateCustomer(id: number, input: Patch<CustomerInput>): Promise<Customer | null>;
-  deleteCustomer(id: number): Promise<boolean>;
+  listCustomers(page: PageRequest, organizationId: string): Promise<PageResult<Customer>>;
+  getCustomer(id: number, organizationId: string): Promise<Customer | null>;
+  createCustomer(input: CustomerInput, organizationId: string): Promise<Customer>;
+  updateCustomer(id: number, input: Patch<CustomerInput>, organizationId: string): Promise<Customer | null>;
+  deleteCustomer(id: number, organizationId: string): Promise<boolean>;
 
   listVendors(page: PageRequest): Promise<PageResult<Vendor>>;
   getVendor(id: number): Promise<Vendor | null>;
@@ -185,30 +185,31 @@ export class SupabaseErpService implements ErpService {
     return data !== null;
   }
 
-  async listCustomers(page: PageRequest): Promise<PageResult<Customer>> {
-    let query = this.client.from("customers").select("*").order("id").limit(page.limit + 1);
+  async listCustomers(page: PageRequest, organizationId: string): Promise<PageResult<Customer>> {
+    let query = this.client.from("customers").select("*").eq("organization_id", organizationId).order("id").limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Customers");
     return pageResult(data, page.limit);
   }
 
-  async getCustomer(id: number): Promise<Customer | null> {
-    const { data, error } = await this.client.from("customers").select("*").eq("id", id).maybeSingle();
+  async getCustomer(id: number, organizationId: string): Promise<Customer | null> {
+    const { data, error } = await this.client.from("customers").select("*").eq("organization_id", organizationId).eq("id", id).maybeSingle();
     if (error) throw databaseError(error, "Customer");
     return data;
   }
 
-  async createCustomer(input: CustomerInput): Promise<Customer> {
-    const { data, error } = await this.client.from("customers").insert(input).select("*").single();
+  async createCustomer(input: CustomerInput, organizationId: string): Promise<Customer> {
+    const { data, error } = await this.client.from("customers").insert({ ...input, organization_id: organizationId }).select("*").single();
     if (error) throw databaseError(error, "Customer creation");
     return data;
   }
 
-  async updateCustomer(id: number, input: Patch<CustomerInput>): Promise<Customer | null> {
+  async updateCustomer(id: number, input: Patch<CustomerInput>, organizationId: string): Promise<Customer | null> {
     const { data, error } = await this.client
       .from("customers")
       .update(input as Tables["customers"]["Update"])
+      .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -216,8 +217,8 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async deleteCustomer(id: number): Promise<boolean> {
-    const { data, error } = await this.client.from("customers").delete().eq("id", id).select("id").maybeSingle();
+  async deleteCustomer(id: number, organizationId: string): Promise<boolean> {
+    const { data, error } = await this.client.from("customers").delete().eq("organization_id", organizationId).eq("id", id).select("id").maybeSingle();
     if (error) throw databaseError(error, "Customer deletion");
     return data !== null;
   }

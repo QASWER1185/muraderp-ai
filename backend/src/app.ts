@@ -15,6 +15,7 @@ import { createVendorPaymentRouter } from "./routes/vendor-payment.routes.js";
 import { createAiCopilotRouter } from "./routes/ai-copilot.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { createEstimateConversionRouter } from "./routes/estimate-conversion.routes.js";
+import { createCustomerRouter } from "./routes/customer.routes.js";
 import type { EstimateCloneRepriceService } from "./services/estimate-clone-reprice.service.js";
 import { SupabaseCustomerPaymentService, type CustomerPaymentService } from "./services/customer-payment.service.js";
 import { SupabaseVendorPaymentService, type VendorPaymentService } from "./services/vendor-payment.service.js";
@@ -47,8 +48,10 @@ export function createApp(options: AppOptions = {}) {
 
   const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
   const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
+  const erpService = options.erpService ?? new SupabaseErpService();
 
-  app.use("/api/v1", createErpRouter(internalApiToken, internalApiPrincipalId, options.erpService ?? new SupabaseErpService(), options.tenantAccessService));
+  app.use("/api/v1/customers", createCustomerRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, service: erpService, tenantAuthorizer: options.tenantAccessService }));
+  app.use("/api/v1", createErpRouter(internalApiToken, internalApiPrincipalId, erpService, options.tenantAccessService));
   app.use("/api/v1/estimates", createEstimateConversionRouter(internalApiToken, internalApiPrincipalId, options.estimateConversionService));
   app.use("/api/v1/ai/copilot", createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
   app.use("/api/v1/inventory", createInventoryRouter(internalApiToken, internalApiPrincipalId, options.tenantAccessService));

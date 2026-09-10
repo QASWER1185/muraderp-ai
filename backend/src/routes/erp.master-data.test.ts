@@ -15,7 +15,7 @@ const tenantAccessService = { assertAuthorized: vi.fn(async () => undefined) };
 function makeService(): ErpService {
   const rows = {
     brands: { id: 1, name: "GM", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },
-    customers: { id: 2, name: "Ali Raza", phone: "03001234567", city: "Lahore", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },
+    customers: { id: 2, organization_id: TENANT_HEADERS["X-Organization-Id"], name: "Ali Raza", phone: "03001234567", city: "Lahore", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },
     vendors: { id: 3, name: "Bestway", phone: "03007654321", city: "Lahore", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },
     products: { id: 4, brand_id: 1, name: "GM Cable", sku: "GM-CABLE-01", category: "Electrical", unit: "coil", purchase_price: 100, sale_price: 120, created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },
     warehouses: { id: 5, name: "Main Warehouse", location: "Lahore", created_at: "2026-08-20T00:00:00Z", updated_at: "2026-08-20T00:00:00Z" },

@@ -236,6 +236,7 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 
 ### Implemented but not fully verified as an end-user/production capability
 
+- The first Production Closure vertical slice implements the manual Customer product workflow: a browser-session-safe gateway, explicit organization/branch permission checks, organization-scoped persistence, live list/create/edit UI, loading/empty/error/permission states, and responsive/PWA integration. Focused backend tests (**3 files / 29 tests**), focused frontend tests (**3 files / 15 tests**), both typechecks, and both production builds pass in the implementation worktree. Authenticated real-browser E2E and deployed evidence remain open, so this is not yet a production-ready claim.
 - Inventory intelligence query/adjustment-draft contracts; Copilot authoritative inventory adjustment remains deliberately unavailable.
 - Reporting/dashboard service contracts; no reporting router is mounted and the UI has no live drill-down.
 - AI input/document-intelligence contracts, validation, review lifecycle, and tests; current generic pipeline includes in-memory/no-op infrastructure and no production OCR/speech provider.
@@ -247,7 +248,7 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 
 ### Remaining or blocked
 
-- Complete manual frontend workflows for master data, purchases, estimates, invoices, returns, payments, Rate Lists, accounting, and reporting. Most current navigation pages render `generic()` placeholders.
+- Complete the remaining manual frontend workflows for Vendors, Brands, Products, Warehouses, Inventory, Purchases, Estimates, Invoices, Returns, Payments, Rate Lists, accounting, and reporting. Customers now has a live implementation; most other navigation pages still render `generic()` placeholders.
 - Production OCR/vision, speech-to-text, and LLM adapters plus secure source-media/audit storage and extraction review UX.
 - Full WhatsApp transport, delivery audit/retry, and any inbound integration policy.
 - Bank-feed/reconciliation schema reconciliation: service/repository code exists, but the active 36-migration chain does not create its referenced bank/reconciliation tables.
@@ -267,7 +268,7 @@ This does not invalidate verified module behavior. It means the whole-product re
 
 1. recovery Stage 9 is still open;
 2. the active bank schema conflicts with the Phase 16 repository/closure record;
-3. most ERP screens remain placeholders;
+3. most ERP screens other than the newly implemented Customer workflow remain placeholders;
 4. production OCR/voice/LLM/WhatsApp transports are absent;
 5. no concrete deployment target/manifest or deployed release-candidate smoke evidence was found.
 
@@ -391,11 +392,11 @@ Do not claim these capabilities complete until their implementation and producti
 
 ## CURRENT RESUME POINT
 
-**Complete:** **AUDIT CLOSED. RELEASE CANDIDATE VERIFIED.** Commit `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` passed the recorded backend, frontend, security, migration, and fresh-replay SQL gates. The worktree was clean after verification, and nothing was pushed.
+**Complete:** **AUDIT CLOSED. RELEASE CANDIDATE VERIFIED.** Commit `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` passed the recorded backend, frontend, security, migration, and fresh-replay SQL gates. The first Production Closure slice also implements the manual Customer workflow with focused tests, typechecks, and builds passing. Nothing has been pushed.
 
-**Currently being worked on:** Documentation continuity only. No product implementation is authorized by this update.
+**Currently being worked on:** Production Closure implementation, one vertical product slice at a time. The Customer slice is implemented and locally verified; authenticated browser E2E and deployment evidence remain open.
 
-**Next exact task:** Start from **PRODUCTION CLOSURE**. The remaining AI/Copilot/Voice/Image/File/Rate-List/PDF/WhatsApp/core ERP work is the next execution scope. Do not re-audit verified work.
+**Next exact task:** Continue **PRODUCTION CLOSURE** with the next approved core ERP vertical slice, beginning with the manual Vendor workflow. Do not re-audit verified work or reopen the completed Customer implementation without a concrete failure.
 
 **Must NOT be changed:** Do not rewrite or bypass the verified release-candidate baseline; do not restore archived historical migrations into the active chain; do not create parallel pricing/accounting/inventory/Copilot engines; do not weaken organization/branch/RBAC/idempotency/confirmation boundaries; do not mark provider contracts or placeholder UI as production complete.
 

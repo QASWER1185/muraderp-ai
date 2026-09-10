@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
-const required = ["index.html","app.js","auth.js","copilot-api.js","estimate-conversion.js","ai-experience.js","offline-store.js","offline-sync.js","styles.css","sw.js","manifest.webmanifest"];
+const required = ["index.html","app.js","auth.js","copilot-api.js","estimate-conversion.js","customer-api.js","customers.js","ai-experience.js","offline-store.js","offline-sync.js","styles.css","sw.js","manifest.webmanifest"];
 for (const file of required) {
   const path = resolve(root, file);
   if (!existsSync(path)) throw new Error(`Missing production asset: ${file}`);

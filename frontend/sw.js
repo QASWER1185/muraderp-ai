@@ -1,4 +1,4 @@
-const CACHE_NAME = "muraderp-ai-shell-v2";
+const CACHE_NAME = "muraderp-ai-shell-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -8,6 +8,8 @@ const APP_SHELL = [
   "/ai-experience.js",
   "/copilot-api.js",
   "/estimate-conversion.js",
+  "/customer-api.js",
+  "/customers.js",
   "/offline-store.js",
   "/offline-sync.js",
 ];
