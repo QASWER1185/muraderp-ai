@@ -35,6 +35,10 @@ function repository(): RateListRepository {
       created_at: "2026-08-13T00:00:00Z",
       updated_at: "2026-08-13T00:00:00Z",
     }),
+    createDraftVersion: async (input) => ({
+      version: { id: 4, rate_list_id: input.rate_list_id, version_number: input.version_number, status: "DRAFT", effective_from: input.effective_from, created_at: "2026-08-13T00:00:00Z", updated_at: "2026-08-13T00:00:00Z" },
+      items: input.items.map((item, index) => ({ id: index + 10, rate_list_version_id: 4, ...item, created_at: "2026-08-13T00:00:00Z", updated_at: "2026-08-13T00:00:00Z" })),
+    }),
     listActiveSaleRateLists: async () => [],
     findBestRateListItem: async () => null,
     findRateListsByHint: async () => [],
@@ -96,5 +100,30 @@ describe("DefaultRateListService", () => {
         unit: "bag",
       }),
     ).rejects.toThrow("unit_price must be zero or greater");
+  });
+
+  it("imports a confirmed proposal as a draft version", async () => {
+    const service = new DefaultRateListService(repository());
+    await expect(service.createDraftVersion({
+      organization_id: valid.organization_id,
+      rate_list_id: 1,
+      version_number: 2,
+      effective_from: "2026-09-15T00:00:00Z",
+      items: [{ product_id: 10, minimum_quantity: 1, unit_price: 1525, unit: " bag " }],
+    })).resolves.toMatchObject({ version: { status: "DRAFT", version_number: 2 }, items: [{ unit: "bag" }] });
+  });
+
+  it("rejects duplicate product quantity tiers before persistence", async () => {
+    const service = new DefaultRateListService(repository());
+    await expect(service.createDraftVersion({
+      organization_id: valid.organization_id,
+      rate_list_id: 1,
+      version_number: 2,
+      effective_from: "2026-09-15T00:00:00Z",
+      items: [
+        { product_id: 10, minimum_quantity: 1, unit_price: 1525, unit: "bag" },
+        { product_id: 10, minimum_quantity: 1, unit_price: 1500, unit: "bag" },
+      ],
+    })).rejects.toThrow("duplicate product/quantity tier");
   });
 });

@@ -22,8 +22,10 @@ import { SupabaseCustomerPaymentService, type CustomerPaymentService } from "./s
 import { SupabaseVendorPaymentService, type VendorPaymentService } from "./services/vendor-payment.service.js";
 import { SupabaseErpService, type ErpService } from "./services/erp.service.js";
 import type { TenantAccessService } from "./auth/tenant-access.service.js";
+import { createEstimateWhatsAppRouter } from "./routes/estimate-whatsapp.routes.js";
+import type { EstimateWhatsAppShareService } from "./services/estimate-whatsapp-share.service.js";
 
-export interface AppOptions { erpService?: ErpService; customerPaymentService?: CustomerPaymentService; vendorPaymentService?: VendorPaymentService; tenantAccessService?: Pick<TenantAccessService, "assertAuthorized">; estimateConversionService?: EstimateCloneRepriceService; internalApiToken?: string; internalApiPrincipalId?: string; }
+export interface AppOptions { erpService?: ErpService; customerPaymentService?: CustomerPaymentService; vendorPaymentService?: VendorPaymentService; tenantAccessService?: Pick<TenantAccessService, "assertAuthorized">; estimateConversionService?: EstimateCloneRepriceService; estimateWhatsAppShareService?: EstimateWhatsAppShareService; internalApiToken?: string; internalApiPrincipalId?: string; }
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../frontend");
 
 export function createApp(options: AppOptions = {}) {
@@ -40,6 +42,12 @@ export function createApp(options: AppOptions = {}) {
       customProps: (request) => ({ requestId: request.id }),
     }),
   );
+  const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
+  const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
+  const erpService = options.erpService ?? new SupabaseErpService();
+
+  // AI media is capped and signature-validated at 8 MB; only this route accepts the larger base64 JSON envelope.
+  app.use("/api/v1/ai/copilot", express.json({ limit: "12mb" }), createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
   app.use(express.json({ limit: "1mb" }));
   app.get("/", (_request, response) => response.status(200).send("MuradERP-AI Backend"));
   app.get("/api/test", (_request, response) => response.status(200).json({ success: true, message: "API Test Working" }));
@@ -47,15 +55,11 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
 
-  const internalApiToken = options.internalApiToken ?? env.INTERNAL_API_TOKEN;
-  const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
-  const erpService = options.erpService ?? new SupabaseErpService();
-
   app.use("/api/v1/customers", createCustomerRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, service: erpService, tenantAuthorizer: options.tenantAccessService }));
   app.use("/api/v1/vendors", createVendorRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, service: erpService, tenantAuthorizer: options.tenantAccessService }));
   app.use("/api/v1", createErpRouter(internalApiToken, internalApiPrincipalId, erpService, options.tenantAccessService));
   app.use("/api/v1/estimates", createEstimateConversionRouter(internalApiToken, internalApiPrincipalId, options.estimateConversionService));
-  app.use("/api/v1/ai/copilot", createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
+  app.use("/api/v1/estimates", createEstimateWhatsAppRouter(internalApiToken, internalApiPrincipalId, options.estimateWhatsAppShareService));
   app.use("/api/v1/inventory", createInventoryRouter(internalApiToken, internalApiPrincipalId, options.tenantAccessService));
   app.use("/api/v1/sales", createSalesRouter(internalApiToken, internalApiPrincipalId));
   app.use("/api/v1/customer-payments", createCustomerPaymentRouter(internalApiToken, internalApiPrincipalId, options.customerPaymentService ?? new SupabaseCustomerPaymentService()));

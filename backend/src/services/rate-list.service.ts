@@ -1,5 +1,7 @@
 import type {
   RateListDefinition,
+  RateListDraftVersionInput,
+  RateListDraftVersionResult,
   RateListItemDefinition,
   RateListVersionDefinition,
 } from "../types/pricing.types.js";
@@ -14,6 +16,7 @@ export interface RateListService {
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+  createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult>;
 }
 
 /**
@@ -105,5 +108,27 @@ export class DefaultRateListService implements RateListService {
       minimum_quantity: minimumQuantity,
       unit,
     });
+  }
+
+  async createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult> {
+    if (!input.organization_id.trim()) throw new Error("organization_id is required");
+    if (!Number.isInteger(input.rate_list_id) || input.rate_list_id <= 0) throw new Error("rate_list_id must be a positive integer");
+    if (!Number.isInteger(input.version_number) || input.version_number <= 0) throw new Error("version_number must be a positive integer");
+    if (!input.effective_from || Number.isNaN(Date.parse(input.effective_from))) throw new Error("effective_from must be a valid date/time");
+    if (!Array.isArray(input.items) || input.items.length === 0) throw new Error("rate-list draft requires at least one item");
+    if (input.items.length > 500) throw new Error("rate-list draft cannot contain more than 500 items");
+    const tiers = new Set<string>();
+    const items = input.items.map((item, index) => {
+      if (!Number.isInteger(item.product_id) || item.product_id <= 0) throw new Error(`product_id must be a positive integer on item ${index + 1}`);
+      if (!Number.isFinite(item.minimum_quantity) || item.minimum_quantity <= 0) throw new Error(`minimum_quantity must be greater than zero on item ${index + 1}`);
+      if (!Number.isFinite(item.unit_price) || item.unit_price < 0) throw new Error(`unit_price must be zero or greater on item ${index + 1}`);
+      const unit = item.unit.trim();
+      if (!unit) throw new Error(`unit is required on item ${index + 1}`);
+      const tier = `${item.product_id}|${item.minimum_quantity}`;
+      if (tiers.has(tier)) throw new Error(`duplicate product/quantity tier on item ${index + 1}`);
+      tiers.add(tier);
+      return { ...item, unit };
+    });
+    return this.repository.createDraftVersion({ ...input, items });
   }
 }

@@ -12,6 +12,9 @@ import { SupabaseEstimateRepository } from "../repositories/estimate.repository.
 import { DefaultEstimatePricingService } from "../services/estimate-pricing.service.js";
 import { DefaultPricingService, type PricingService } from "../services/pricing.service.js";
 import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
+import { DefaultRateListService, type RateListService } from "../services/rate-list.service.js";
+import { SupabaseCustomerPaymentService, type CustomerPaymentInput, type CustomerPaymentService } from "../services/customer-payment.service.js";
+import { SupabaseVendorPaymentService, type VendorPaymentInput, type VendorPaymentService } from "../services/vendor-payment.service.js";
 import { SupabaseSalesTransactionAdapter } from "../services/supabase-sales-transaction.adapter.js";
 import { SupabaseSalesReturnService, type SalesReturnService } from "../services/sales-return.service.js";
 import { normalizeServicePrincipalId } from "../security/service-principal.js";
@@ -25,10 +28,21 @@ import {
   SupabaseCopilotReferenceResolver,
   type CopilotReferenceResolver,
 } from "./copilot-reference.resolver.js";
+import { OpenAiProvider, ProviderIntentResolver } from "../ai-input/openai.provider.js";
+import {
+  CopilotReviewService,
+  SupabaseCopilotCatalogRepository,
+  type CopilotReviewRequest,
+} from "./copilot-review.js";
 
 const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> = {
   estimate: "sales.create",
   invoice: "sales.create",
+  customer_create: "customers.write",
+  vendor_create: "vendors.write",
+  rate_list_update: "products.write",
+  customer_payment: "payments.create",
+  vendor_payment: "payments.create",
   customer_return: "returns.create",
   supplier_bill: "purchases.create",
   inventory_adjustment: "inventory.adjust",
@@ -112,17 +126,23 @@ export interface CopilotRuntimeDependencies {
   authorization: Pick<AuthorizationService, "assertPermission">;
   branchAccess?: Pick<TenantAccessService, "assertBranchAccess">;
   references?: Pick<CopilotReferenceResolver, "assertOwnedReferences">;
+  review?: Pick<CopilotReviewService, "prepare">;
   erp: ErpService;
   pricing: PricingService;
   estimate: EstimateService;
   salesTransaction: Pick<SalesTransactionPort, "execute">;
   returns: Pick<SalesReturnService, "recordSalesReturn">;
+  rateLists?: Pick<RateListService, "createDraftVersion">;
+  customerPayments?: Pick<CustomerPaymentService, "recordPayment">;
+  vendorPayments?: Pick<VendorPaymentService, "recordPayment">;
   database: () => any;
   servicePrincipalId?: string;
 }
 
 function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
-  const pricing = new DefaultPricingService(new SupabaseRateListRepository());
+  const rateListRepository = new SupabaseRateListRepository();
+  const pricing = new DefaultPricingService(rateListRepository);
+  const aiProvider = new OpenAiProvider();
   const servicePrincipalId = normalizeServicePrincipalId(env.INTERNAL_API_PRINCIPAL_ID);
   if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
@@ -135,6 +155,11 @@ function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
     authorization: new AuthorizationService(authorizationGateway),
     branchAccess: new TenantAccessService(authorizationGateway),
     references: new SupabaseCopilotReferenceResolver(client),
+    review: new CopilotReviewService(
+      aiProvider,
+      new SupabaseCopilotCatalogRepository(client),
+      new ProviderIntentResolver(aiProvider),
+    ),
     erp,
     pricing,
     estimate: new DefaultEstimateService(
@@ -143,6 +168,9 @@ function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
     ),
     salesTransaction: new SupabaseSalesTransactionAdapter(getSupabaseAdminClient, servicePrincipalId),
     returns: new SupabaseSalesReturnService(),
+    rateLists: new DefaultRateListService(rateListRepository),
+    customerPayments: new SupabaseCustomerPaymentService(),
+    vendorPayments: new SupabaseVendorPaymentService(),
     database: client,
     servicePrincipalId,
   };
@@ -178,6 +206,50 @@ export class CopilotRuntime {
     await this.dependencies.references.assertOwnedReferences(plan);
   }
 
+  async prepareReview(request: CopilotReviewRequest, branchId: string) {
+    if (request.intent === "invoice") {
+      throw new ApiError(422, "COPILOT_INVOICE_NOT_SUPPORTED", "Create an Estimate, review it in the native Estimate screen, then use the native Convert to Invoice workflow");
+    }
+    if (!branchId.trim()) throw new ApiError(403, "BRANCH_CONTEXT_REQUIRED", "Explicit branch context is required");
+    if (!this.dependencies.branchAccess || !this.dependencies.review) {
+      throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Copilot review preparation is not configured");
+    }
+    await this.dependencies.branchAccess.assertBranchAccess(
+      { userId: request.userId, organizationId: request.organizationId },
+      branchId,
+    );
+    if (request.intent) {
+      await this.dependencies.authorization.assertPermission(
+        request.userId,
+        request.organizationId,
+        PERMISSION_BY_INTENT[request.intent],
+      );
+    }
+    const review = await this.dependencies.review.prepare(request);
+    if (!request.intent) {
+      await this.dependencies.authorization.assertPermission(
+        request.userId,
+        request.organizationId,
+        PERMISSION_BY_INTENT[review.intent],
+      );
+    }
+    return review;
+  }
+
+  async prepareInvoiceExtraction(request: Omit<CopilotReviewRequest, "intent">, branchId: string) {
+    if (!branchId.trim()) throw new ApiError(403, "BRANCH_CONTEXT_REQUIRED", "Explicit branch context is required");
+    if (!this.dependencies.branchAccess || !this.dependencies.review) {
+      throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Copilot document extraction is not configured");
+    }
+    await this.dependencies.authorization.assertPermission(request.userId, request.organizationId, "sales.read");
+    await this.dependencies.branchAccess.assertBranchAccess(
+      { userId: request.userId, organizationId: request.organizationId },
+      branchId,
+    );
+    const review = await this.dependencies.review.prepare({ ...request, intent: "invoice" });
+    return { ...review, extractionOnly: true as const, executable: false as const };
+  }
+
   async createDraft(
     draft: AiDraft,
     context: {
@@ -192,7 +264,104 @@ export class CopilotRuntime {
     },
     idempotencyKey: string,
   ) {
+    if (draft.intent === "invoice") {
+      throw new ApiError(422, "COPILOT_INVOICE_NOT_SUPPORTED", "Copilot cannot create Invoices; create an Estimate and use the native conversion workflow");
+    }
     const plan = createCopilotPlanFromDraft(draft, context).plan;
+    return this.persistPlan(plan, idempotencyKey);
+  }
+
+  async createMasterDataDraft(
+    input: {
+      organizationId: string;
+      userId: string;
+      branchId: string;
+      source: CopilotActionPlan["source"];
+      intent: "customer_create" | "vendor_create";
+      name: string;
+      phone: string;
+      city: string;
+    },
+    idempotencyKey: string,
+  ) {
+    const details = { name: input.name.trim(), phone: input.phone.trim(), city: input.city.trim() };
+    const plan: CopilotActionPlan = {
+      organizationId: input.organizationId,
+      branchId: input.branchId,
+      userId: input.userId,
+      source: input.source,
+      target: input.intent,
+      ...(input.intent === "customer_create" ? { customerData: details } : { vendorData: details }),
+      lines: [],
+      requiresConfirmation: true,
+    };
+    return this.persistPlan(plan, idempotencyKey);
+  }
+
+  async createRateListDraft(
+    input: {
+      organizationId: string;
+      userId: string;
+      branchId: string;
+      source: CopilotActionPlan["source"];
+      rateListId: number;
+      versionNumber: number;
+      effectiveFrom: string;
+      lines: Array<{ productName: string; productId: number; minimumQuantity: number; unit: string; unitRate: number }>;
+    },
+    idempotencyKey: string,
+  ) {
+    const plan: CopilotActionPlan = {
+      organizationId: input.organizationId,
+      branchId: input.branchId,
+      userId: input.userId,
+      source: input.source,
+      target: "rate_list_update",
+      rateListUpdate: {
+        rateListId: input.rateListId,
+        versionNumber: input.versionNumber,
+        effectiveFrom: input.effectiveFrom,
+      },
+      lines: input.lines.map((line) => ({
+        productName: line.productName.trim(),
+        productId: line.productId,
+        quantity: line.minimumQuantity,
+        unit: line.unit.trim(),
+        explicitUnitRate: line.unitRate,
+        rateSource: "EXPLICIT_USER_RATE",
+      })),
+      requiresConfirmation: true,
+    };
+    return this.persistPlan(plan, idempotencyKey);
+  }
+
+  async createFinancialDraft(
+    input: {
+      organizationId: string;
+      userId: string;
+      branchId: string;
+      source: CopilotActionPlan["source"];
+      intent: "customer_payment" | "vendor_payment";
+      payment: CustomerPaymentInput | VendorPaymentInput;
+    },
+    idempotencyKey: string,
+  ) {
+    const plan: CopilotActionPlan = {
+      organizationId: input.organizationId,
+      branchId: input.branchId,
+      userId: input.userId,
+      source: input.source,
+      target: input.intent,
+      ...(input.intent === "customer_payment"
+        ? { customerId: String((input.payment as CustomerPaymentInput).customer_id), customerPaymentData: input.payment as CustomerPaymentInput }
+        : { vendorId: String((input.payment as VendorPaymentInput).vendor_id), vendorPaymentData: input.payment as VendorPaymentInput }),
+      lines: [],
+      requiresConfirmation: true,
+    };
+    return this.persistPlan(plan, idempotencyKey);
+  }
+
+  private async persistPlan(plan: CopilotActionPlan, idempotencyKey: string) {
     await this.assertPlanAuthorized(plan);
     await this.assertPlanReferences(plan);
     const fingerprint = copilotFingerprint(plan);
@@ -235,6 +404,9 @@ export class CopilotRuntime {
     if (action.user_id !== userId) throw new Error("copilot action user mismatch");
     if (action.idempotency_key !== idempotencyKey) throw new Error("copilot confirmation idempotency mismatch");
     const plan = action.action_plan as CopilotActionPlan;
+    if (plan.target === "invoice") {
+      throw new ApiError(422, "COPILOT_INVOICE_NOT_SUPPORTED", "Copilot cannot execute Invoice drafts; use the native Estimate-to-Invoice workflow");
+    }
     assertCopilotDraftExecution(plan, organizationId, userId, plan.target, branchId);
     await this.assertPlanAuthorized(plan);
     await this.assertPlanReferences(plan);
@@ -272,11 +444,73 @@ export class CopilotRuntime {
   }
 
   private async execute(plan: CopilotActionPlan, idempotencyKey: string): Promise<unknown> {
-    const lines = requireLineProducts(plan);
     const date = isoDate(plan.documentDate);
     const currency = plan.currencyCode ?? "PKR";
     const estimatePricing = new DefaultEstimatePricingService(this.dependencies.pricing);
     const servicePrincipalId = normalizeServicePrincipalId(this.dependencies.servicePrincipalId);
+
+    if (plan.target === "customer_create") {
+      if (!plan.customerData) throw new Error("customer details are required");
+      return this.dependencies.erp.createCustomer(plan.customerData, plan.organizationId);
+    }
+
+    if (plan.target === "vendor_create") {
+      if (!plan.vendorData) throw new Error("vendor details are required");
+      return this.dependencies.erp.createVendor(plan.vendorData, plan.organizationId);
+    }
+
+    if (plan.target === "customer_payment") {
+      if (!plan.customerPaymentData) throw new Error("customer payment details are required");
+      if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
+      if (!this.dependencies.customerPayments) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Customer payment service is not configured");
+      return this.dependencies.customerPayments.recordPayment(plan.customerPaymentData, {
+        organizationId: plan.organizationId,
+        branchId: plan.branchId!,
+        actorUserId: plan.userId,
+        servicePrincipalId,
+        operation: "customer-payment.create",
+        idempotencyKey,
+        requestFingerprint: copilotFingerprint(plan),
+      });
+    }
+
+    if (plan.target === "vendor_payment") {
+      if (!plan.vendorPaymentData) throw new Error("vendor payment details are required");
+      if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
+      if (!this.dependencies.vendorPayments) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Vendor payment service is not configured");
+      return this.dependencies.vendorPayments.recordPayment(plan.vendorPaymentData, {
+        organizationId: plan.organizationId,
+        branchId: plan.branchId!,
+        actorUserId: plan.userId,
+        servicePrincipalId,
+        operation: "vendor-payment.create",
+        idempotencyKey,
+        requestFingerprint: copilotFingerprint(plan),
+      });
+    }
+
+    const lines = requireLineProducts(plan);
+
+    if (plan.target === "rate_list_update") {
+      if (!plan.rateListUpdate) throw new Error("rate-list update details are required");
+      if (!this.dependencies.rateLists) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Rate List authoring service is not configured");
+      return this.dependencies.rateLists.createDraftVersion({
+        organization_id: plan.organizationId,
+        rate_list_id: plan.rateListUpdate.rateListId,
+        version_number: plan.rateListUpdate.versionNumber,
+        effective_from: plan.rateListUpdate.effectiveFrom,
+        items: lines.map((line) => {
+          if (line.rate === undefined) throw new Error(`explicit rate is required for ${line.productId}`);
+          if (!line.unit?.trim()) throw new Error(`unit is required for ${line.productId}`);
+          return {
+            product_id: line.productId,
+            minimum_quantity: line.quantity,
+            unit_price: line.rate,
+            unit: line.unit,
+          };
+        }),
+      });
+    }
 
     if (plan.target === "estimate") {
       const customerId = positiveId(plan.customerId, "customerId");

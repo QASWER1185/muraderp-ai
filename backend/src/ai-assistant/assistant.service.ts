@@ -30,9 +30,9 @@ export class AssistantService {
 
   async handle(request: AssistantRequest): Promise<AssistantResponse> {
     validateAssistantRequest(request);
-    const resolved = this.resolver.resolve(request.message);
+    const resolved = await this.resolver.resolve(request.message);
 
-    if (!resolved.intent) {
+    if (!resolved.intent || resolved.decision === "clarify" || resolved.confidence < 0.8) {
       return {
         decision: "clarify",
         intent: null,

@@ -13,6 +13,9 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    OPENAI_API_KEY: z.string().trim().min(20).optional(),
+    AI_MODEL: z.string().trim().min(1).default("gpt-6-astra"),
+    AI_SPEECH_MODEL: z.string().trim().min(1).default("gpt-transcribe"),
     SUPABASE_URL: z.url().optional(),
     SUPABASE_SECRET_KEY: z.string().startsWith("sb_secret_").min(32).optional(),
     INTERNAL_API_TOKEN: z.string().min(32).optional(),
@@ -53,6 +56,12 @@ const envSchema = z
     }
 
     if (configuration.NODE_ENV === "production") {
+      if (!configuration.OPENAI_API_KEY) {
+        context.addIssue({ code: "custom", path: ["OPENAI_API_KEY"], message: "Production AI Copilot requires OPENAI_API_KEY" });
+      }
+      if (configuration.OPENAI_API_KEY?.toLowerCase().includes("replace_me")) {
+        context.addIssue({ code: "custom", path: ["OPENAI_API_KEY"], message: "Production OPENAI_API_KEY cannot use a placeholder value" });
+      }
       if (configuredValues !== erpValues.length) {
         context.addIssue({
           code: "custom",

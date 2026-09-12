@@ -5,7 +5,8 @@ export type AiInputIntent =
   | "invoice.create"
   | "customer_return.create"
   | "supplier_bill.create"
-  | "inventory.adjust";
+  | "inventory.adjust"
+  | "rate_list.import";
 
 export type AiInputStatus = "draft" | "validated" | "confirmed" | "rejected";
 
@@ -17,6 +18,8 @@ export interface AiInputRequest {
   text?: string;
   mediaReference?: string;
   locale?: string;
+  /** Request-only bytes. Never saved in a draft or sent to a caller as a URL. */
+  media?: { mimeType: string; base64: string };
 }
 
 export interface ExtractedField<T = unknown> {

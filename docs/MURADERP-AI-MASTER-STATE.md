@@ -4,6 +4,8 @@ Canonical entry point
 
 Last evidence audit and release verification: 2026-09-09 (Asia/Karachi)
 
+Authoritative Copilot and AI product decision update: 2026-09-11 (Asia/Karachi)
+
 Authoritative status: **AUDIT CLOSED — RELEASE CANDIDATE VERIFIED**
 
 Verified release candidate: `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`
@@ -37,6 +39,80 @@ When evidence conflicts, use this order:
 5. Historical phase plans, handoffs, audits, acceptance notes, and README statements.
 
 Historical documents are evidence of prior decisions and verification at their recorded revisions; they are not permission to mark the current worktree or production environment complete.
+
+## Authoritative Copilot and AI product decisions (2026-09-11)
+
+These decisions are product-owner direction for all future Copilot work. They supplement the evidence-based implementation status below and supersede any older roadmap wording that conflicts with them.
+
+### Central Copilot boundary
+
+Online AI interaction is centralized in one AI Copilot interface. It accepts text, voice, file upload, and image/camera input; it may perform OCR/vision extraction, classify intent, match products and rates, explain results, and prepare proposals. Native ERP screens remain the normal business interface and are not duplicated inside every module.
+
+The governing flow is:
+
+```text
+User input
+  -> AI understanding/extraction
+  -> Product/customer/vendor/rate matching
+  -> Editable proposal/draft
+  -> User review
+  -> Explicit confirmation
+  -> Existing authoritative ERP service
+  -> Database
+```
+
+Copilot is not a second ERP and is never direct database authority. AI output is untrusted proposal data. Validation, authorization, execution, posting, atomicity, and persistence remain in existing ERP services and authoritative transactions.
+
+### Approved transaction scope
+
+- Copilot Estimate creation is approved. After creation, the user must be offered the native Estimate screen for review, editing, and finalization.
+- Copilot must **not** create Invoices. The approved workflow is `Estimate -> native review/edit/finalize -> native Convert to Invoice`.
+- Copilot may prepare Customer creation, Vendor creation, Purchase Entry, Return, Inventory/Stock proposals, Rate List updates, and approved financial preparations, each through the corresponding existing authoritative service and appropriate confirmation level.
+- Inventory mutation remains fail-closed until a costed/accounting-safe authoritative adjustment service is available.
+- Customer/vendor payments, journal entries, and other financial actions may enter Copilot only when an approved authoritative ERP service exists.
+
+### Copilot final completion status — 2026-09-11
+
+**COPILOT FINAL COMPLETION = DONE. COPILOT DEVELOPMENT = FROZEN.**
+
+The approved Copilot scope is implemented through the single central interface: text, voice, image/camera/PDF input; OCR/document and multi-line extraction; product, customer, vendor, and Rate List matching; editable review; Estimate, Customer, Vendor, Purchase, Return, versioned Rate List, and Customer/Vendor payment proposals; explicit confirmation; authoritative ERP-service execution; organization/branch/RBAC and ownership enforcement; idempotent audited actions; controlled offline reviewed-draft synchronization; and native ERP module handoff.
+
+Invoice handling is extraction-only inside Copilot. Invoice creation remains exclusively `Estimate -> native review/edit/finalize -> native Convert to Invoice`. Inventory remains proposal-only and fails closed because no costed, accounting-safe authoritative inventory-adjustment service exists. The revoked legacy inventory RPC is not reused. WhatsApp remains outside Copilot.
+
+The forward-only atomic Rate List draft-import migration is part of the approved deployment set. It creates a tenant-checked `DRAFT` version and is service-role only; activation remains a separate native lifecycle action. Its controlled application belongs to the production-deployment phase and must not be duplicated or blindly reapplied.
+
+### Pricing and company context
+
+Dynamic/versioned Rate Lists, deterministic price resolution, product matching, rate matching, effective dates, quantity tiers, and company/business context remain authoritative ERP concerns. AI may identify and suggest context, but may not invent or directly write prices.
+
+The existing native Estimate Rate Change / Company Change and clone/reprice workflow is preserved. Copilot may provide an additional quick Estimate-generation path using another company/rate context, but it must not replace, duplicate, remove, or redesign the native functionality.
+
+### WhatsApp boundary
+
+WhatsApp is a separate ERP communication/share capability, not a Copilot input channel. The approved workflow is:
+
+```text
+WhatsApp document/message
+  -> user manually saves/downloads it
+  -> user uploads it into Copilot
+  -> Copilot processes it
+```
+
+The final approved implementation is deliberately simple: an authorized ERP document screen prepares a WhatsApp message for the saved customer/vendor phone, opens the universal WhatsApp share URL, and leaves the final Send under user control. WhatsApp Business/Cloud API, QR automation, chatbot/AI behavior, inbound processing, provider delivery infrastructure, and direct WhatsApp-to-Copilot ingestion are outside the approved product scope.
+
+### Simple WhatsApp completion status — 2026-09-11
+
+**WHATSAPP = COMPLETE. WHATSAPP DEVELOPMENT = FROZEN.**
+
+The existing Estimate printable/share model now provides the production-facing share path supported by the current document architecture: the native Estimate screen exposes a WhatsApp button, the backend resolves the Estimate customer's saved phone, validates `sales.read` plus organization/branch ownership, prepares the existing Estimate message/PDF identity, and returns a universal `wa.me` link. The user performs the final Send in WhatsApp. No automated delivery claim or provider infrastructure is introduced. Other document types remain outside this simple closeout because they do not yet have equivalent native printable/share screens in the current implementation.
+
+### Voice, offline, safety, and preservation rules
+
+- Voice follows `speech/transcription -> intent -> validation -> proposal -> review/confirmation -> ERP service` and supports English, Urdu, and Roman Urdu directionally.
+- Offline mode may queue reviewed drafts for controlled, idempotent, authorized server synchronization; it never makes AI-generated data authoritative locally.
+- Do not create duplicate AI interfaces in individual ERP modules.
+- Reuse and complete existing ERP services, pricing, Estimate, authorization, organization/branch, idempotency, accounting, inventory, and Copilot foundations. Do not rebuild closed work.
+- Future development must identify only genuinely unfinished approved capabilities, implement them on the existing architecture, run focused tests, and then report the actual result.
 
 ## Status vocabulary
 
@@ -228,7 +304,7 @@ Current locally verified backend boundaries include:
 - atomic Purchase/AP, Customer Payment/AR, Sales Return, and Vendor Payment/AP paths;
 - stock balance/movement read boundaries and transaction-created stock movements;
 - authoritative Chart of Accounts, balanced immutable journal, General Ledger, and Trial Balance foundations;
-- Copilot draft/confirm audit and authoritative Estimate/Invoice/Purchase/Return execution with deterministic reference and authorization checks.
+- Copilot draft/confirm audit and authoritative Estimate/Purchase/Return execution with deterministic reference and authorization checks. Any experimental direct-Invoice path is not approved product scope and must not be treated as the Copilot workflow.
 
 The verified Rate List and Estimate foundation is CLOSED/FROZEN. It supports deterministic line-level pricing, mixed-brand pricing, controlled target-rate-list repricing, preserve-line-brand-context, clone/reprice preview, pricing provenance, pricing revalidation, atomic persistence, tenant/branch authorization, and idempotency. Conversions such as Popular → Dura → Company C → Company D are supported when the corresponding target Rate Lists exist. Production Closure must extend this foundation, not rebuild or fork it.
 
@@ -244,6 +320,7 @@ Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUC
 - AI input/document-intelligence contracts, validation, review lifecycle, and tests; current generic pipeline includes in-memory/no-op infrastructure and no production OCR/speech provider.
 - Natural-language assistant contracts/resolver/service; no production assistant route/provider UI is mounted.
 - Copilot UI/API for structured IDs and one-line draft input; not the full conversational voice/image/matching experience accepted in Phase 22.
+- The current working-tree Copilot slice adds review-oriented voice/image/file extraction and matching UX. It remains uncommitted and not production-verified; its experimental direct-Invoice execution must be removed from the approved product direction, while the Estimate/Purchase/Return paths may be completed and hardened.
 - Offline service worker and durable draft outbox; contract/static tests pass, but current real-browser offline/reconnect E2E evidence is absent.
 - Estimate rendering/printing/share and WhatsApp delivery-intent model; no provider-backed WhatsApp delivery or demonstrated PDF storage/delivery lifecycle.
 - CI, configuration, secret, observability, and release-readiness controls are exact-commit verified locally; remote CI, deployment, and operational evidence remain Production Closure work because the release candidate has not been pushed or deployed.
@@ -375,7 +452,7 @@ Begin **PRODUCTION CLOSURE** from verified release candidate `b60eaa9ba69eedc5dd
 4. image/OCR → ERP data;
 5. file attachment → ERP data;
 6. AI-assisted Estimate creation;
-7. AI-assisted Invoice creation;
+7. native Estimate review/edit/finalize and native Estimate-to-Invoice conversion;
 8. AI-assisted Rate List entry/import;
 9. mandatory confirmation before consequential ERP actions;
 10. Dynamic Rate Lists and deterministic pricing product workflows built on the verified foundation;

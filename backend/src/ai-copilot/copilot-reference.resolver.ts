@@ -20,7 +20,7 @@ export class SupabaseCopilotReferenceResolver implements CopilotReferenceResolve
   constructor(private readonly clientFactory: () => CopilotDatabase = getSupabaseAdminClient) {}
 
   private async assertOrganizationOwned(
-    table: "customers" | "vendors" | "products" | "warehouses" | "rate_lists",
+    table: "customers" | "vendors" | "products" | "warehouses" | "rate_lists" | "invoices" | "purchases",
     id: number,
     organizationId: string,
     label: string,
@@ -71,6 +71,7 @@ export class SupabaseCopilotReferenceResolver implements CopilotReferenceResolve
 
     const productIds = new Set<number>();
     const rateListIds = new Set<number>();
+    if (plan.rateListUpdate) rateListIds.add(positiveId(plan.rateListUpdate.rateListId, "rateListId"));
     for (const line of plan.lines) {
       if (line.productId !== undefined) productIds.add(line.productId);
       const pricingSelection = line.pricingSelection;
@@ -93,6 +94,12 @@ export class SupabaseCopilotReferenceResolver implements CopilotReferenceResolve
         plan.organizationId,
         `Rate List ${rateListId}`,
       ));
+    }
+    for (const allocation of plan.customerPaymentData?.allocations ?? []) {
+      checks.push(this.assertOrganizationOwned("invoices", allocation.invoice_id, plan.organizationId, `Invoice ${allocation.invoice_id}`));
+    }
+    for (const allocation of plan.vendorPaymentData?.allocations ?? []) {
+      checks.push(this.assertOrganizationOwned("purchases", allocation.purchase_id, plan.organizationId, `Purchase ${allocation.purchase_id}`));
     }
 
     await Promise.all(checks);

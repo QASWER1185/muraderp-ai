@@ -6,7 +6,8 @@ export type AiInputIntent =
   | "invoice"
   | "customer_return"
   | "supplier_bill"
-  | "inventory_adjustment";
+  | "inventory_adjustment"
+  | "rate_list_update";
 
 export interface AiDraftField<T = unknown> {
   value: T;

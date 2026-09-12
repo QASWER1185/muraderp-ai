@@ -80,6 +80,87 @@ function deps(database: any): CopilotRuntimeDependencies {
 }
 
 describe("Phase 6 — AI Copilot safety / end-to-end regression", () => {
+  it("rejects direct Invoice drafts before persistence", async () => {
+    const database = fakeDatabase();
+    const runtime = new CopilotRuntime({} as any, deps(database));
+
+    await expect(runtime.createDraft(draft({ intent: "invoice" }), { userId, branchId }, "invoice-not-supported"))
+      .rejects.toMatchObject({ code: "COPILOT_INVOICE_NOT_SUPPORTED" });
+  });
+
+  it("creates Customer master data only after confirmation through the ERP service", async () => {
+    const database = fakeDatabase();
+    const runtimeDependencies = deps(database);
+    runtimeDependencies.erp = {
+      createCustomer: vi.fn().mockResolvedValue({ id: 101, name: "Acme Builders", phone: "03001234567", city: "Lahore" }),
+    } as any;
+    const runtime = new CopilotRuntime({} as any, runtimeDependencies);
+    const created = await runtime.createMasterDataDraft({
+      organizationId, branchId, userId, source: "text", intent: "customer_create",
+      name: "Acme Builders", phone: "03001234567", city: "Lahore",
+    }, "customer-create-1");
+
+    expect(runtimeDependencies.erp.createCustomer).not.toHaveBeenCalled();
+    const executed = await runtime.confirmAndExecute(created.id, organizationId, userId, "customer-create-1", branchId);
+
+    expect(executed.status).toBe("EXECUTED");
+    expect(runtimeDependencies.erp.createCustomer).toHaveBeenCalledWith(
+      { name: "Acme Builders", phone: "03001234567", city: "Lahore" },
+      organizationId,
+    );
+  });
+
+  it("imports a Rate List proposal only after confirmation through the versioned authoring service", async () => {
+    const database = fakeDatabase();
+    const runtimeDependencies = deps(database);
+    runtimeDependencies.rateLists = {
+      createDraftVersion: vi.fn().mockResolvedValue({ version: { id: 77, status: "DRAFT" }, items: [{ id: 88 }] }),
+    };
+    const runtime = new CopilotRuntime({} as any, runtimeDependencies);
+    const created = await runtime.createRateListDraft({
+      organizationId, branchId, userId, source: "image", rateListId: 7, versionNumber: 3,
+      effectiveFrom: "2026-09-15T00:00:00Z",
+      lines: [{ productName: "Bestway Cement", productId: 501, minimumQuantity: 1, unit: "bag", unitRate: 1525 }],
+    }, "rate-list-draft-1");
+
+    expect(runtimeDependencies.rateLists.createDraftVersion).not.toHaveBeenCalled();
+    const executed = await runtime.confirmAndExecute(created.id, organizationId, userId, "rate-list-draft-1", branchId);
+
+    expect(executed.status).toBe("EXECUTED");
+    expect(runtimeDependencies.authorization.assertPermission).toHaveBeenCalledWith(userId, organizationId, "products.write");
+    expect(runtimeDependencies.rateLists.createDraftVersion).toHaveBeenCalledWith({
+      organization_id: organizationId,
+      rate_list_id: 7,
+      version_number: 3,
+      effective_from: "2026-09-15T00:00:00Z",
+      items: [{ product_id: 501, minimum_quantity: 1, unit_price: 1525, unit: "bag" }],
+    });
+  });
+
+  it("records a customer payment only after confirmation through the authoritative payment service", async () => {
+    const database = fakeDatabase();
+    const runtimeDependencies = deps(database);
+    runtimeDependencies.servicePrincipalId = "muraderp-copilot-test";
+    runtimeDependencies.customerPayments = { recordPayment: vi.fn().mockResolvedValue({ payment: { id: 91 }, allocations: [{ id: 92 }] }) };
+    const runtime = new CopilotRuntime({} as any, runtimeDependencies);
+    const payment = {
+      customer_id: 101, payment_date: "2026-09-11", amount: 5000, currency_code: "PKR", payment_method: "CASH" as const,
+      allocations: [{ invoice_id: 301, amount: 5000 }],
+    };
+    const created = await runtime.createFinancialDraft({
+      organizationId, branchId, userId, source: "text", intent: "customer_payment", payment,
+    }, "customer-payment-1");
+
+    expect(runtimeDependencies.customerPayments.recordPayment).not.toHaveBeenCalled();
+    const executed = await runtime.confirmAndExecute(created.id, organizationId, userId, "customer-payment-1", branchId);
+
+    expect(executed.status).toBe("EXECUTED");
+    expect(runtimeDependencies.authorization.assertPermission).toHaveBeenCalledWith(userId, organizationId, "payments.create");
+    expect(runtimeDependencies.customerPayments.recordPayment).toHaveBeenCalledWith(payment, expect.objectContaining({
+      organizationId, branchId, actorUserId: userId, operation: "customer-payment.create", idempotencyKey: "customer-payment-1",
+    }));
+  });
+
   it("requires human confirmation and preserves the deterministic action plan boundary", () => {
     const { plan, requiresConfirmation } = createCopilotPlanFromDraft(draft(), { userId });
     expect(requiresConfirmation).toBe(true);

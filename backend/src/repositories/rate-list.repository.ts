@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdminClient } from "../config/supabase.js";
 import type { Database } from "../types/database.types.js";
-import type { PriceResolutionContext, RateListDefinition, RateListItemDefinition, RateListVersionDefinition, RateListScopeType, ResolvedPrice } from "../types/pricing.types.js";
+import type { PriceResolutionContext, RateListDefinition, RateListDraftVersionInput, RateListDraftVersionResult, RateListItemDefinition, RateListVersionDefinition, RateListScopeType, ResolvedPrice } from "../types/pricing.types.js";
 
 type PricingDatabaseClient = SupabaseClient<Database> & { from(table: "rate_lists" | "rate_list_versions" | "rate_list_items"): any };
 
@@ -13,6 +13,7 @@ export interface RateListRepository {
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+  createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult>;
   listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]>;
   findBestRateListItem(context: PriceResolutionContext): Promise<ResolvedPrice | null>;
   findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]>;
@@ -25,6 +26,18 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
   async createRateList(input: RateListDefinition): Promise<RateListRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").insert({ organization_id: input.organization_id, name: input.name, code: input.code, price_type: input.price_type, scope_type: input.scope_type, vendor_id: input.vendor_id ?? null, customer_id: input.customer_id ?? null, currency_code: input.currency_code, is_active: input.is_active ?? true }).select().single(); if (error) throw error; return data as RateListRecord; }
   async createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").insert({ rate_list_id: input.rate_list_id, version_number: input.version_number, status: input.status ?? "DRAFT", effective_from: input.effective_from, effective_to: input.effective_to ?? null }).select().single(); if (error) throw error; return data as RateListVersionRecord; }
   async createItem(input: RateListItemDefinition): Promise<RateListItemRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_items").insert({ rate_list_version_id: input.rate_list_version_id, product_id: input.product_id, minimum_quantity: input.minimum_quantity ?? 1, unit_price: input.unit_price, unit: input.unit }).select().single(); if (error) throw error; return data as RateListItemRecord; }
+  async createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const { data, error } = await (client as any).rpc("create_rate_list_draft_version", {
+      p_organization_id: input.organization_id,
+      p_rate_list_id: input.rate_list_id,
+      p_version_number: input.version_number,
+      p_effective_from: input.effective_from,
+      p_items: input.items,
+    });
+    if (error) throw error;
+    return data as RateListDraftVersionResult;
+  }
   async listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("id, organization_id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active, created_at, updated_at").eq("organization_id", organizationId).eq("price_type", "SALE").eq("is_active", true).order("name", { ascending: true }); if (error) throw error; return (data ?? []) as RateListRecord[]; }
 
   async findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]> {

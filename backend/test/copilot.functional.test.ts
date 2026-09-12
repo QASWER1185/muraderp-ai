@@ -57,6 +57,9 @@ describe("Phase 22 Copilot functional contract", () => {
   it("exposes the protected draft/confirm API contract without exposing internal tokens", async () => {
     const runtime = {
       createDraft: vi.fn().mockResolvedValue({ id: "00000000-0000-4000-8000-000000000003", status: "DRAFT" }),
+      createMasterDataDraft: vi.fn().mockResolvedValue({ id: "00000000-0000-4000-8000-000000000005", status: "DRAFT" }),
+      createRateListDraft: vi.fn().mockResolvedValue({ id: "00000000-0000-4000-8000-000000000006", status: "DRAFT" }),
+      createFinancialDraft: vi.fn().mockResolvedValue({ id: "00000000-0000-4000-8000-000000000007", status: "DRAFT" }),
       confirmAndExecute: vi.fn().mockResolvedValue({ id: "00000000-0000-4000-8000-000000000003", status: "EXECUTED" }),
     };
     const app = express();
@@ -81,6 +84,7 @@ describe("Phase 22 Copilot functional contract", () => {
     expect(draftResponse.status).toBe(201);
     expect(draftResponse.body.requiresConfirmation).toBe(true);
     expect(runtime.createDraft).toHaveBeenCalledOnce();
+    expect(runtime.createDraft).toHaveBeenCalledWith(expect.anything(), expect.anything(), "phase22-copilot-draft-1");
 
     const confirmResponse = await request(app)
       .post("/test-copilot/drafts/00000000-0000-4000-8000-000000000003/confirm")
@@ -92,6 +96,69 @@ describe("Phase 22 Copilot functional contract", () => {
     expect(confirmResponse.status).toBe(200);
     expect(confirmResponse.body.executed).toBe(true);
     expect(runtime.confirmAndExecute).toHaveBeenCalledOnce();
+    expect(runtime.confirmAndExecute).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000003",
+      ORGANIZATION_ID,
+      USER_ID,
+      "phase22-copilot-draft-1",
+      BRANCH_ID,
+    );
+
+    const customerDraft = await request(app)
+      .post("/test-copilot/master-data/drafts")
+      .set("Authorization", `Bearer ${AUTH_TOKEN}`)
+      .set("X-Branch-Id", BRANCH_ID)
+      .set("Idempotency-Key", "customer-create-1")
+      .send({
+        organizationId: ORGANIZATION_ID,
+        userId: USER_ID,
+        intent: "customer_create",
+        source: SOURCE,
+        name: "Acme Builders",
+        phone: "03001234567",
+        city: "Lahore",
+      });
+    expect(customerDraft.status).toBe(201);
+    expect(runtime.createMasterDataDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: "customer_create", name: "Acme Builders", userId: USER_ID, branchId: BRANCH_ID }),
+      "customer-create-1",
+    );
+
+    const rateListDraft = await request(app)
+      .post("/test-copilot/rate-list/drafts")
+      .set("Authorization", `Bearer ${AUTH_TOKEN}`)
+      .set("X-Branch-Id", BRANCH_ID)
+      .set("Idempotency-Key", "rate-list-create-1")
+      .send({
+        organizationId: ORGANIZATION_ID,
+        userId: USER_ID,
+        source: "image",
+        rateListId: 7,
+        versionNumber: 3,
+        effectiveFrom: "2026-09-15T00:00:00.000Z",
+        lines: [{ productName: "25mm Popular pipe", productId: 25, minimumQuantity: 10, unit: "pcs", unitRate: 120 }],
+      });
+    expect(rateListDraft.status).toBe(201);
+    expect(runtime.createRateListDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ rateListId: 7, versionNumber: 3, userId: USER_ID, branchId: BRANCH_ID }),
+      "rate-list-create-1",
+    );
+
+    const paymentDraft = await request(app)
+      .post("/test-copilot/financial/drafts")
+      .set("Authorization", `Bearer ${AUTH_TOKEN}`)
+      .set("X-Branch-Id", BRANCH_ID)
+      .set("Idempotency-Key", "customer-payment-1")
+      .send({
+        organizationId: ORGANIZATION_ID, userId: USER_ID, source: "text", intent: "customer_payment",
+        customerId: 101, paymentDate: "2026-09-11", amount: 5000, currencyCode: "PKR", paymentMethod: "CASH",
+        allocations: [{ invoiceId: 301, amount: 5000 }],
+      });
+    expect(paymentDraft.status).toBe(201);
+    expect(runtime.createFinancialDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: "customer_payment", userId: USER_ID, branchId: BRANCH_ID, payment: expect.objectContaining({ customer_id: 101 }) }),
+      "customer-payment-1",
+    );
 
     const unauthorized = await request(app)
       .post("/test-copilot/drafts")

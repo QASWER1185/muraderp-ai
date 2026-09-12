@@ -1,4 +1,4 @@
-import type { AiDraft, AiDraftLine, AiInputIntent } from "../ai-input/contracts.js";
+import type { AiDraft, AiDraftLine } from "../ai-input/contracts.js";
 import { assertCopilotExecutionContext } from "./transaction-action.gateway.js";
 import { createTransactionActionPlan } from "./transaction-action-planner.js";
 import type { CopilotActionPlan, CopilotInputSource } from "./copilot.types.js";
@@ -100,7 +100,7 @@ export function assertCopilotDraftExecution(
   plan: CopilotActionPlan,
   organizationId: string,
   userId: string,
-  expectedIntent: AiInputIntent,
+  expectedIntent: CopilotActionPlan["target"],
   branchId?: string,
 ): void {
   assertCopilotExecutionContext(plan, organizationId, userId, branchId);

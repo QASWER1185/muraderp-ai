@@ -5,6 +5,7 @@ export interface WhatsAppEstimateDelivery {
   mode: WhatsAppDeliveryMode;
   phone: string;
   message: string;
+  share_url: string;
   document_name: string;
   document_format: "PDF";
 }

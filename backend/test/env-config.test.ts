@@ -4,6 +4,9 @@ import { parseEnv } from "../src/config/env.js";
 const validProductionEnv = {
   NODE_ENV: "production",
   PORT: "3000",
+  OPENAI_API_KEY: `sk-${"a".repeat(48)}`,
+  AI_MODEL: "gpt-6-astra",
+  AI_SPEECH_MODEL: "gpt-transcribe",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SECRET_KEY: `sb_secret_${"x".repeat(40)}`,
   INTERNAL_API_TOKEN: "t".repeat(64),
@@ -18,6 +21,11 @@ describe("production configuration guardrails", () => {
   it("rejects partial ERP production configuration", () => {
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_TOKEN: undefined }).success).toBe(false);
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_PRINCIPAL_ID: undefined }).success).toBe(false);
+  });
+
+  it("requires non-placeholder AI provider configuration in production", () => {
+    expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: undefined }).success).toBe(false);
+    expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: "replace_me_with_server_only_openai_api_key" }).success).toBe(false);
   });
 
   it("rejects generic/default service principal identities", () => {

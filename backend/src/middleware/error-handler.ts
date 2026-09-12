@@ -17,6 +17,12 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, _nex
   const requestId = request.id;
   const log = request.log;
 
+  if (error && typeof error === "object" && "type" in error && error.type === "entity.too.large") {
+    log.warn({ errorCode: "PAYLOAD_TOO_LARGE", requestId }, "request payload exceeded the configured limit");
+    response.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Request payload is too large", requestId } });
+    return;
+  }
+
   if (error instanceof ZodError) {
     log.warn({ err: error, errorCode: "VALIDATION_ERROR", requestId }, "request validation failed");
     response.status(400).json({

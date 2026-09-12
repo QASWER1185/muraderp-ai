@@ -9,6 +9,18 @@ async function postConversion(context, action, payload, key) {
   return body.data;
 }
 
+export async function prepareEstimateWhatsAppShare(context) {
+  const response = await fetch(`/api/v1/estimates/${encodeURIComponent(context.estimateId)}/whatsapp-share`, {
+    method: "GET", credentials: "include",
+    headers: { "X-Organization-Id": context.organizationId, "X-Branch-Id": context.branchId },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error?.message ?? "WhatsApp share could not be prepared");
+  const shareUrl = new URL(body.data?.share_url);
+  if (shareUrl.protocol !== "https:" || shareUrl.hostname !== "wa.me") throw new Error("WhatsApp share returned an invalid destination");
+  return body.data;
+}
+
 // Keep the reviewed payload and retry key together; form changes discard both.
 export function createConversionSession() {
   let reviewed = null;
@@ -42,8 +54,16 @@ export function mountEstimateConversion(container) {
       <label>Pricing date<input name="date" type="date" required /></label>
       <label>New estimate reference<input name="number" required maxlength="100" autocomplete="off" /></label>
       <div class="dialog-actions"><button class="button secondary" type="submit">Preview prices</button><button id="conversion-confirm" class="button primary" type="button" disabled>Confirm and create new estimate</button></div>
-    </form><p id="conversion-message" role="status" aria-live="polite"></p><div id="conversion-preview" class="table-wrap"></div></section>`;
-  const form = container.querySelector("form");
+    </form><p id="conversion-message" role="status" aria-live="polite"></p><div id="conversion-preview" class="table-wrap"></div></section>
+    <section class="card"><h2>Share Estimate on WhatsApp</h2><p>Uses the Estimate customer's saved phone number and prepares the message. You complete the final Send in WhatsApp.</p>
+      <form id="whatsapp-share-form" class="conversion-form">
+        <label>Organization ID<input name="organization" required autocomplete="off" /></label>
+        <label>Branch ID<input name="branch" required autocomplete="off" /></label>
+        <label>Estimate ID<input name="estimate" type="number" min="1" step="1" required /></label>
+        <div class="dialog-actions"><button class="button primary" type="submit">WhatsApp</button></div>
+      </form><p id="whatsapp-share-message" role="status" aria-live="polite"></p>
+    </section>`;
+  const form = container.querySelector("#conversion-form");
   const confirm = container.querySelector("#conversion-confirm");
   const message = container.querySelector("#conversion-message");
   const preview = container.querySelector("#conversion-preview");
@@ -79,5 +99,27 @@ export function mountEstimateConversion(container) {
     busy(true); message.textContent = "Creating the new estimate…";
     try { const result = await session.confirm(number); busy(false); message.textContent = `Created ${result.definition.estimate_number} (Estimate ID ${result.id}). Source estimate is unchanged.`; }
     catch (error) { busy(false); confirm.disabled = false; message.textContent = `${error.message} You may retry the same confirmation after a connection failure, or generate a new preview.`; }
+  });
+
+  const whatsappForm = container.querySelector("#whatsapp-share-form");
+  const whatsappMessage = container.querySelector("#whatsapp-share-message");
+  whatsappForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const whatsappField = (name) => whatsappForm.elements.namedItem(name);
+    const button = whatsappForm.querySelector("button");
+    button.disabled = true; whatsappMessage.textContent = "Preparing WhatsApp messageâ€¦";
+    try {
+      const delivery = await prepareEstimateWhatsAppShare({
+        estimateId: whatsappField("estimate").value,
+        organizationId: whatsappField("organization").value.trim(),
+        branchId: whatsappField("branch").value.trim(),
+      });
+      whatsappMessage.textContent = `Opening WhatsApp for ${delivery.phone}. Final Send remains under your control.`;
+      window.location.assign(delivery.share_url);
+    } catch (error) {
+      whatsappMessage.textContent = error instanceof Error ? error.message : "WhatsApp share could not be prepared.";
+    } finally {
+      button.disabled = false;
+    }
   });
 }
