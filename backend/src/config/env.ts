@@ -56,9 +56,6 @@ const envSchema = z
     }
 
     if (configuration.NODE_ENV === "production") {
-      if (!configuration.OPENAI_API_KEY) {
-        context.addIssue({ code: "custom", path: ["OPENAI_API_KEY"], message: "Production AI Copilot requires OPENAI_API_KEY" });
-      }
       if (configuration.OPENAI_API_KEY?.toLowerCase().includes("replace_me")) {
         context.addIssue({ code: "custom", path: ["OPENAI_API_KEY"], message: "Production OPENAI_API_KEY cannot use a placeholder value" });
       }

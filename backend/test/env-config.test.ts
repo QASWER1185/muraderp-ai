@@ -18,13 +18,16 @@ describe("production configuration guardrails", () => {
     expect(parseEnv(validProductionEnv).success).toBe(true);
   });
 
+  it("accepts production configuration without an AI provider key", () => {
+    expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: undefined, PORT: "8080" }).success).toBe(true);
+  });
+
   it("rejects partial ERP production configuration", () => {
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_TOKEN: undefined }).success).toBe(false);
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_PRINCIPAL_ID: undefined }).success).toBe(false);
   });
 
-  it("requires non-placeholder AI provider configuration in production", () => {
-    expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: undefined }).success).toBe(false);
+  it("rejects a placeholder AI provider key when one is configured in production", () => {
     expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: "replace_me_with_server_only_openai_api_key" }).success).toBe(false);
   });
 
