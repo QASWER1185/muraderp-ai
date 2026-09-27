@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/:path*"
+    }
+  ]
+}
