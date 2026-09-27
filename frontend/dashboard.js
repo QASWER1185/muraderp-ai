@@ -13,23 +13,9 @@ function escapeHtml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 
-function money(value) {
-  return new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR", maximumFractionDigits: 0 }).format(Number(value));
-}
-
-function stockRows(items) {
-  return items.slice(0, 6).map((item) => `<tr>
-    <td><span class="stock-product"><span>${escapeHtml(item.product_name.slice(0, 2).toUpperCase())}</span><span><strong>${escapeHtml(item.product_name)}</strong><small>${escapeHtml(item.sku ?? "No SKU")}</small></span></span></td>
-    <td><strong>${Number(item.current_stock).toLocaleString("en-PK")}</strong></td>
-    <td>${escapeHtml(item.unit)}</td>
-    <td>${item.rate == null ? '<span class="muted">Unavailable</span>' : money(item.rate)}</td>
-    <td><span class="stock-status ${item.status === "OUT_OF_STOCK" ? "danger" : "good"}">${item.status === "OUT_OF_STOCK" ? "Out of stock" : "In stock"}</span></td>
-  </tr>`).join("");
-}
-
 function activityRows(items) {
-  if (!items.length) return `<div class="dashboard-empty compact"><span>${icon("chart", 22)}</span><strong>No recent stock activity</strong><small>New inventory movements will appear here.</small></div>`;
-  return items.map((item) => `<div class="activity-row"><span class="activity-icon">${icon(item.quantity < 0 ? "arrowUp" : "boxes", 16)}</span><span><strong>${escapeHtml(item.product_name)}</strong><small>${escapeHtml(String(item.movement_type).replaceAll("_", " "))}</small></span><span><strong>${Number(item.quantity).toLocaleString("en-PK")}</strong><small>${new Date(item.created_at).toLocaleDateString("en-PK")}</small></span></div>`).join("");
+  if (!items.length) return '<p class="dashboard-inline-state">No recent inventory movements.</p>';
+  return items.slice(0, 5).map((item) => `<div class="activity-row"><span class="activity-icon">${icon(item.quantity < 0 ? "arrowUp" : "boxes", 16)}</span><span><strong>${escapeHtml(item.product_name)}</strong><small>${escapeHtml(String(item.movement_type).replaceAll("_", " "))}</small></span><span><strong>${Number(item.quantity).toLocaleString("en-PK")}</strong><small>${new Date(item.created_at).toLocaleDateString("en-PK")}</small></span></div>`).join("");
 }
 
 function dateRange(range) {
@@ -39,44 +25,46 @@ function dateRange(range) {
   return { from: start.toLocaleDateString("en-CA"), to: end.toLocaleDateString("en-CA") };
 }
 
+function metric(label, iconName, value, note, extraClass = "") {
+  return `<article class="command-metric ${extraClass}"><span class="command-metric-icon">${icon(iconName, 18)}</span><p>${label}</p><strong>${value}</strong><small>${note}</small></article>`;
+}
+
 export function dashboardMarkup() {
   const quickActions = [
     ["estimates", "New Estimate", "file"],
     ["invoices", "New Invoice", "receipt"],
     ["customers", "Add Customer", "users"],
     ["products", "Add Product", "package"],
-    ["inventory", "View Stock", "boxes"],
-    ["reports", "Sales Report", "chart"],
   ];
-  return `<div class="dashboard-page"><section class="business-hero">
+  return `<div class="dashboard-page"><section class="business-bar" aria-label="Business identity">
     <div class="business-monogram" aria-hidden="true">M</div>
-    <div class="business-identity"><p class="eyebrow">Welcome back</p><h1><span>M</span> ${STORE.name}</h1><p>${STORE.categories}</p><div class="business-contact"><span>${icon("phone", 15)} ${STORE.phone}</span><span>${icon("location", 15)} ${STORE.address}</span></div></div>
-    <button class="button hero-copilot" type="button" data-open-copilot>${icon("sparkles")} Ask AI Copilot</button>
+    <div class="business-identity"><h1><span>M</span> ${STORE.name}</h1><p>${STORE.categories}</p><div class="business-contact"><span>${icon("phone", 14)} ${STORE.phone}</span><span>${icon("location", 14)} ${STORE.address}</span></div></div>
+    <button class="button hero-copilot" type="button" data-open-copilot>${icon("sparkles", 16)} Ask AI Copilot</button>
   </section>
 
-  <section class="dashboard-section"><div class="dashboard-section-title"><div><p class="eyebrow">Business snapshot</p><h2>Overview</h2></div><span class="privacy-note">Financial figures open on request</span></div>
-    <div class="premium-metric-grid" aria-label="Business summary">
-      ${[["Total Sales","chart","Financial report not connected"],["Total Estimates","file","Estimate summary not connected"],["Receivables","wallet","Balance report not connected"]].map(([label, iconName, note]) => `<article class="premium-metric"><span class="premium-metric-icon">${icon(iconName)}</span><div><p>${label}</p><strong>View details</strong><small>${note}</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></article>`).join("")}
-      <article class="premium-metric"><span class="premium-metric-icon green">${icon("boxes")}</span><div><p>Inventory Items</p><strong id="inventory-count">Loading</strong><small id="inventory-count-note">Checking authorized stock</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></article>
-      <button class="premium-metric profit-metric" type="button" data-profit-open><span class="premium-metric-icon amber">${icon("trendUp")}</span><div><p>Today's Profit</p><strong>Open securely</strong><small>Daily and monthly view</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></button>
+  <div id="dashboard-workspace-note" class="dashboard-workspace-note" role="status" hidden><span>${icon("boxes", 18)} Select your business workspace to load live data.</span><button class="button secondary compact" type="button" data-open-workspace>Choose Workspace</button></div>
+
+  <section class="command-section" aria-label="Business summary"><div class="command-section-heading"><div><p class="eyebrow">Business snapshot</p><h2>Overview</h2></div><span>Authorized data only</span></div>
+    <div class="command-metric-grid">
+      ${metric("Total Sales", "chart", "Data unavailable", "Sales reporting pending")}
+      ${metric("Total Estimates", "file", "Data unavailable", "Estimate summary pending")}
+      ${metric("Receivables", "wallet", "Data unavailable", "Balance reporting pending")}
+      ${metric("Inventory Items", "boxes", '<span id="inventory-count">Not connected</span>', '<span id="inventory-count-note">Authorized inventory</span>', "inventory-metric")}
+      <button class="command-metric profit-metric" type="button" data-profit-open><span class="command-metric-icon">${icon("trendUp", 18)}</span><p>Today's Profit</p><strong>Data unavailable</strong><small>View monthly ${icon("arrowRight", 13)}</small></button>
     </div>
   </section>
 
-  <section class="dashboard-section"><div class="dashboard-section-title"><div><p class="eyebrow">Common tasks</p><h2>Quick Actions</h2></div></div><div class="quick-action-strip">${quickActions.map(([route, label, iconName]) => `<button type="button" data-navigate="${route}"><span>${icon(iconName, 19)}</span><strong>${label}</strong></button>`).join("")}</div></section>
-
-  <div class="dashboard-layout">
-    <section class="surface stock-overview"><div class="surface-heading"><div><p class="eyebrow">Inventory</p><h2>Stock Overview</h2></div><button class="button secondary compact" type="button" data-navigate="inventory">View All Stock ${icon("chevron", 14)}</button></div>
-      <div id="stock-overview-content" class="dashboard-loading" role="status"><span class="spinner"></span><span>Loading authorized stock...</span></div>
-    </section>
-    <section class="surface low-stock-card"><div class="surface-heading"><div><p class="eyebrow">Needs attention</p><h2>Low Stock Items</h2></div><span class="alert-badge">!</span></div><div id="low-stock-content" class="dashboard-loading small" role="status"><span class="spinner"></span><span>Checking stock...</span></div></section>
+  <div class="command-business-grid">
+    <section class="surface sales-overview"><div class="surface-heading"><div><p class="eyebrow">Business performance</p><h2>Sales Overview</h2></div><div class="sales-periods" aria-label="Sales period"><button type="button" class="active" aria-pressed="true" data-sales-period="today">Today</button><button type="button" aria-pressed="false" data-sales-period="week">7 Days</button><button type="button" aria-pressed="false" data-sales-period="month">This Month</button></div></div><div class="sales-unavailable">${icon("chart", 21)}<div><strong>Reporting feed pending</strong><p>Verified sales data will appear here when reporting is connected.</p></div></div><p class="sales-trend-note">Sales Trend <span>Reporting feed pending</span></p></section>
+    <section class="surface inventory-health"><div class="surface-heading"><div><p class="eyebrow">Stock at a glance</p><h2>Inventory Health</h2></div><button class="text-link" type="button" data-navigate="inventory">View Inventory ${icon("arrowRight", 14)}</button></div><div class="inventory-facts"><div><span>Total Items</span><strong id="inventory-total">Not connected</strong></div><div><span>Low Stock</span><strong id="inventory-low">Unavailable</strong></div><div><span>Out of Stock</span><strong id="inventory-out">Not connected</strong></div><div><span>Stock Value</span><strong id="inventory-value">Unavailable</strong></div></div><p id="inventory-note" class="inventory-note">Reorder levels and stock valuation are unavailable.</p><div id="inventory-attention" class="inventory-attention" hidden></div></section>
   </div>
 
-  <div class="analytics-layout">
-    <section class="surface sales-chart-card"><div class="surface-heading"><div><p class="eyebrow">Sales analytics</p><h2>Sales Trend</h2></div><span class="status-pill neutral">Reporting feed pending</span></div><div class="chart-unavailable"><div class="chart-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div><strong>Sales chart unavailable</strong><p>Verified trend data will appear when the reporting backend is connected.</p></div></div></section>
-    <section class="surface recent-activity"><div class="surface-heading"><div><p class="eyebrow">Live operations</p><h2>Recent Activity</h2></div></div><div id="recent-activity-content" class="dashboard-loading small" role="status"><span class="spinner"></span><span>Loading activity...</span></div></section>
+  <div class="command-operations-grid">
+    <section class="surface recent-activity"><div class="surface-heading"><div><p class="eyebrow">Inventory movements</p><h2>Recent Activity</h2></div></div><div id="recent-activity-content" class="dashboard-inline-state" role="status">Not connected</div></section>
+    <section class="surface quick-actions"><div class="surface-heading"><div><p class="eyebrow">Get things done</p><h2>Quick Actions</h2></div></div><div class="quick-action-grid">${quickActions.map(([route, label, iconName]) => `<button type="button" data-navigate="${route}"><span>${icon(iconName, 18)}</span><strong>${label}</strong>${icon("arrowRight", 14)}</button>`).join("")}</div></section>
   </div>
 
-  <section class="dashboard-copilot-card"><div class="copilot-orb">${icon("sparkles", 25)}</div><div><p class="eyebrow">MuradERP AI</p><h2>Your business copilot is ready to help</h2><p>Prepare an estimate, read a material list, or review an ERP action in one conversation. Nothing is posted without your confirmation.</p></div><button class="button primary" type="button" data-open-copilot>Open Copilot ${icon("arrowRight", 16)}</button></section>
+  <section class="dashboard-copilot-card"><div class="copilot-orb">${icon("sparkles", 22)}</div><div><p class="eyebrow">MuradERP AI</p><h2>Your business copilot is ready to help</h2><p>Prepare an estimate, read a material list, or review an ERP action in one conversation.</p></div><button class="button primary" type="button" data-open-copilot>Open Copilot ${icon("arrowRight", 16)}</button></section>
 
   <dialog id="profit-dialog" class="modal-dialog profit-dialog"><div class="profit-panel"><div class="surface-heading"><div><p class="eyebrow">Private financial view</p><h2>Profit</h2></div><button class="icon-button" type="button" data-profit-close aria-label="Close">${icon("close")}</button></div><div class="profit-tabs" role="tablist"><button class="active" type="button" data-profit-range="daily">Daily Profit</button><button type="button" data-profit-range="monthly">Monthly Profit</button></div><div id="profit-context" class="profit-context"></div><div id="profit-content" role="status"></div></div></dialog></div>`;
 }
@@ -84,59 +72,66 @@ export function dashboardMarkup() {
 export function mountDashboard(container, options = {}) {
   const root = container.querySelector(".dashboard-page");
   const context = options.context ?? getWorkspaceContext(options.storage ?? globalThis.sessionStorage);
-  const stockContent = container.querySelector("#stock-overview-content");
-  const lowStockContent = container.querySelector("#low-stock-content");
-  const activityContent = container.querySelector("#recent-activity-content");
-  const inventoryCount = container.querySelector("#inventory-count");
-  const inventoryCountNote = container.querySelector("#inventory-count-note");
-  const profitDialog = container.querySelector("#profit-dialog");
-  const profitContent = container.querySelector("#profit-content");
-  const profitContext = container.querySelector("#profit-context");
-
-  function dashboardUnavailable(message, withWorkspace = false) {
-    return `<div class="dashboard-empty"><span>${icon("alert", 20)}</span><strong>Live data unavailable</strong><small>${escapeHtml(message)}</small>${withWorkspace ? '<button class="button secondary compact" type="button" data-open-workspace>Choose workspace</button>' : ""}</div>`;
-  }
+  const workspaceNote = root.querySelector("#dashboard-workspace-note");
+  const inventoryCount = root.querySelector("#inventory-count");
+  const inventoryCountNote = root.querySelector("#inventory-count-note");
+  const inventoryTotal = root.querySelector("#inventory-total");
+  const inventoryOut = root.querySelector("#inventory-out");
+  const inventoryNote = root.querySelector("#inventory-note");
+  const inventoryAttention = root.querySelector("#inventory-attention");
+  const activityContent = root.querySelector("#recent-activity-content");
+  const profitDialog = root.querySelector("#profit-dialog");
+  const profitContent = root.querySelector("#profit-content");
+  const profitContext = root.querySelector("#profit-context");
 
   async function loadStock() {
-    if (!context) {
-      const state = dashboardUnavailable("Choose your business workspace to load authorized inventory.", true);
-      stockContent.innerHTML = state; lowStockContent.innerHTML = state; activityContent.innerHTML = state;
-      inventoryCount.textContent = "Unavailable"; inventoryCountNote.textContent = "Workspace not selected";
-      return;
-    }
+    if (!context) { workspaceNote.hidden = false; return; }
+    inventoryCount.textContent = inventoryTotal.textContent = "Loading";
+    inventoryOut.textContent = "Loading";
+    inventoryNote.textContent = "Loading authorized stock...";
+    activityContent.textContent = "Loading recent inventory movements...";
     try {
       const response = await (options.getStock ?? getDashboardStock)(context);
+      if (!root.isConnected) return;
       const data = response.data;
       const items = data.inventory_items ?? [];
-      inventoryCount.textContent = data.inventory_truncated ? `${items.length}+` : String(items.length);
-      inventoryCountNote.textContent = data.inventory_truncated ? "More items available" : "Authorized stock products";
-      stockContent.innerHTML = items.length ? `<div class="table-wrap"><table class="stock-table"><thead><tr><th>Product / Item</th><th>Current Stock</th><th>Unit</th><th>Rate</th><th>Stock Status</th></tr></thead><tbody>${stockRows(items)}</tbody></table></div>` : `<div class="dashboard-empty"><span>${icon("boxes", 22)}</span><strong>No inventory items</strong><small>Stock will appear after inventory is recorded.</small></div>`;
+      const count = data.inventory_truncated ? `${items.length}+` : String(items.length);
       const outOfStock = items.filter((item) => item.status === "OUT_OF_STOCK");
-      lowStockContent.innerHTML = outOfStock.length ? `<div class="low-stock-list">${outOfStock.slice(0, 4).map((item) => `<div><span>${escapeHtml(item.product_name.slice(0, 2).toUpperCase())}</span><span><strong>${escapeHtml(item.product_name)}</strong><small>${Number(item.current_stock).toLocaleString("en-PK")} ${escapeHtml(item.unit)} available</small></span><span class="stock-status danger">Out</span></div>`).join("")}</div>${data.reorder_levels_available ? "" : '<p class="reorder-note">Configured reorder levels are not available yet.</p>'}` : `<div class="dashboard-empty compact"><span>${icon("check", 21)}</span><strong>No out-of-stock items</strong><small>${data.reorder_levels_available ? "Stock is above configured reorder levels." : "Reorder levels are not exposed by the backend yet."}</small></div>`;
+      inventoryCount.textContent = inventoryTotal.textContent = count;
+      inventoryCountNote.textContent = data.inventory_truncated ? "At least this many" : "Authorized stock products";
+      inventoryOut.textContent = data.inventory_truncated ? `${outOfStock.length}+` : String(outOfStock.length);
+      inventoryNote.textContent = data.inventory_truncated ? "Based on the first 100 inventory records. Reorder levels and stock valuation are unavailable." : "Reorder levels and stock valuation are unavailable.";
+      if (outOfStock.length) {
+        inventoryAttention.hidden = false;
+        inventoryAttention.innerHTML = `<strong>Needs attention</strong><span>${outOfStock.slice(0, 2).map((item) => escapeHtml(item.product_name)).join(" · ")}${outOfStock.length > 2 ? ` +${outOfStock.length - 2} more` : ""}</span>`;
+      } else { inventoryAttention.hidden = true; inventoryAttention.replaceChildren(); }
+      activityContent.className = "";
       activityContent.innerHTML = activityRows(data.recent_activity ?? []);
     } catch (error) {
-      const message = error?.status === 401 ? "Sign in to load authorized dashboard data." : error?.status === 403 ? "You do not have access to inventory for this workspace." : "The dashboard stock service is not connected.";
-      const state = dashboardUnavailable(message);
-      stockContent.innerHTML = state; lowStockContent.innerHTML = state; activityContent.innerHTML = state;
-      inventoryCount.textContent = "Unavailable"; inventoryCountNote.textContent = message;
+      if (!root.isConnected) return;
+      const message = error?.status === 401 ? "Sign in to load inventory." : error?.status === 403 ? "Inventory access is unavailable for this workspace." : "Inventory service unavailable.";
+      inventoryCount.textContent = inventoryTotal.textContent = inventoryOut.textContent = "Unavailable";
+      inventoryCountNote.textContent = message;
+      inventoryNote.textContent = message;
+      activityContent.className = "dashboard-inline-state";
+      activityContent.textContent = message;
     }
   }
 
-  async function loadProfit(range) {
-    container.querySelectorAll("[data-profit-range]").forEach((button) => button.classList.toggle("active", button.dataset.profitRange === range));
+  function loadProfit(range) {
+    root.querySelectorAll("[data-profit-range]").forEach((button) => button.classList.toggle("active", button.dataset.profitRange === range));
     const period = dateRange(range);
-    profitContext.textContent = range === "daily" ? `For ${new Date(`${period.from}T00:00:00`).toLocaleDateString("en-PK", { dateStyle: "long" })}` : `${new Date(`${period.from}T00:00:00`).toLocaleDateString("en-PK", { day: "numeric", month: "long" })} – ${new Date(`${period.to}T00:00:00`).toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" })}`;
-    profitContent.className = "";
-    profitContent.innerHTML = context
-      ? dashboardUnavailable("Profit reporting is not connected to this frontend yet.")
-      : dashboardUnavailable("Choose your workspace before opening private financial data.", true);
+    profitContext.textContent = range === "daily" ? `For ${new Date(`${period.from}T00:00:00`).toLocaleDateString("en-PK", { dateStyle: "long" })}` : `${new Date(`${period.from}T00:00:00`).toLocaleDateString("en-PK", { day: "numeric", month: "long" })} to ${new Date(`${period.to}T00:00:00`).toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" })}`;
+    profitContent.innerHTML = '<p class="dashboard-inline-state">Profit reporting is not connected yet.</p>';
   }
 
   root.addEventListener("click", (event) => {
-    if (event.target.closest("[data-profit-open]")) { profitDialog.showModal(); void loadProfit("daily"); }
+    if (event.target.closest("[data-profit-open]")) { profitDialog.showModal(); loadProfit("daily"); }
     if (event.target.closest("[data-profit-close]")) profitDialog.close();
     const range = event.target.closest("[data-profit-range]")?.dataset.profitRange;
-    if (range) void loadProfit(range);
+    if (range) loadProfit(range);
+    const period = event.target.closest("[data-sales-period]")?.dataset.salesPeriod;
+    if (period) root.querySelectorAll("[data-sales-period]").forEach((button) => { const active = button.dataset.salesPeriod === period; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); });
     if (event.target.closest("[data-open-workspace]")) globalThis.dispatchEvent(new CustomEvent("muraderp:open-workspace"));
   });
   void loadStock();
