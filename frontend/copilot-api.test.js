@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument } from "./copilot-api.js";
+import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument } from "./copilot-api.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -8,6 +8,15 @@ function response(body = {}) {
 }
 
 describe("Copilot browser API tenant context", () => {
+  it("sends read-only questions with scoped context and a conversation token", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ data: { answer: "PKR 100" } }));
+    vi.stubGlobal("fetch", fetch);
+    await askCopilot("And Dura?", "org-1", "branch-1", "signed-token");
+    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/agent", expect.objectContaining({
+      headers: expect.objectContaining({ "X-Organization-Id": "org-1", "X-Branch-Id": "branch-1" }),
+      body: JSON.stringify({ message: "And Dura?", conversationToken: "signed-token" }),
+    }));
+  });
   it("carries branch context when creating a proposal draft", async () => {
     const fetch = vi.fn().mockResolvedValue(response({ data: { id: "draft-1" } }));
     vi.stubGlobal("fetch", fetch);

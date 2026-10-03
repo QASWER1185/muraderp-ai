@@ -15,6 +15,8 @@ describe("Phase 22 secure browser Copilot boundary", () => {
     const app = express(); app.use(express.json()); app.use("/auth", authRouter); app.use("/copilot", createAiCopilotRouter(INTERNAL, { createDraft: vi.fn(), confirmAndExecute: vi.fn() } as any, SERVICE_PRINCIPAL));
     expect((await request(app).get("/auth/session")).status).toBe(401);
     expect((await request(app).post("/copilot/drafts").send({ organizationId: ORG, intent: "estimate", source: "text", lines: [{ productName: "25mm pipe", quantity: 50 }] })).status).toBe(401);
+    expect((await request(app).post("/copilot/agent").set("X-Organization-Id", ORG).set("X-Branch-Id", BRANCH).send({ message: "Current rate?" })).status).toBe(401);
+    expect((await request(app).post("/copilot/agent").set("Authorization", `Bearer ${INTERNAL}`).set("X-Organization-Id", ORG).set("X-Branch-Id", BRANCH).send({ message: "Current rate?" })).status).toBe(401);
   });
 
   it("keeps internal confirmation protected and returns execution state", async () => {

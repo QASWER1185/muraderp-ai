@@ -4,8 +4,32 @@ import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
+import { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
+import { ErpToolRegistry } from "../ai-copilot/agent/erp-tools.js";
+import { OpenAiAgentModel } from "../ai-copilot/agent/model.js";
+import { TenantAccessService } from "../auth/tenant-access.service.js";
+import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth/supabase-authorization.gateway.js";
+import { SupabaseErpService } from "../services/erp.service.js";
+import { SupabaseCopilotCatalogRepository } from "../ai-copilot/copilot-review.js";
+import { DefaultPricingService } from "../services/pricing.service.js";
+import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
+import { getSupabaseAdminClient } from "../config/supabase.js";
+import { env } from "../config/env.js";
 
 const idSchema = z.coerce.number().int().positive();
+const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional() });
+
+function createReadOnlyAgent(): ReadOnlyCopilotAgent {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
+  const authorization = new SupabaseAuthorizationGateway(createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY));
+  const rateLists = new SupabaseRateListRepository();
+  return new ReadOnlyCopilotAgent(new OpenAiAgentModel(), new ErpToolRegistry({
+    tenant: new TenantAccessService(authorization), erp: new SupabaseErpService(),
+    catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
+    pricing: new DefaultPricingService(rateLists),
+    rateLists,
+  }));
+}
 const draftLineSchema = z.strictObject({ productName: z.string().trim().min(1).max(200), productId: z.union([z.number(), z.string()]).optional(), quantity: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(), unitRate: z.number().finite().nonnegative().optional(), rateListId: idSchema.optional(), sourceItemId: idSchema.optional(), brandHint: z.string().trim().min(1).max(100).optional() });
 const draftSchema = z.strictObject({ organizationId: z.string().uuid(), userId: z.string().uuid().optional(), intent: z.enum(["estimate", "invoice", "customer_return", "supplier_bill", "inventory_adjustment"]), source: z.enum(["text", "image", "camera", "voice"]), customerId: z.string().optional(), vendorId: z.string().optional(), documentNumber: z.string().trim().min(1).max(100).optional(), documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), currencyCode: z.string().trim().min(3).max(10).optional(), warehouseId: idSchema.optional(), rateListId: idSchema.optional(), reason: z.string().trim().min(1).max(2_000).optional(), lines: z.array(draftLineSchema).min(1).max(500), confidence: z.number().finite().min(0).max(1).default(1) });
 const reviewSchema = z.strictObject({
@@ -85,11 +109,24 @@ export function createAiCopilotRouter(
   internalApiToken?: string,
   runtime?: CopilotRuntime,
   servicePrincipalId?: string,
+  agent?: ReadOnlyCopilotAgent,
 ) {
   const router = Router();
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
   let activeRuntime = runtime;
   const getRuntime = () => { activeRuntime ??= new CopilotRuntime(); return activeRuntime; };
+  let activeAgent = agent;
+  const getAgent = () => { activeAgent ??= createReadOnlyAgent(); return activeAgent; };
+
+  router.post("/agent", authorize, async (request, response) => {
+    const userId = request.browserPrincipal?.userId;
+    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot questions");
+    const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
+    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
+    const parsed = agentRequestSchema.parse(request.body);
+    const result = await getAgent().run(parsed, { userId, organizationId, branchId }, request.log);
+    response.status(200).json({ data: result });
+  });
 
   router.post("/review", authorize, async (request, response) => {
     const parsed = reviewSchema.parse(request.body);
