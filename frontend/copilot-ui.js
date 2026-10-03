@@ -1,4 +1,4 @@
-import { createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, createCopilotReview, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
+import { askCopilot, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, createCopilotReview, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
 import { queueJsonRequest } from "./offline-sync.js";
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
@@ -78,6 +78,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const fileInput = document.querySelector("#copilot-file");
   let review = null;
   let activeDraft = null;
+  let conversationToken = null;
 
   function updateActionFields() {
     const action = value("#copilot-action");
@@ -86,8 +87,9 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     document.querySelector("#copilot-master-data").hidden = !masterData;
     document.querySelector("#copilot-rate-list-update").hidden = action !== "rate_list_update";
     document.querySelector("#copilot-financial").hidden = !financial;
-    document.querySelector("#copilot-lines").hidden = masterData || financial;
-    document.querySelector("#copilot-add-line").hidden = masterData || financial;
+    document.querySelector("#copilot-lines").hidden = masterData || financial || action === "ask";
+    document.querySelector("#copilot-add-line").hidden = masterData || financial || action === "ask";
+    runButton.textContent = action === "ask" ? "Ask Copilot" : "Analyze input";
     const method = document.querySelector("#copilot-payment-method");
     if (financial) {
       const methods = action === "vendor_payment" ? ["CASH", "BANK", "OTHER"] : ["CASH", "BANK_TRANSFER", "CARD", "CHEQUE", "OTHER"];
@@ -198,6 +200,15 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (!branchId) throw new Error("Branch ID is required.");
     const source = value("#copilot-input-type"); const action = value("#copilot-action");
     const text = value("#copilot-input");
+    if (action === "ask") {
+      if (source !== "text") throw new Error("Use typed text for read-only Copilot questions in this phase.");
+      if (!text) throw new Error("Enter a question for Copilot.");
+      const reply = await askCopilot(text, organizationId, branchId, conversationToken);
+      conversationToken = reply.data.conversationToken;
+      show(reply.data.answer);
+      document.querySelector("#copilot-input").value = "";
+      return;
+    }
     if (MASTER_DATA_ACTIONS.has(action)) {
       const masterData = { name: value("#copilot-party-name"), phone: value("#copilot-party-phone"), city: value("#copilot-party-city") };
       if (!masterData.name || !masterData.phone || !masterData.city) throw new Error("Name, phone, and city are required before reviewing this master-data proposal.");
@@ -317,7 +328,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   function reset() {
-    review = null; activeDraft = null; runButton.hidden = false; runButton.textContent = "Analyze input"; confirmButton.hidden = true; openEstimateButton.hidden = true; openEstimateButton.textContent = "Open in ERP"; delete openEstimateButton.dataset.recordId; delete openEstimateButton.dataset.intent; document.querySelector("#copilot-add-line").hidden = false; resetLines(); updateActionFields(); if (result) result.hidden = true;
+    review = null; activeDraft = null; conversationToken = null; runButton.hidden = false; runButton.textContent = "Analyze input"; confirmButton.hidden = true; openEstimateButton.hidden = true; openEstimateButton.textContent = "Open in ERP"; delete openEstimateButton.dataset.recordId; delete openEstimateButton.dataset.intent; document.querySelector("#copilot-add-line").hidden = false; resetLines(); updateActionFields(); if (result) result.hidden = true;
   }
 
   document.querySelector("#copilot-add-line").addEventListener("click", () => { resetLines([...collectRawLines(), { productName: "", productId: "", quantity: "1", unit: "pcs", unitRate: "", rateListId: "", brandHint: "", sourceItemId: "", productCandidates: [], rateCandidates: [], warnings: [] }]); });
@@ -330,7 +341,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (recordId && intent && openNativeAction) openNativeAction(intent, recordId);
     dialog.close();
   });
-  document.querySelector("#copilot-action").addEventListener("change", () => { review = null; runButton.hidden = false; runButton.textContent = "Analyze input"; resetLines(); updateActionFields(); });
+  document.querySelector("#copilot-action").addEventListener("change", () => { review = null; activeDraft = null; conversationToken = null; confirmButton.hidden = true; openEstimateButton.hidden = true; runButton.hidden = false; runButton.textContent = "Analyze input"; resetLines(); updateActionFields(); });
   document.querySelector("#copilot-input-type").addEventListener("change", () => { const source = value("#copilot-input-type"); fileInput.hidden = source === "text"; fileInput.accept = source === "voice" ? "audio/*" : source === "camera" ? "image/*" : "image/*,.pdf,application/pdf"; fileInput.setAttribute("capture", source === "camera" ? "environment" : source === "voice" ? "user" : ""); });
   document.querySelector("#copilot-button").addEventListener("click", () => { reset(); dialog.showModal(); });
   document.querySelector("#copilot-close").addEventListener("click", () => dialog.close());
