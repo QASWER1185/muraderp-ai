@@ -4,7 +4,7 @@ import type { PermissionCode } from "../../auth/authorization.types.js";
 import type { TenantAccessService } from "../../auth/tenant-access.service.js";
 import type { ErpService } from "../../services/erp.service.js";
 import type { PricingService } from "../../services/pricing.service.js";
-import type { RateListRepository } from "../../repositories/rate-list.repository.js";
+import type { RateListLifecycleRepository, RateListRepository } from "../../repositories/rate-list.repository.js";
 import type { CopilotCatalogRepository } from "../copilot-review.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
@@ -13,7 +13,7 @@ export type ToolServices = {
   erp: Pick<ErpService, "getProduct" | "getCustomer">;
   catalog: Pick<CopilotCatalogRepository, "getCatalog">;
   pricing: Pick<PricingService, "resolvePrice">;
-  rateLists: Pick<RateListRepository, "listActiveSaleRateLists">;
+  rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -66,7 +66,11 @@ export const ERP_TOOLS = [
         throw new ApiError(403, "RATE_LIST_ACCESS_DENIED", "Sale rate list is not applicable to this request");
       }
     }
-    return pricing.resolvePrice({ organization_id: scope.organizationId, price_type: "SALE", product_id, quantity, as_of: new Date().toISOString(), ...(rate_list_id === undefined ? {} : { rate_list_id }), ...(customer_id === undefined ? {} : { customer_id }) });
+    const resolved = await pricing.resolvePrice({ organization_id: scope.organizationId, price_type: "SALE", product_id, quantity, as_of: new Date().toISOString(), ...(rate_list_id === undefined ? {} : { rate_list_id }), ...(customer_id === undefined ? {} : { customer_id }) });
+    if (!resolved) return null;
+    const version = await rateLists.getVersion(resolved.rate_list_version_id);
+    if (version.rate_list_id !== resolved.rate_list_id) throw new Error("Resolved rate-list version does not match its rate list");
+    return { ...resolved, rate_list_version_number: version.version_number };
   } }),
   defineTool({ name: "lookup_customers", description: "Find customers by name in the current organization.", schema: lookup, permission: "customers.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { catalog }) => { const rows = (await catalog.getCatalog(scope.organizationId)).customers; return { items: rows.filter((c) => match(c.name, query)).slice(0, limit), catalogLimitReached: rows.length >= 5000 }; } }),
   defineTool({ name: "lookup_vendors", description: "Find vendors by name in the current organization.", schema: lookup, permission: "vendors.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { catalog }) => { const rows = (await catalog.getCatalog(scope.organizationId)).vendors; return { items: rows.filter((v) => match(v.name, query)).slice(0, limit), catalogLimitReached: rows.length >= 5000 }; } }),
