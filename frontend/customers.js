@@ -1,6 +1,5 @@
-import { createCustomer, listCustomers, normalizeCustomerContext, updateCustomer } from "./customer-api.js";
-
-const CONTEXT_KEY = "muraderp.customer-context";
+import { createCustomer, listCustomers, updateCustomer } from "./customer-api.js";
+import { getWorkspaceContext } from "./workspace-context.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -43,31 +42,8 @@ export function customerRowsMarkup(customers) {
   </tr>`).join("");
 }
 
-function storedContext(storage) {
-  try {
-    const value = JSON.parse(storage?.getItem(CONTEXT_KEY) ?? "null");
-    return value ? normalizeCustomerContext(value) : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeContext(storage, context) {
-  try { storage?.setItem(CONTEXT_KEY, JSON.stringify(context)); } catch { /* Session storage is optional. */ }
-}
-
-function contextMarkup(context) {
-  return `<section class="card customer-context-card">
-    <div class="section-head customer-heading"><div><p class="eyebrow">Master data</p><h2>Customer workspace</h2></div></div>
-    <p class="muted">Choose your assigned organization and branch. Access is verified by the server before customer data is returned.</p>
-    <form id="customer-context-form" class="customer-context-form">
-      <label>Organization<input name="organization" value="${escapeHtml(context?.organizationId ?? "")}" placeholder="Organization UUID" autocomplete="off" required /></label>
-      <label>Branch<input name="branch" value="${escapeHtml(context?.branchId ?? "")}" placeholder="Branch UUID" autocomplete="off" required /></label>
-      <button class="button primary" type="submit">Load customers</button>
-    </form>
-    <p id="customer-context-result" class="form-message customer-context-message" role="alert" hidden></p>
-  </section>
-  <section id="customer-panel" aria-live="polite"></section>
+function contextMarkup() {
+  return `<section id="customer-panel" aria-live="polite"></section>
   <dialog id="customer-editor" class="copilot-dialog customer-dialog">
     <form id="customer-form" class="customer-form">
       <div class="section-head customer-heading"><div><p class="eyebrow">Customer record</p><h2 id="customer-editor-title">New customer</h2></div><button class="icon-button" type="button" data-customer-close aria-label="Close">×</button></div>
@@ -82,16 +58,14 @@ function contextMarkup(context) {
 
 export function mountCustomers(container, options = {}) {
   const storage = options.storage ?? globalThis.sessionStorage;
-  let context = storedContext(storage);
+  const context = options.context ?? getWorkspaceContext(storage);
   let customers = [];
   let nextCursor = null;
   let state = context ? "loading" : "context";
   let loadError = null;
   let loadSequence = 0;
 
-  container.innerHTML = contextMarkup(context);
-  const contextForm = container.querySelector("#customer-context-form");
-  const contextResult = container.querySelector("#customer-context-result");
+  container.innerHTML = contextMarkup();
   const panel = container.querySelector("#customer-panel");
   const dialog = container.querySelector("#customer-editor");
   const form = container.querySelector("#customer-form");
@@ -101,7 +75,7 @@ export function mountCustomers(container, options = {}) {
 
   function renderPanel() {
     if (state === "context") {
-      panel.innerHTML = '<div class="card customer-state"><h2>Select an organization and branch</h2><p class="muted">Customer records remain hidden until the server verifies your access.</p></div>';
+      panel.innerHTML = '<div class="card customer-state"><h2>Choose your business workspace</h2><p class="muted">Connect an authorized organization and branch to load customers.</p><button class="button primary" type="button" data-open-workspace>Choose workspace</button></div>';
       return;
     }
     const heading = '<div class="section-head"><div><p class="eyebrow">Authorized customer records</p><h2>Customers</h2></div></div>';
@@ -156,25 +130,10 @@ export function mountCustomers(container, options = {}) {
     field("name").focus();
   }
 
-  contextForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = new FormData(contextForm);
-    contextResult.hidden = true;
-    contextResult.textContent = "";
-    try {
-      context = normalizeCustomerContext({ organizationId: data.get("organization"), branchId: data.get("branch") });
-      storeContext(storage, context);
-      nextCursor = null;
-      void load(true);
-    } catch (error) {
-      contextResult.textContent = error instanceof Error ? error.message : "Select a valid organization and branch.";
-      contextResult.hidden = false;
-    }
-  });
-
   panel.addEventListener("click", (event) => {
     const target = event.target.closest("button");
     if (!target) return;
+    if (target.matches("[data-open-workspace]")) globalThis.dispatchEvent(new Event("muraderp:open-workspace"));
     if (target.matches("[data-customer-new]")) openEditor();
     if (target.matches("[data-customer-refresh], [data-customer-retry]")) void load(true);
     if (target.matches("[data-customer-more]")) void load(false);

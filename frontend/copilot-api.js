@@ -23,6 +23,20 @@ export async function createCopilotReview(input, branchId) {
   });
 }
 
+export async function chatWithCopilot(input, branchId) {
+  return api("/api/v1/ai/copilot/chat", {
+    method: "POST",
+    headers: { "X-Branch-Id": branchId },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function quoteCopilotEstimateLine(input, branchId) {
+  return api("/api/v1/ai/copilot/review/quote", {
+    method: "POST", headers: { "X-Branch-Id": branchId }, body: JSON.stringify(input),
+  });
+}
+
 export async function extractInvoiceDocument(input, branchId) {
   return api("/api/v1/ai/copilot/extract/invoice", {
     method: "POST",
