@@ -1,0 +1,15 @@
+# Read-only Copilot agent (Phase 1)
+
+`POST /api/v1/ai/copilot/agent` accepts a text `message` and optional signed `conversationToken`. It requires a browser session plus `X-Organization-Id` and `X-Branch-Id`. The response contains an `answer`, a new token, a trace ID, and a completion status. The existing review, draft, confirmation, execution, and verification endpoints are unchanged.
+
+The model receives the six registered ERP functions through the Responses API. The registry validates arguments and independently checks user permission and branch access on every invocation. Product and party searches use the existing organization-scoped Copilot catalog; prices use the active rate-list repository and authoritative pricing service. Search results disclose when the catalog's 5,000-row bound is reached. No model-supplied tenant or record ID is trusted without an organization-scoped lookup.
+
+The Phase 1 model uses the existing `AiProvider` transport with Groq explicitly selected. Configure `GROQ_API_KEY` from Secret Manager and `AI_MODEL=openai/gpt-oss-120b` on the server. This agent does not read an OpenAI API key.
+
+The loop allows ten model iterations and twelve tool calls, with a 40-second deadline. Repeated calls, malformed calls, provider errors, and exhausted bounds return a safe fallback; no queued ERP call begins after the deadline. Final answers require at least one successful tool result. Conversation state contains up to three turns in a 30-minute, HMAC-signed token bound to user, organization, and branch. Older history and long answers are trimmed to keep multibyte text within the HTTP route's 9,000-character token limit, retaining the latest verified product context. The token carries short previous messages and answers, never authorization or tool authority.
+
+The production frontend sends automatic text questions directly to this agent route and keeps conversation tokens in memory, clearing them on user/organization/branch changes, task changes, reset, or expiry. Explicit action tasks retain the existing review/prepare/confirm/execute/verify workflow. The serving backend and frontend source baselines are preserved in separate commits; the Phase 1 delta does not change accounting, posting, pricing services, ERP services, or schema.
+
+Focused verification: `npm test -- src/ai-copilot/agent src/routes/ai-copilot-agent.routes.test.ts src/routes/ai-copilot-agent.auth.test.ts src/routes/ai-copilot-chat.routes.test.ts`. Run backend typecheck, build, and the full suite, plus frontend typecheck, build, and tests before deployment. On Windows environments where bundled esbuild cannot read parent directories, `npm test -- --configLoader runner` avoids the configuration-bundling restriction without changing the test selection.
+
+Future image, PDF, and voice adapters can normalize their extracted text into the same agent request after the existing extraction boundary. Add ERP capabilities by registering a typed tool and its authorization and service dependencies. Write tools are deliberately absent from this Phase 1 registry; the existing action approval boundary remains the only execution path.

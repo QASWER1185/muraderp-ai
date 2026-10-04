@@ -23,11 +23,11 @@ export async function createCopilotReview(input, branchId) {
   });
 }
 
-export async function chatWithCopilot(input, branchId) {
-  return api("/api/v1/ai/copilot/chat", {
+export async function askCopilot(message, organizationId, branchId, conversationToken) {
+  return api("/api/v1/ai/copilot/agent", {
     method: "POST",
-    headers: { "X-Branch-Id": branchId },
-    body: JSON.stringify(input),
+    headers: { "X-Organization-Id": organizationId, "X-Branch-Id": branchId },
+    body: JSON.stringify({ message, ...(conversationToken ? { conversationToken } : {}) }),
   });
 }
 

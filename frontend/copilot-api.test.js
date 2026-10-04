@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chatWithCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument } from "./copilot-api.js";
+import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument } from "./copilot-api.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -8,14 +8,14 @@ function response(body = {}) {
 }
 
 describe("Copilot browser API tenant context", () => {
-  it("sends a free-text read to the authenticated agent endpoint with branch context", async () => {
-    const fetch = vi.fn().mockResolvedValue(response({ data: { message: "PKR 320" } }));
+  it("sends the next read to the Phase 1 agent with signed conversation context", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ data: { answer: "PKR 477", conversationToken: "new-token" } }));
     vi.stubGlobal("fetch", fetch);
-    await chatWithCopilot({ organizationId: "org-1", userId: "user-1", message: "pipe rate" }, "branch-1");
-    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/chat", expect.objectContaining({
+    await askCopilot("اس کا موجودہ سیل ریٹ بتاؤ، مقدار 1 میٹر", "org-1", "branch-1", "signed-token");
+    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/agent", expect.objectContaining({
       credentials: "include",
-      headers: expect.objectContaining({ "X-Branch-Id": "branch-1" }),
-      body: JSON.stringify({ organizationId: "org-1", userId: "user-1", message: "pipe rate" }),
+      headers: expect.objectContaining({ "X-Organization-Id": "org-1", "X-Branch-Id": "branch-1" }),
+      body: JSON.stringify({ message: "اس کا موجودہ سیل ریٹ بتاؤ، مقدار 1 میٹر", conversationToken: "signed-token" }),
     }));
   });
   it("carries branch context when creating a proposal draft", async () => {

@@ -1,9 +1,30 @@
-import { createCopilotDraft, createCopilotReview, chatWithCopilot, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
+import { createCopilotDraft, createCopilotReview, askCopilot, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
+
+export function createCopilotConversation(now = Date.now) {
+  let token = null;
+  let scope = null;
+  let expiresAt = 0;
+  const key = (userId, organizationId, branchId) => JSON.stringify([userId, organizationId, branchId]);
+  return {
+    tokenFor(userId, organizationId, branchId) {
+      const current = key(userId, organizationId, branchId);
+      if (scope !== current || now() >= expiresAt) { token = null; scope = current; }
+      return token;
+    },
+    accept(value, userId, organizationId, branchId) {
+      scope = key(userId, organizationId, branchId);
+      token = typeof value === "string" && value.length > 0 && value.length <= 9000 ? value : null;
+      expiresAt = token ? now() + CONVERSATION_MAX_AGE_MS : 0;
+    },
+    clear() { token = null; scope = null; expiresAt = 0; },
+  };
+}
 function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
 function apiIntent(action) { return action === "purchase" ? "supplier_bill" : action === "return" ? "customer_return" : action; }
 function fieldValue(field) { return field && typeof field === "object" && "value" in field ? field.value : undefined; }
@@ -86,6 +107,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let recordingStream = null;
   let recordingChunks = [];
   let retryAction = null;
+  const conversation = createCopilotConversation();
   const quoteVersions = new Map();
 
   document.querySelector("#copilot-close").innerHTML = icon("close");
@@ -103,7 +125,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
   function welcome() {
     thread.innerHTML = "";
-    appendMessage("assistant", `<p><strong>Ask about your ERP data or prepare an action.</strong></p><p>I can look up products and current Rate List prices, or prepare an estimate, supplier bill, or return for your review. Select a task to analyze an image, PDF, or voice note.</p><div class="prompt-chips"><button type="button" data-prompt="What is the current rate of 25mm PPRC pipe?">Check a rate</button><button type="button" data-prompt="Prepare an estimate for 50 pieces of 25mm Popular pipe">New estimate</button><button type="button" data-prompt="Review this supplier bill">Supplier bill</button></div>`);
+    appendMessage("assistant", `<p><strong>Ask about your ERP data or prepare an action.</strong></p><p>I can look up products and current Rate List prices, or prepare an estimate, supplier bill, or return for your review. Select a task to prepare an action or analyze an image, PDF, or voice note.</p><div class="prompt-chips"><button type="button" data-prompt="What is the current rate of 25mm PPRC pipe?">Check a rate</button><button type="button" data-task="estimate" data-prompt="Prepare an estimate for 50 pieces of 25mm Popular pipe">New estimate</button><button type="button" data-task="purchase" data-prompt="Review this supplier bill">Supplier bill</button></div>`);
   }
   function setBusy(busy, message = "") {
     sendButton.disabled = busy; task.disabled = busy; input.disabled = busy;
@@ -216,15 +238,12 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
     try {
       if (action === "auto" && source === "text") {
-        const response = await chatWithCopilot({ organizationId: context.organizationId, userId: getAuthenticatedUserId(), message: text }, context.branchId);
-        if (response.data.review) {
-          thread.querySelector("[data-review-card]")?.remove();
-          review = response.data.review;
-          quoteVersions.clear();
-          appendMessage("assistant", reviewCardMarkup(review));
-        } else {
-          appendMessage("assistant", `<p>${escapeHtml(response.data.message)}</p>`);
-        }
+        const userId = getAuthenticatedUserId();
+        const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
+        const response = await askCopilot(text, context.organizationId, context.branchId, token);
+        if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
+        conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId);
+        appendMessage("assistant", `<p>${escapeHtml(response.data.answer)}</p>`);
         return;
       }
       if (action === "invoice_extract") {
@@ -304,11 +323,12 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function run(action) { try { retryAction = null; await action(); } catch (error) { setBusy(false); showError(error, action); } }
-  function reset() { if (recorder?.state === "recording") recorder.stop(); clearAttachment(); review = null; activeDraft = null; retryAction = null; input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
+  function reset() { if (recorder?.state === "recording") recorder.stop(); clearAttachment(); review = null; activeDraft = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
 
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 150)}px`; });
   input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(analyze); } });
   sendButton.addEventListener("click", () => void run(analyze));
+  task.addEventListener("change", () => conversation.clear());
   document.querySelector("#copilot-attach").addEventListener("click", () => fileInput.click());
   document.querySelector("#copilot-camera-button").addEventListener("click", () => cameraInput.click());
   micButton.addEventListener("click", () => void run(toggleRecording));
@@ -317,7 +337,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   attachmentRoot.addEventListener("click", (event) => { if (event.target.closest("[data-remove-attachment]")) clearAttachment(); });
   thread.addEventListener("click", (event) => {
     const prompt = event.target.closest("[data-prompt]");
-    if (prompt) { input.value = prompt.dataset.prompt; input.focus(); }
+    if (prompt) { if (prompt.dataset.task) { task.value = prompt.dataset.task; conversation.clear(); } input.value = prompt.dataset.prompt; input.focus(); }
     if (event.target.closest("[data-review-cancel]")) { review = null; quoteVersions.clear(); event.target.closest(".review-card")?.remove(); appendMessage("assistant", "<p>Review cancelled. No ERP data was changed.</p>"); }
     if (event.target.closest("[data-prepare-draft]")) void run(prepareDraft);
     if (event.target.closest("[data-draft-cancel]")) { activeDraft = null; event.target.closest(".confirmation-card")?.remove(); appendMessage("assistant", "<p>Draft cancelled. Nothing was posted.</p>"); }

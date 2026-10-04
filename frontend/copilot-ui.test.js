@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { attachmentLabel, reviewCardMarkup, selectReviewProduct, sourceForAttachment } from "./copilot-ui.js";
+import { attachmentLabel, createCopilotConversation, reviewCardMarkup, selectReviewProduct, sourceForAttachment } from "./copilot-ui.js";
 
 describe("conversational Copilot UI", () => {
+  it("reuses the signed token in one conversation and clears it on scope changes or expiry", () => {
+    let clock = 0;
+    const conversation = createCopilotConversation(() => clock);
+    expect(conversation.tokenFor("user-a", "org-a", "branch-a")).toBeNull();
+    conversation.accept("signed-token", "user-a", "org-a", "branch-a");
+    expect(conversation.tokenFor("user-a", "org-a", "branch-a")).toBe("signed-token");
+    expect(conversation.tokenFor("user-b", "org-a", "branch-a")).toBeNull();
+    conversation.accept("signed-token", "user-a", "org-a", "branch-a");
+    expect(conversation.tokenFor("user-a", "org-b", "branch-a")).toBeNull();
+    conversation.accept("signed-token", "user-a", "org-a", "branch-a");
+    expect(conversation.tokenFor("user-a", "org-a", "branch-b")).toBeNull();
+    conversation.accept("signed-token", "user-a", "org-a", "branch-a");
+    clock = 29 * 60_000;
+    expect(conversation.tokenFor("user-a", "org-a", "branch-a")).toBeNull();
+    conversation.accept("", "user-a", "org-a", "branch-a");
+    expect(conversation.tokenFor("user-a", "org-a", "branch-a")).toBeNull();
+  });
   it("classifies voice, camera, image, and text inputs", () => {
     expect(sourceForAttachment(null)).toBe("text");
     expect(sourceForAttachment({ type: "audio/webm" })).toBe("voice");

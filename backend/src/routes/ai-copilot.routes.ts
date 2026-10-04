@@ -3,10 +3,33 @@ import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
 import { CopilotAgent, createCopilotAgent } from "../ai-copilot/copilot-agent.js";
+import { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
+import { ErpToolRegistry } from "../ai-copilot/agent/erp-tools.js";
+import { GroqAgentModel } from "../ai-copilot/agent/model.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
+import { TenantAccessService } from "../auth/tenant-access.service.js";
+import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth/supabase-authorization.gateway.js";
+import { SupabaseErpService } from "../services/erp.service.js";
+import { SupabaseCopilotCatalogRepository } from "../ai-copilot/copilot-review.js";
+import { DefaultPricingService } from "../services/pricing.service.js";
+import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
+import { getSupabaseAdminClient } from "../config/supabase.js";
+import { env } from "../config/env.js";
 
 const idSchema = z.coerce.number().int().positive();
+const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional() });
+function createReadOnlyAgent(): ReadOnlyCopilotAgent {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
+  const authorization = new SupabaseAuthorizationGateway(createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY));
+  const rateLists = new SupabaseRateListRepository();
+  return new ReadOnlyCopilotAgent(new GroqAgentModel(), new ErpToolRegistry({
+    tenant: new TenantAccessService(authorization), erp: new SupabaseErpService(),
+    catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
+    pricing: new DefaultPricingService(rateLists),
+    rateLists,
+  }));
+}
 const chatSchema = z.strictObject({
   organizationId: z.string().uuid(), userId: z.string().uuid().optional(),
   message: z.string().trim().min(1).max(20_000),
@@ -96,6 +119,7 @@ export function createAiCopilotRouter(
   runtime?: CopilotRuntime,
   servicePrincipalId?: string,
   agent?: CopilotAgent,
+  readOnlyAgent?: ReadOnlyCopilotAgent,
 ) {
   const router = Router();
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
@@ -103,6 +127,18 @@ export function createAiCopilotRouter(
   const getRuntime = () => { activeRuntime ??= new CopilotRuntime(); return activeRuntime; };
   let activeAgent = agent;
   const getAgent = () => { activeAgent ??= createCopilotAgent(); return activeAgent; };
+  let activeReadOnlyAgent = readOnlyAgent;
+  const getReadOnlyAgent = () => { activeReadOnlyAgent ??= createReadOnlyAgent(); return activeReadOnlyAgent; };
+
+  router.post("/agent", authorize, async (request, response) => {
+    const userId = request.browserPrincipal?.userId;
+    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot questions");
+    const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
+    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
+    const parsed = agentRequestSchema.parse(request.body);
+    const result = await getReadOnlyAgent().run(parsed, { userId, organizationId, branchId }, request.log);
+    response.status(200).json({ data: result });
+  });
 
   router.post("/chat", authorize, async (request, response) => {
     const parsed = chatSchema.parse(request.body);

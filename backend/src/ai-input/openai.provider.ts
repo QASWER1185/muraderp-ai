@@ -44,7 +44,7 @@ export class AiProvider implements StructuredAiProvider {
   get name(): AiProviderName { return this.configuration.provider ?? "openai"; }
 
   /** A model turn for the Copilot tool loop. The provider has no ERP access. */
-  async toolTurn(instructions: string, input: unknown[], tools: unknown[]): Promise<{ output: any[] }> {
+  async toolTurn(instructions: string, input: unknown[], tools: unknown[], options?: { toolChoice?: "auto" | "required"; signal?: AbortSignal }): Promise<{ output: any[] }> {
     const result = await this.request("responses", JSON.stringify({
       model: this.configuration.model,
       ...(this.name === "openai" ? { store: false } : {}),
@@ -52,16 +52,16 @@ export class AiProvider implements StructuredAiProvider {
       instructions,
       input,
       tools,
-      tool_choice: "auto",
+      tool_choice: options?.toolChoice ?? "auto",
       parallel_tool_calls: false,
-    }), true);
+    }), true, options?.signal);
     if (result.status !== "completed" || !Array.isArray(result.output)) {
       throw new ApiError(502, "AI_INCOMPLETE", "Copilot reasoning did not complete. Please retry.");
     }
     return { output: result.output };
   }
 
-  private async request(path: string, body: string | FormData, json: boolean): Promise<any> {
+  private async request(path: string, body: string | FormData, json: boolean, signal?: AbortSignal): Promise<any> {
     if (!this.configuration.apiKey) throw new ApiError(503, "AI_NOT_CONFIGURED", "AI provider is not configured. Manual entry remains available.");
     const baseUrl = this.name === "groq" ? "https://api.groq.com/openai/v1"
       : this.name === "openai" ? "https://api.openai.com/v1" : this.configuration.baseUrl;
@@ -71,7 +71,7 @@ export class AiProvider implements StructuredAiProvider {
       let response: Response;
       try {
         response = await this.fetcher(`${baseUrl.replace(/\/$/, "")}/${path}`, {
-          method: "POST", redirect: "error", signal: AbortSignal.timeout(60_000),
+          method: "POST", redirect: "error", signal: signal ?? AbortSignal.timeout(60_000),
           headers: { Authorization: `Bearer ${this.configuration.apiKey}`, ...(json ? { "Content-Type": "application/json" } : {}) }, body,
         });
       } catch {
