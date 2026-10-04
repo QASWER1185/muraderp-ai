@@ -14,6 +14,7 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     OPENAI_API_KEY: z.string().trim().min(20).optional(),
+    GROQ_API_KEY: z.string().trim().min(20).optional(),
     AI_MODEL: z.string().trim().min(1).default("gpt-6-astra"),
     AI_SPEECH_MODEL: z.string().trim().min(1).default("gpt-transcribe"),
     SUPABASE_URL: z.url().optional(),

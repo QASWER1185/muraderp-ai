@@ -6,7 +6,7 @@ import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
 import { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
 import { ErpToolRegistry } from "../ai-copilot/agent/erp-tools.js";
-import { OpenAiAgentModel } from "../ai-copilot/agent/model.js";
+import { GroqAgentModel } from "../ai-copilot/agent/model.js";
 import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth/supabase-authorization.gateway.js";
 import { SupabaseErpService } from "../services/erp.service.js";
@@ -23,7 +23,7 @@ function createReadOnlyAgent(): ReadOnlyCopilotAgent {
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
   const authorization = new SupabaseAuthorizationGateway(createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY));
   const rateLists = new SupabaseRateListRepository();
-  return new ReadOnlyCopilotAgent(new OpenAiAgentModel(), new ErpToolRegistry({
+  return new ReadOnlyCopilotAgent(new GroqAgentModel(), new ErpToolRegistry({
     tenant: new TenantAccessService(authorization), erp: new SupabaseErpService(),
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
     pricing: new DefaultPricingService(rateLists),
