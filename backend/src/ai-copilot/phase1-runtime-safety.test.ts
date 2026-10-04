@@ -59,6 +59,7 @@ describe("Phase 1 Copilot pricing safety", () => {
       estimate: estimate as any,
       salesTransaction: { execute: vi.fn() },
       returns: { recordSalesReturn: vi.fn() },
+      verifier: { verify: vi.fn() },
       database: () => databaseFor(action),
     };
     const runtime = new CopilotRuntime({} as any, dependencies);

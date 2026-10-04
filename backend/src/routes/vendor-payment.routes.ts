@@ -11,7 +11,7 @@ import {
 const id = z.coerce.number().int().positive();
 const OPERATION = "vendor-payment.create" as const;
 const allocationSchema = z.strictObject({ purchase_id: id, amount: z.number().finite().positive() });
-const requestSchema = z.strictObject({
+export const requestSchema = z.strictObject({
   vendor_id: id,
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.number().finite().positive(),
@@ -26,7 +26,7 @@ const requestSchema = z.strictObject({
   }
 });
 
-function normalizedForFingerprint(input: VendorPaymentInput): VendorPaymentInput {
+export function normalizedForFingerprint(input: VendorPaymentInput): VendorPaymentInput {
   return {
     ...input,
     reference: input.reference?.trim(),

@@ -2,10 +2,15 @@ import { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
+import { CopilotAgent, createCopilotAgent } from "../ai-copilot/copilot-agent.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
 
 const idSchema = z.coerce.number().int().positive();
+const chatSchema = z.strictObject({
+  organizationId: z.string().uuid(), userId: z.string().uuid().optional(),
+  message: z.string().trim().min(1).max(20_000),
+});
 const draftLineSchema = z.strictObject({ productName: z.string().trim().min(1).max(200), productId: z.union([z.number(), z.string()]).optional(), quantity: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(), unitRate: z.number().finite().nonnegative().optional(), rateListId: idSchema.optional(), sourceItemId: idSchema.optional(), brandHint: z.string().trim().min(1).max(100).optional() });
 const draftSchema = z.strictObject({ organizationId: z.string().uuid(), userId: z.string().uuid().optional(), intent: z.enum(["estimate", "invoice", "customer_return", "supplier_bill", "inventory_adjustment"]), source: z.enum(["text", "image", "camera", "voice"]), customerId: z.string().optional(), vendorId: z.string().optional(), documentNumber: z.string().trim().min(1).max(100).optional(), documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), currencyCode: z.string().trim().min(3).max(10).optional(), warehouseId: idSchema.optional(), rateListId: idSchema.optional(), reason: z.string().trim().min(1).max(2_000).optional(), lines: z.array(draftLineSchema).min(1).max(500), confidence: z.number().finite().min(0).max(1).default(1) });
 const reviewSchema = z.strictObject({
@@ -24,6 +29,11 @@ const reviewSchema = z.strictObject({
   if (value.source === "voice" && !value.text && !value.media) context.addIssue({ code: "custom", path: ["media"], message: "Voice text or audio is required" });
   if ((value.source === "image" || value.source === "camera") && !value.media) context.addIssue({ code: "custom", path: ["media"], message: "Image or document media is required" });
   if (value.intent === "auto" && value.source !== "text") context.addIssue({ code: "custom", path: ["intent"], message: "Choose an action for voice, image, and camera input" });
+});
+const quoteSchema = z.strictObject({
+  organizationId: z.string().uuid(), userId: z.string().uuid().optional(), productId: idSchema,
+  quantity: z.number().finite().positive(), unit: z.string().trim().min(1).max(50),
+  customerId: idSchema.optional(), rateListId: idSchema.optional(),
 });
 const masterDataDraftSchema = z.strictObject({
   organizationId: z.string().uuid(),
@@ -85,11 +95,26 @@ export function createAiCopilotRouter(
   internalApiToken?: string,
   runtime?: CopilotRuntime,
   servicePrincipalId?: string,
+  agent?: CopilotAgent,
 ) {
   const router = Router();
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
   let activeRuntime = runtime;
   const getRuntime = () => { activeRuntime ??= new CopilotRuntime(); return activeRuntime; };
+  let activeAgent = agent;
+  const getAgent = () => { activeAgent ??= createCopilotAgent(); return activeAgent; };
+
+  router.post("/chat", authorize, async (request, response) => {
+    const parsed = chatSchema.parse(request.body);
+    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
+    const authenticatedUserId = request.browserPrincipal?.userId;
+    const userId = authenticatedUserId ?? parsed.userId;
+    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
+    if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
+    const result = await getAgent().respond(parsed.message, { userId, organizationId: parsed.organizationId, branchId });
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review) });
+  });
 
   router.post("/review", authorize, async (request, response) => {
     const parsed = reviewSchema.parse(request.body);
@@ -115,6 +140,17 @@ export function createAiCopilotRouter(
       ...(parsed.rateListId === undefined ? {} : { rateListId: parsed.rateListId }),
     }, branchId);
     response.status(200).json({ data: review, requiresConfirmation: true });
+  });
+
+  router.post("/review/quote", authorize, async (request, response) => {
+    const parsed = quoteSchema.parse(request.body);
+    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
+    const authenticatedUserId = request.browserPrincipal?.userId;
+    const userId = authenticatedUserId ?? parsed.userId;
+    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
+    if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
+    const quote = await getRuntime().quoteEstimateLine({ organizationId: parsed.organizationId, userId, productId: parsed.productId, quantity: parsed.quantity, unit: parsed.unit, ...(parsed.customerId === undefined ? {} : { customerId: parsed.customerId }), ...(parsed.rateListId === undefined ? {} : { rateListId: parsed.rateListId }) }, branchId);
+    response.status(200).json({ data: quote, requiresConfirmation: true });
   });
 
   router.post("/extract/invoice", authorize, async (request, response) => {
@@ -219,7 +255,7 @@ export function createAiCopilotRouter(
     const idempotencyKey = headerValue(request, "Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
     const action = await getRuntime().confirmAndExecute(id, organizationId, userId, idempotencyKey, branchId);
-    response.status(200).json({ data: action, executed: action.status === "EXECUTED" });
+    response.status(200).json({ data: action, executed: action.status === "EXECUTED", verified: action.status === "EXECUTED" });
   });
   return router;
 }

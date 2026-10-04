@@ -37,7 +37,7 @@ function atLeastOneField<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
   return schema.partial().refine((value) => Object.keys(value).length > 0, { message: "At least one field is required" });
 }
 
-const purchaseSchema = z.strictObject({
+export const purchaseSchema = z.strictObject({
   vendor_id: idSchema,
   warehouse_id: idSchema,
   items: z.array(z.strictObject({ product_id: idSchema, quantity: z.number().finite().positive(), unit_cost: z.number().finite().positive() })).min(1).max(500),
@@ -51,7 +51,7 @@ const purchaseSchema = z.strictObject({
 type TenantAuthorizer = Pick<TenantAccessService, "assertAuthorized">;
 
 function effectivePurchaseDate(input: RecordPurchaseInput): string { return input.purchase_date ?? new Date().toISOString().slice(0, 10); }
-function normalizedPurchaseForFingerprint(input: RecordPurchaseInput): RecordPurchaseInput {
+export function normalizedPurchaseForFingerprint(input: RecordPurchaseInput): RecordPurchaseInput {
   return {
     vendor_id: input.vendor_id,
     warehouse_id: input.warehouse_id,

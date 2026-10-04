@@ -75,6 +75,7 @@ function deps(database: any): CopilotRuntimeDependencies {
     estimate: { createDraft: vi.fn().mockResolvedValue({ id: 7001 }) } as any,
     salesTransaction: { execute: vi.fn().mockResolvedValue({ id: 8001 }) },
     returns: { recordSalesReturn: vi.fn().mockResolvedValue({ id: 9001 }) },
+    verifier: { verify: vi.fn().mockResolvedValue(undefined) },
     database: () => database,
   };
 }

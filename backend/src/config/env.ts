@@ -13,9 +13,14 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    AI_PROVIDER: z.enum(["groq", "openai", "compatible"]).optional(),
+    AI_API_KEY: z.string().trim().min(20).optional(),
+    AI_BASE_URL: z.url().optional(),
+    GROQ_API_KEY: z.string().trim().min(20).optional(),
     OPENAI_API_KEY: z.string().trim().min(20).optional(),
-    AI_MODEL: z.string().trim().min(1).default("gpt-6-astra"),
-    AI_SPEECH_MODEL: z.string().trim().min(1).default("gpt-transcribe"),
+    AI_MODEL: z.string().trim().min(1).optional(),
+    AI_VISION_MODEL: z.string().trim().min(1).optional(),
+    AI_SPEECH_MODEL: z.string().trim().min(1).optional(),
     SUPABASE_URL: z.url().optional(),
     SUPABASE_SECRET_KEY: z.string().startsWith("sb_secret_").min(32).optional(),
     INTERNAL_API_TOKEN: z.string().min(32).optional(),
@@ -28,6 +33,18 @@ const envSchema = z
       .optional(),
   })
   .superRefine((configuration, context) => {
+    if (configuration.AI_PROVIDER === "compatible" && !configuration.AI_BASE_URL) {
+      context.addIssue({ code: "custom", path: ["AI_BASE_URL"], message: "Compatible AI providers require AI_BASE_URL" });
+    }
+    if (configuration.AI_PROVIDER === "compatible" && !configuration.AI_MODEL) {
+      context.addIssue({ code: "custom", path: ["AI_MODEL"], message: "Compatible AI providers require AI_MODEL" });
+    }
+    if (configuration.AI_BASE_URL) {
+      const url = new URL(configuration.AI_BASE_URL);
+      if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+        context.addIssue({ code: "custom", path: ["AI_BASE_URL"], message: "AI_BASE_URL must be an HTTPS URL without credentials, query, or fragment" });
+      }
+    }
     const erpValues = [
       configuration.SUPABASE_URL,
       configuration.SUPABASE_SECRET_KEY,
@@ -56,8 +73,10 @@ const envSchema = z
     }
 
     if (configuration.NODE_ENV === "production") {
-      if (configuration.OPENAI_API_KEY?.toLowerCase().includes("replace_me")) {
-        context.addIssue({ code: "custom", path: ["OPENAI_API_KEY"], message: "Production OPENAI_API_KEY cannot use a placeholder value" });
+      for (const name of ["AI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY"] as const) {
+        if (configuration[name]?.toLowerCase().includes("replace_me")) {
+          context.addIssue({ code: "custom", path: [name], message: `Production ${name} cannot use a placeholder value` });
+        }
       }
       if (configuredValues !== erpValues.length) {
         context.addIssue({

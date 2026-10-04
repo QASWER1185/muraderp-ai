@@ -34,6 +34,10 @@ export interface PageRequest {
   limit: number;
 }
 
+export interface ProductPageRequest extends PageRequest {
+  search?: string | undefined;
+}
+
 export interface PageResult<T extends { id: number }> {
   data: T[];
   next_cursor: number | null;
@@ -87,7 +91,7 @@ export interface ErpService {
   updateVendor(id: number, input: Patch<VendorInput>, organizationId: string): Promise<Vendor | null>;
   deleteVendor(id: number, organizationId: string): Promise<boolean>;
 
-  listProducts(page: PageRequest, organizationId: string): Promise<PageResult<Product>>;
+  listProducts(page: ProductPageRequest, organizationId: string): Promise<PageResult<Product>>;
   getProduct(id: number, organizationId: string): Promise<Product | null>;
   createProduct(input: ProductInput, organizationId: string): Promise<Product>;
   updateProduct(id: number, input: Patch<ProductInput>, organizationId: string): Promise<Product | null>;
@@ -261,13 +265,15 @@ export class SupabaseErpService implements ErpService {
     return data !== null;
   }
 
-  async listProducts(page: PageRequest, organizationId: string): Promise<PageResult<Product>> {
+  async listProducts(page: ProductPageRequest, organizationId: string): Promise<PageResult<Product>> {
     let query = this.client
       .from("products")
       .select("*")
       .eq("organization_id", organizationId)
       .order("id")
       .limit(page.limit + 1);
+    const search = page.search?.normalize("NFKC").trim().replace(/[^\p{L}\p{N}\s._/-]/gu, " ").replace(/\s+/g, " ").trim();
+    if (search) query = query.or(`name.ilike."%${search}%",sku.ilike."%${search}%"`);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Products");
