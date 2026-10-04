@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { CopilotReviewService, type CopilotCatalog, type CopilotCatalogRepository } from "../src/ai-copilot/copilot-review.js";
 import type { StructuredAiProvider } from "../src/ai-input/openai.provider.js";
+import type { PricingService } from "../src/services/pricing.service.js";
 import { errorHandler } from "../src/middleware/error-handler.js";
 import { createAiCopilotRouter } from "../src/routes/ai-copilot.routes.js";
 
@@ -43,19 +44,69 @@ const provider: StructuredAiProvider = {
 const repository: CopilotCatalogRepository = { getCatalog: vi.fn().mockResolvedValue(catalog) };
 
 describe("Copilot review preparation", () => {
-  it("extracts multiple fields and keeps close product matches reviewable", async () => {
+  it("selects a unique exact product name without false ambiguity", async () => {
     const service = new CopilotReviewService(provider, repository);
     const review = await service.prepare({ organizationId: ORGANIZATION_ID, userId: USER_ID, source: "text", intent: "estimate", text: "Acme Builders: 50 Popular Pipe 25mm" });
 
     expect(review.intent).toBe("estimate");
     expect(review.customer.selectedId).toBe(20);
     expect(review.warehouse.selectedId).toBe(30);
-    expect(review.lines[0]?.product.status).toBe("ambiguous");
+    expect(review.lines[0]?.product.status).toBe("matched");
     expect(review.lines[0]?.product.candidates.map((candidate) => candidate.id)).toEqual([10, 11]);
     expect(review.lines[0]?.rateList.selectedId).toBe(40);
     expect(review.proposal.requiresHumanConfirmation).toBe(true);
-    expect(review.proposal.lines[0]?.productId).toBeUndefined();
+    expect(review.proposal.lines[0]?.productId?.value).toBe("10");
     expect(review.proposal.lines[0]?.productName?.rawText).toBe("Popular");
+  });
+
+  it("keeps genuinely duplicate product names ambiguous", async () => {
+    const duplicateCatalog = { ...catalog, products: [...catalog.products, { id: 12, name: "Popular Pipe 25mm", sku: "ANOTHER-25", unit: "pcs" }] };
+    const service = new CopilotReviewService(provider, { getCatalog: vi.fn().mockResolvedValue(duplicateCatalog) });
+    const review = await service.prepare({ organizationId: ORGANIZATION_ID, userId: USER_ID, source: "text", intent: "estimate", text: "Popular Pipe 25mm" });
+    expect(review.lines[0]?.product.status).toBe("ambiguous");
+    expect(review.lines[0]?.warnings).toContain("Multiple products match this line; choose one.");
+  });
+
+  it("uses the authoritative active sale price and calculates the amount", async () => {
+    const price = { rate_list_id: 40, rate_list_version_id: 41, rate_list_item_id: 42, product_id: 10, unit_price: 365, unit: "pcs", currency_code: "PKR", minimum_quantity: 1, scope_type: "GLOBAL" as const, effective_from: "2026-09-08T00:00:00.000Z" };
+    const pricing = { resolvePrice: vi.fn().mockResolvedValue(price) } as unknown as PricingService;
+    const service = new CopilotReviewService(provider, repository, undefined, pricing);
+    const review = await service.prepare({ organizationId: ORGANIZATION_ID, userId: USER_ID, source: "text", intent: "estimate", text: "Acme Builders: 50 Popular Pipe 25mm using Popular Sale." });
+    expect(pricing.resolvePrice).toHaveBeenCalledWith(expect.objectContaining({ price_type: "SALE", product_id: 10, quantity: 50, rate_list_id: 40 }));
+    expect(review.lines[0]).toMatchObject({ resolvedPrice: price, amount: 18250 });
+    expect(review.lines[0]?.warnings).toEqual([]);
+    expect(review.proposal.lines[0]?.unitRate).toBeUndefined();
+  });
+
+  it("asks for attention when the sale rate is missing or the requested unit differs", async () => {
+    const pricing = { resolvePrice: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ rate_list_id: 40, rate_list_version_id: 41, rate_list_item_id: 42, product_id: 10, unit_price: 365, unit: "MTR", currency_code: "PKR", minimum_quantity: 1, scope_type: "GLOBAL", effective_from: "2026-09-08T00:00:00.000Z" }) } as unknown as PricingService;
+    const service = new CopilotReviewService(provider, repository, undefined, pricing);
+    const input = { organizationId: ORGANIZATION_ID, userId: USER_ID, source: "text" as const, intent: "estimate" as const, text: "50 Popular Pipe 25mm using Popular Sale." };
+    const missing = await service.prepare(input);
+    expect(missing.lines[0]?.resolvedPrice).toBeUndefined();
+    expect(missing.lines[0]?.amount).toBeUndefined();
+    expect(missing.blockingReasons.join(" ")).toContain("No current authorized sale rate");
+    const unitMismatch = await service.prepare(input);
+    expect(unitMismatch.lines[0]?.resolvedPrice).toBeUndefined();
+    expect(unitMismatch.blockingReasons.join(" ")).toContain("Sale rate uses MTR");
+  });
+
+  it("does not substitute a default price when the named sale list is absent", async () => {
+    const pricing = { resolvePrice: vi.fn() } as unknown as PricingService;
+    const service = new CopilotReviewService(provider, repository, undefined, pricing);
+    const review = await service.prepare({ organizationId: ORGANIZATION_ID, userId: USER_ID, source: "text", intent: "estimate", text: "50 Popular Pipe 25mm using Store Standard Rates." });
+    expect(review.lines[0]?.resolvedPrice).toBeUndefined();
+    expect(review.lines[0]?.amount).toBeUndefined();
+    expect(review.blockingReasons.join(" ")).toContain("Store Standard Rates");
+    expect(pricing.resolvePrice).not.toHaveBeenCalled();
+  });
+
+  it("re-quotes the explicitly selected product without retaining product ambiguity", async () => {
+    const pricing = { resolvePrice: vi.fn().mockResolvedValue({ rate_list_id: 40, rate_list_version_id: 41, rate_list_item_id: 42, product_id: 10, unit_price: 365, unit: "pcs", currency_code: "PKR", minimum_quantity: 1, scope_type: "GLOBAL", effective_from: "2026-09-08T00:00:00.000Z" }) } as unknown as PricingService;
+    const service = new CopilotReviewService(provider, repository, undefined, pricing);
+    const quote = await service.quoteLine({ organizationId: ORGANIZATION_ID, userId: USER_ID, productId: 10, quantity: 2, unit: "pcs", rateListId: 40 });
+    expect(quote).toMatchObject({ amount: 730, warning: null });
+    expect(pricing.resolvePrice).toHaveBeenCalledWith(expect.objectContaining({ product_id: 10, quantity: 2, rate_list_id: 40 }));
   });
 
   it("rejects an unlabelled direct Invoice request in favor of the native Estimate conversion workflow", async () => {
@@ -87,6 +138,20 @@ describe("Copilot review preparation", () => {
 });
 
 describe("Copilot review route", () => {
+  it("quotes selected estimate lines through the authenticated read-only boundary", async () => {
+    const runtime = { quoteEstimateLine: vi.fn().mockResolvedValue({ amount: 730, warning: null, resolvedPrice: { unit_price: 365, unit: "MTR" } }) };
+    const app = express();
+    app.use(express.json());
+    app.use("/copilot", createAiCopilotRouter(AUTH_TOKEN, runtime as any, SERVICE_PRINCIPAL));
+    app.use(errorHandler);
+    const result = await request(app).post("/copilot/review/quote")
+      .set("Authorization", `Bearer ${AUTH_TOKEN}`).set("X-Branch-Id", BRANCH_ID)
+      .send({ organizationId: ORGANIZATION_ID, userId: USER_ID, productId: 10, quantity: 2, unit: "MTR", rateListId: 40 });
+    expect(result.status).toBe(200);
+    expect(result.body.data.amount).toBe(730);
+    expect(runtime.quoteEstimateLine).toHaveBeenCalledWith(expect.objectContaining({ productId: 10, rateListId: 40 }), BRANCH_ID);
+  });
+
   it("keeps review behind authenticated branch context and returns confirmation metadata", async () => {
     const runtime = {
       prepareReview: vi.fn().mockResolvedValue({ reviewId: "review-1", intent: "estimate", requiresConfirmation: true }),

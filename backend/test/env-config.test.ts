@@ -22,6 +22,17 @@ describe("production configuration guardrails", () => {
     expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: undefined, PORT: "8080" }).success).toBe(true);
   });
 
+  it("accepts Groq without an OpenAI key", () => {
+    expect(parseEnv({ ...validProductionEnv, OPENAI_API_KEY: undefined, AI_PROVIDER: "groq", AI_API_KEY: "gsk_" + "x".repeat(40) }).success).toBe(true);
+  });
+
+  it("requires a secure endpoint and model for a compatible provider", () => {
+    const base = { ...validProductionEnv, OPENAI_API_KEY: undefined, AI_PROVIDER: "compatible", AI_API_KEY: "x".repeat(40) };
+    expect(parseEnv(base).success).toBe(false);
+    expect(parseEnv({ ...base, AI_MODEL: "chosen-model", AI_BASE_URL: "http://example.com/v1" }).success).toBe(false);
+    expect(parseEnv({ ...base, AI_MODEL: "chosen-model", AI_BASE_URL: "https://example.com/v1" }).success).toBe(true);
+  });
+
   it("rejects partial ERP production configuration", () => {
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_TOKEN: undefined }).success).toBe(false);
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_PRINCIPAL_ID: undefined }).success).toBe(false);

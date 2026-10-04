@@ -1,13 +1,14 @@
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { createServiceRoleAuthorizationGateway } from "../auth/supabase-authorization.gateway.js";
+import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { ApiError } from "../errors/api-error.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { SupabaseErpService, type ErpService } from "../services/erp.service.js";
 import { requireAuthoritativeTransactionIdentity } from "./authoritative-transaction-context.js";
 
-type DashboardService = Pick<ErpService, "listInventory" | "listStockMovements" | "getProduct">;
+type DashboardService = Pick<ErpService, "listStockMovements" | "getProduct">;
 type TenantAuthorizer = Pick<TenantAccessService, "assertAuthorized">;
 
 export interface DashboardRouterOptions {
@@ -16,6 +17,7 @@ export interface DashboardRouterOptions {
   service?: DashboardService | undefined;
   tenantAuthorizer?: TenantAuthorizer | undefined;
   authenticate?: RequestHandler | undefined;
+  countEstimates?: ((organizationId: string, branchId: string) => Promise<number>) | undefined;
 }
 
 function identityFor(request: Request) {
@@ -40,6 +42,29 @@ export function createDashboardRouter(options: DashboardRouterOptions = {}): Rou
   const authenticate = options.authenticate ?? createCopilotAuth(options.internalApiToken, options.servicePrincipalId);
   let tenantAuthorizer = options.tenantAuthorizer;
 
+  router.get("/estimates/count", authenticate, async (request, response) => {
+    const identity = identityFor(request);
+    tenantAuthorizer ??= new TenantAccessService(createServiceRoleAuthorizationGateway());
+    await tenantAuthorizer.assertAuthorized(
+      { userId: identity.userId, organizationId: identity.organizationId },
+      "sales.read",
+      { kind: "branch", branchId: identity.branchId },
+    );
+    let count: number;
+    if (options.countEstimates) {
+      count = await options.countEstimates(identity.organizationId, identity.branchId);
+    } else {
+      const client = getSupabaseServiceRoleClient() as unknown as { from(table: "estimates"): any };
+      const { count: total, error } = await client.from("estimates")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", identity.organizationId).eq("branch_id", identity.branchId);
+      if (error || total == null) throw new ApiError(502, "ESTIMATE_READ_FAILED", "Estimate count could not be loaded");
+      count = total;
+    }
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ data: { count } });
+  });
+
   router.get("/stock", authenticate, async (request, response) => {
     const identity = identityFor(request);
     tenantAuthorizer ??= new TenantAccessService(createServiceRoleAuthorizationGateway());
@@ -48,27 +73,30 @@ export function createDashboardRouter(options: DashboardRouterOptions = {}): Rou
       "inventory.read",
       { kind: "branch", branchId: identity.branchId },
     );
-    const [inventoryPage, movementPage] = await Promise.all([
-      service.listInventory({ limit: 100 }, identity.organizationId),
-      service.listStockMovements({ limit: 6 }, identity.organizationId, identity.branchId),
-    ]);
-    const productIds = [...new Set([
-      ...inventoryPage.data.map((item) => item.product_id),
-      ...movementPage.data.map((item) => item.product_id),
-    ])];
+    const movements = [];
+    let cursor: number | undefined;
+    do {
+      const page = await service.listStockMovements({ limit: 100, ...(cursor === undefined ? {} : { cursor }) }, identity.organizationId, identity.branchId);
+      movements.push(...page.data);
+      cursor = page.next_cursor ?? undefined;
+    } while (cursor !== undefined);
+    const productIds = [...new Set(movements.map((item) => item.product_id))];
     const products = await Promise.all(productIds.map((id) => service.getProduct(id, identity.organizationId)));
     const productById = new Map(products.filter((product) => product !== null).map((product) => [product.id, product]));
-    const grouped = new Map<number, { product_id: number; current_stock: number; warehouses: number }>();
-    for (const item of inventoryPage.data) {
-      const existing = grouped.get(item.product_id) ?? { product_id: item.product_id, current_stock: 0, warehouses: 0 };
-      existing.current_stock += Number(item.quantity);
-      existing.warehouses += 1;
+    const grouped = new Map<number, { product_id: number; current_stock: number; warehouses: Set<number> }>();
+    for (const item of movements) {
+      const existing = grouped.get(item.product_id) ?? { product_id: item.product_id, current_stock: 0, warehouses: new Set<number>() };
+      const direction = ["OPENING", "PURCHASE", "SALE_RETURN", "TRANSFER_IN"].includes(item.movement_type) ? 1
+        : ["SALE", "PURCHASE_RETURN", "TRANSFER_OUT"].includes(item.movement_type) ? -1 : 0;
+      existing.current_stock += direction * Number(item.quantity);
+      existing.warehouses.add(item.warehouse_id);
       grouped.set(item.product_id, existing);
     }
     const stock = [...grouped.values()].map((item) => {
       const product = productById.get(item.product_id);
       return {
         ...item,
+        warehouses: item.warehouses.size,
         product_name: product?.name ?? "Product unavailable",
         sku: product?.sku ?? null,
         unit: product?.unit ?? "unit",
@@ -79,9 +107,9 @@ export function createDashboardRouter(options: DashboardRouterOptions = {}): Rou
     response.status(200).json({
       data: {
         inventory_items: stock,
-        inventory_truncated: inventoryPage.next_cursor !== null,
+        inventory_truncated: false,
         reorder_levels_available: false,
-        recent_activity: movementPage.data.map((movement) => ({
+        recent_activity: movements.slice(0, 6).map((movement) => ({
           id: movement.id,
           product_name: productById.get(movement.product_id)?.name ?? "Product unavailable",
           movement_type: movement.movement_type,

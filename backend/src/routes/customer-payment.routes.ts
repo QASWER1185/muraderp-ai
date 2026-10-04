@@ -16,7 +16,7 @@ const idSchema = z.coerce.number().int().positive();
 const OPERATION = "customer-payment.create" as const;
 const paymentMethodSchema = z.enum(["CASH", "BANK_TRANSFER", "CARD", "CHEQUE", "OTHER"]);
 const allocationSchema = z.strictObject({ invoice_id: idSchema, amount: z.number().finite().positive() });
-const paymentSchema = z.strictObject({
+export const paymentSchema = z.strictObject({
   customer_id: idSchema,
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.number().finite().positive(),
@@ -32,7 +32,7 @@ const paymentSchema = z.strictObject({
   }
 });
 
-function normalizedPaymentForFingerprint(input: CustomerPaymentInput): CustomerPaymentInput {
+export function normalizedPaymentForFingerprint(input: CustomerPaymentInput): CustomerPaymentInput {
   return {
     ...input,
     currency_code: input.currency_code.trim().toUpperCase(),

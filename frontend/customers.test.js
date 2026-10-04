@@ -31,9 +31,12 @@ describe("customer production workflow", () => {
 
   it("mounts Customers instead of the generic placeholder and includes responsive styles", () => {
     const app = readFileSync(new URL("./app.js", import.meta.url), "utf8");
+    const workflow = readFileSync(new URL("./customers.js", import.meta.url), "utf8");
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
     expect(app).toContain('id==="customers")mountCustomers(content)');
+    expect(workflow).toContain("getWorkspaceContext(storage)");
+    expect(workflow).not.toContain("customer-context-form");
     expect(app).toContain('resetDraft();navigate("dashboard")');
     expect(css).toContain(".customer-context-form");
     expect(css).toContain("@media(max-width:720px)");

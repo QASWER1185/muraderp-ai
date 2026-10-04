@@ -1,6 +1,5 @@
-import { createVendor, listVendors, normalizeVendorContext, updateVendor } from "./vendor-api.js";
-
-const CONTEXT_KEY = "muraderp.vendor-context";
+import { createVendor, listVendors, updateVendor } from "./vendor-api.js";
+import { getWorkspaceContext } from "./workspace-context.js";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -43,31 +42,8 @@ export function vendorRowsMarkup(vendors) {
   </tr>`).join("");
 }
 
-function storedContext(storage) {
-  try {
-    const value = JSON.parse(storage?.getItem(CONTEXT_KEY) ?? "null");
-    return value ? normalizeVendorContext(value) : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeContext(storage, context) {
-  try { storage?.setItem(CONTEXT_KEY, JSON.stringify(context)); } catch { /* Session storage is optional. */ }
-}
-
-function contextMarkup(context) {
-  return `<section class="card vendor-context-card">
-    <div class="section-head vendor-heading"><div><p class="eyebrow">Master data</p><h2>Vendor workspace</h2></div></div>
-    <p class="muted">Choose your assigned organization and branch. Access is verified by the server before vendor data is returned.</p>
-    <form id="vendor-context-form" class="vendor-context-form">
-      <label>Organization<input name="organization" value="${escapeHtml(context?.organizationId ?? "")}" placeholder="Organization UUID" autocomplete="off" required /></label>
-      <label>Branch<input name="branch" value="${escapeHtml(context?.branchId ?? "")}" placeholder="Branch UUID" autocomplete="off" required /></label>
-      <button class="button primary" type="submit">Load vendors</button>
-    </form>
-    <p id="vendor-context-result" class="form-message vendor-context-message" role="alert" hidden></p>
-  </section>
-  <section id="vendor-panel" aria-live="polite"></section>
+function contextMarkup() {
+  return `<section id="vendor-panel" aria-live="polite"></section>
   <dialog id="vendor-editor" class="copilot-dialog vendor-dialog">
     <form id="vendor-form" class="vendor-form">
       <div class="section-head vendor-heading"><div><p class="eyebrow">Vendor record</p><h2 id="vendor-editor-title">New vendor</h2></div><button class="icon-button" type="button" data-vendor-close aria-label="Close">&times;</button></div>
@@ -82,16 +58,14 @@ function contextMarkup(context) {
 
 export function mountVendors(container, options = {}) {
   const storage = options.storage ?? globalThis.sessionStorage;
-  let context = storedContext(storage);
+  const context = options.context ?? getWorkspaceContext(storage);
   let vendors = [];
   let nextCursor = null;
   let state = context ? "loading" : "context";
   let loadError = null;
   let loadSequence = 0;
 
-  container.innerHTML = contextMarkup(context);
-  const contextForm = container.querySelector("#vendor-context-form");
-  const contextResult = container.querySelector("#vendor-context-result");
+  container.innerHTML = contextMarkup();
   const panel = container.querySelector("#vendor-panel");
   const dialog = container.querySelector("#vendor-editor");
   const form = container.querySelector("#vendor-form");
@@ -101,7 +75,7 @@ export function mountVendors(container, options = {}) {
 
   function renderPanel() {
     if (state === "context") {
-      panel.innerHTML = '<div class="card vendor-state"><h2>Select an organization and branch</h2><p class="muted">Vendor records remain hidden until the server verifies your access.</p></div>';
+      panel.innerHTML = '<div class="card vendor-state"><h2>Choose your business workspace</h2><p class="muted">Connect an authorized organization and branch to load vendors.</p><button class="button primary" type="button" data-open-workspace>Choose workspace</button></div>';
       return;
     }
     const heading = '<div class="section-head"><div><p class="eyebrow">Authorized vendor records</p><h2>Vendors</h2></div></div>';
@@ -156,25 +130,10 @@ export function mountVendors(container, options = {}) {
     field("name").focus();
   }
 
-  contextForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = new FormData(contextForm);
-    contextResult.hidden = true;
-    contextResult.textContent = "";
-    try {
-      context = normalizeVendorContext({ organizationId: data.get("organization"), branchId: data.get("branch") });
-      storeContext(storage, context);
-      nextCursor = null;
-      void load(true);
-    } catch (error) {
-      contextResult.textContent = error instanceof Error ? error.message : "Select a valid organization and branch.";
-      contextResult.hidden = false;
-    }
-  });
-
   panel.addEventListener("click", (event) => {
     const target = event.target.closest("button");
     if (!target) return;
+    if (target.matches("[data-open-workspace]")) globalThis.dispatchEvent(new Event("muraderp:open-workspace"));
     if (target.matches("[data-vendor-new]")) openEditor();
     if (target.matches("[data-vendor-refresh], [data-vendor-retry]")) void load(true);
     if (target.matches("[data-vendor-more]")) void load(false);

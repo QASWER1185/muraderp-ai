@@ -47,3 +47,14 @@ export class DefaultRateListLifecycleService implements RateListLifecycleService
     return this.repository.archiveVersion(versionId);
   }
 }
+
+/** Tenant-scoped atomic publication of a complete draft version. */
+export class DefaultRateListPublicationService {
+  constructor(private readonly repository: { publishVersion(versionId: number, organizationId: string): Promise<RateListVersionRecord> }) {}
+
+  publish(versionId: number, organizationId: string): Promise<RateListVersionRecord> {
+    assertVersionId(versionId);
+    if (!organizationId.trim()) throw new Error("organizationId is required");
+    return this.repository.publishVersion(versionId, organizationId);
+  }
+}

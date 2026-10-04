@@ -44,6 +44,7 @@ describe("Products final database and AI safety gate", () => {
       estimate: {} as never,
       salesTransaction: { execute: vi.fn() },
       returns: { recordSalesReturn: vi.fn() },
+      verifier: { verify: vi.fn() },
       database,
       servicePrincipalId: "muraderp-products-test-01",
     });

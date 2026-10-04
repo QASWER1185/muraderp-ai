@@ -36,6 +36,8 @@ describe("vendor production workflow", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
     const sw = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
     expect(app).toContain('id==="vendors")mountVendors(content)');
+    expect(workflow).toContain("getWorkspaceContext(storage)");
+    expect(workflow).not.toContain("vendor-context-form");
     expect(app).toContain('resetDraft();navigate("dashboard")');
     expect(workflow).toContain("formResult.textContent = vendorErrorMessage(error)");
     expect(workflow).not.toContain("catch (error) {\n      form.reset()");

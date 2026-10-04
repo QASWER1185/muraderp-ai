@@ -11,7 +11,7 @@ import {
 const id = z.coerce.number().int().positive();
 const OPERATION = "sales-return.create" as const;
 const itemSchema = z.strictObject({ invoice_item_id: id, warehouse_id: id, quantity: z.number().finite().positive() });
-const requestSchema = z.strictObject({
+export const salesReturnRequestSchema = z.strictObject({
   credit_note_number: z.string().trim().min(1).max(100),
   invoice_id: id,
   customer_id: id,
@@ -22,7 +22,7 @@ const requestSchema = z.strictObject({
   items: z.array(itemSchema).min(1).max(100),
 });
 
-function normalizedForFingerprint(input: SalesReturnInput): SalesReturnInput {
+export function normalizedSalesReturnForFingerprint(input: SalesReturnInput): SalesReturnInput {
   return {
     ...input,
     currency_code: input.currency_code.trim().toUpperCase(),
@@ -46,8 +46,8 @@ export function createSalesReturnRouter(
     if (!idempotencyKey || idempotencyKey.length > 255) {
       throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required");
     }
-    const input = requestSchema.parse(request.body) as SalesReturnInput;
-    const normalizedInput = normalizedForFingerprint(input);
+    const input = salesReturnRequestSchema.parse(request.body) as SalesReturnInput;
+    const normalizedInput = normalizedSalesReturnForFingerprint(input);
     const result = await service.recordSalesReturn(input, {
       ...identity,
       operation: OPERATION,

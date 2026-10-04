@@ -33,3 +33,12 @@ async function dashboardRequest(path, context) {
 export function getDashboardStock(context) {
   return dashboardRequest("/api/v1/dashboard/stock", context);
 }
+
+export function getDashboardMetric(context, head, period) {
+  const query = new URLSearchParams({ head, from: period.from, to: period.to });
+  return dashboardRequest(`/api/v1/browser/reports/details?${query}`, context);
+}
+
+export function getDashboardEstimateCount(context) {
+  return dashboardRequest("/api/v1/dashboard/estimates/count", context);
+}

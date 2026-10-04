@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node dev-server.cjs",
     "test": "vitest run",
     "test:phase5": "vitest run phase5-master-data.test.js",
     "typecheck": "node typecheck-check.mjs",

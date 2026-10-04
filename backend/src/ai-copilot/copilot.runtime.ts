@@ -9,6 +9,10 @@ import { env } from "../config/env.js";
 import { SupabaseErpService, type ErpService } from "../services/erp.service.js";
 import { DefaultEstimateService, type EstimateService } from "../services/estimate.service.js";
 import { SupabaseEstimateRepository } from "../repositories/estimate.repository.js";
+import { SupabaseCustomerPaymentBrowserRepository } from "../repositories/customer-payment-browser.repository.js";
+import { SupabaseVendorPaymentBrowserRepository } from "../repositories/vendor-payment-browser.repository.js";
+import { SupabaseSalesReturnBrowserRepository } from "../repositories/sales-return-browser.repository.js";
+import { DefaultCopilotExecutionVerifier, type CopilotExecutionVerifier } from "../services/copilot-execution-verifier.service.js";
 import { DefaultEstimatePricingService } from "../services/estimate-pricing.service.js";
 import { DefaultPricingService, type PricingService } from "../services/pricing.service.js";
 import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
@@ -28,11 +32,12 @@ import {
   SupabaseCopilotReferenceResolver,
   type CopilotReferenceResolver,
 } from "./copilot-reference.resolver.js";
-import { OpenAiProvider, ProviderIntentResolver } from "../ai-input/openai.provider.js";
+import { AiProvider, ProviderIntentResolver } from "../ai-input/openai.provider.js";
 import {
   CopilotReviewService,
   SupabaseCopilotCatalogRepository,
   type CopilotReviewRequest,
+  type CopilotQuoteRequest,
 } from "./copilot-review.js";
 
 const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> = {
@@ -126,12 +131,13 @@ export interface CopilotRuntimeDependencies {
   authorization: Pick<AuthorizationService, "assertPermission">;
   branchAccess?: Pick<TenantAccessService, "assertBranchAccess">;
   references?: Pick<CopilotReferenceResolver, "assertOwnedReferences">;
-  review?: Pick<CopilotReviewService, "prepare">;
+  review?: Pick<CopilotReviewService, "prepare" | "quoteLine">;
   erp: ErpService;
   pricing: PricingService;
   estimate: EstimateService;
   salesTransaction: Pick<SalesTransactionPort, "execute">;
   returns: Pick<SalesReturnService, "recordSalesReturn">;
+  verifier: CopilotExecutionVerifier;
   rateLists?: Pick<RateListService, "createDraftVersion">;
   customerPayments?: Pick<CustomerPaymentService, "recordPayment">;
   vendorPayments?: Pick<VendorPaymentService, "recordPayment">;
@@ -141,8 +147,9 @@ export interface CopilotRuntimeDependencies {
 
 function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
   const rateListRepository = new SupabaseRateListRepository();
+  const estimateRepository = new SupabaseEstimateRepository();
   const pricing = new DefaultPricingService(rateListRepository);
-  const aiProvider = new OpenAiProvider();
+  const aiProvider = new AiProvider();
   const servicePrincipalId = normalizeServicePrincipalId(env.INTERNAL_API_PRINCIPAL_ID);
   if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
@@ -159,15 +166,24 @@ function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
       aiProvider,
       new SupabaseCopilotCatalogRepository(client),
       new ProviderIntentResolver(aiProvider),
+      pricing,
     ),
     erp,
     pricing,
     estimate: new DefaultEstimateService(
-      new SupabaseEstimateRepository(),
+      estimateRepository,
       new DefaultEstimatePricingService(pricing),
     ),
     salesTransaction: new SupabaseSalesTransactionAdapter(getSupabaseAdminClient, servicePrincipalId),
     returns: new SupabaseSalesReturnService(),
+    verifier: new DefaultCopilotExecutionVerifier({
+      erp,
+      estimates: estimateRepository,
+      customerPayments: new SupabaseCustomerPaymentBrowserRepository(),
+      vendorPayments: new SupabaseVendorPaymentBrowserRepository(),
+      returns: new SupabaseSalesReturnBrowserRepository(),
+      rateLists: rateListRepository,
+    }),
     rateLists: new DefaultRateListService(rateListRepository),
     customerPayments: new SupabaseCustomerPaymentService(),
     vendorPayments: new SupabaseVendorPaymentService(),
@@ -234,6 +250,14 @@ export class CopilotRuntime {
       );
     }
     return review;
+  }
+
+  async quoteEstimateLine(request: CopilotQuoteRequest, branchId: string) {
+    if (!branchId.trim()) throw new ApiError(403, "BRANCH_CONTEXT_REQUIRED", "Explicit branch context is required");
+    if (!this.dependencies.branchAccess || !this.dependencies.review) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Copilot pricing review is not configured");
+    await this.dependencies.branchAccess.assertBranchAccess({ userId: request.userId, organizationId: request.organizationId }, branchId);
+    await this.dependencies.authorization.assertPermission(request.userId, request.organizationId, "sales.create");
+    return this.dependencies.review.quoteLine(request);
   }
 
   async prepareInvoiceExtraction(request: Omit<CopilotReviewRequest, "intent">, branchId: string) {
@@ -410,8 +434,9 @@ export class CopilotRuntime {
     assertCopilotDraftExecution(plan, organizationId, userId, plan.target, branchId);
     await this.assertPlanAuthorized(plan);
     await this.assertPlanReferences(plan);
-    if (action.status === "EXECUTED") return action;
-    if (action.status === "CONFIRMED") throw new Error("Copilot action is already being executed");
+    if (action.status === "EXECUTED") return this.verifyAndComplete(actionId, plan, action.result, "EXECUTED", action);
+    if (action.status === "CONFIRMED" && action.result != null) return this.verifyAndComplete(actionId, plan, action.result);
+    if (action.status === "CONFIRMED") throw new ApiError(409, "COPILOT_EXECUTION_IN_PROGRESS", "Copilot execution is already claimed; the transaction will not be executed again");
     if (action.status !== "DRAFT") throw new Error(`Copilot action cannot be confirmed from ${action.status}`);
     const { data: claimed, error: claimError } = await db
       .from("ai_copilot_actions")
@@ -422,17 +447,9 @@ export class CopilotRuntime {
       .maybeSingle();
     if (claimError) throw claimError;
     if (!claimed) throw new Error("Copilot action was already claimed by another request");
+    let result: unknown;
     try {
-      const result = await this.execute(plan, idempotencyKey);
-      const { data: completed, error: completeError } = await db
-        .from("ai_copilot_actions")
-        .update({ status: "EXECUTED", result, executed_at: new Date().toISOString() })
-        .eq("id", actionId)
-        .eq("status", "CONFIRMED")
-        .select("*")
-        .single();
-      if (completeError) throw completeError;
-      return completed;
+      result = await this.execute(plan, idempotencyKey);
     } catch (error) {
       await db
         .from("ai_copilot_actions")
@@ -441,6 +458,38 @@ export class CopilotRuntime {
         .eq("status", "CONFIRMED");
       throw error;
     }
+    // Checkpoint the authoritative result so retry only repeats verification.
+    const { data: checkpoint, error: checkpointError } = await db
+      .from("ai_copilot_actions")
+      .update({ result, error_code: null })
+      .eq("id", actionId).eq("status", "CONFIRMED")
+      .select("*").single();
+    if (checkpointError) throw checkpointError;
+    if (!checkpoint) throw new Error("Copilot execution result could not be checkpointed");
+    return this.verifyAndComplete(actionId, plan, result);
+  }
+
+  private async verifyAndComplete(actionId: string, plan: CopilotActionPlan, result: unknown, status: "CONFIRMED" | "EXECUTED" = "CONFIRMED", existing?: any) {
+    const db = this.dependencies.database();
+    try {
+      await this.dependencies.verifier.verify(plan, result);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Independent ERP read failed";
+      const { error: auditError } = await db.from("ai_copilot_actions")
+        .update({ status: "CONFIRMED", error_code: `COPILOT_VERIFICATION_FAILED: ${detail.slice(0, 400)}` })
+        .eq("id", actionId).eq("status", status);
+      if (auditError) throw auditError;
+      throw new ApiError(502, "COPILOT_VERIFICATION_FAILED", `Execution was reported, but independent ERP verification failed: ${detail}`);
+    }
+    if (status === "EXECUTED") return existing;
+    const { data: completed, error: completeError } = await db
+      .from("ai_copilot_actions")
+      .update({ status: "EXECUTED", error_code: null, executed_at: new Date().toISOString() })
+      .eq("id", actionId).eq("status", "CONFIRMED")
+      .select("*").single();
+    if (completeError) throw completeError;
+    if (!completed) throw new Error("Verified Copilot action could not be finalized");
+    return completed;
   }
 
   private async execute(plan: CopilotActionPlan, idempotencyKey: string): Promise<unknown> {

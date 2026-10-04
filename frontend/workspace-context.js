@@ -13,7 +13,10 @@ export function getWorkspaceContext(storage = globalThis.sessionStorage) {
   for (const key of [PRIMARY_KEY, ...LEGACY_KEYS]) {
     try {
       const context = normalizeWorkspaceContext(JSON.parse(storage?.getItem(key) ?? "null"));
-      if (context) return context;
+      if (context) {
+        if (key !== PRIMARY_KEY) storage?.setItem(PRIMARY_KEY, JSON.stringify(context));
+        return context;
+      }
     } catch {
       // A malformed optional session value is ignored.
     }
@@ -24,7 +27,8 @@ export function getWorkspaceContext(storage = globalThis.sessionStorage) {
 export function setWorkspaceContext(context, storage = globalThis.sessionStorage) {
   const normalized = normalizeWorkspaceContext(context);
   if (!normalized) throw new Error("Enter valid organization and branch identifiers.");
-  for (const key of [PRIMARY_KEY, ...LEGACY_KEYS]) storage?.setItem(key, JSON.stringify(normalized));
+  storage?.setItem(PRIMARY_KEY, JSON.stringify(normalized));
+  for (const key of LEGACY_KEYS) storage?.removeItem(key);
   globalThis.dispatchEvent?.(new CustomEvent("muraderp:workspace", { detail: normalized }));
   return normalized;
 }
@@ -33,3 +37,39 @@ export function clearWorkspaceContext(storage = globalThis.sessionStorage) {
   for (const key of [PRIMARY_KEY, ...LEGACY_KEYS]) storage?.removeItem(key);
   globalThis.dispatchEvent?.(new CustomEvent("muraderp:workspace", { detail: null }));
 }
+
+export async function discoverWorkspaces() {
+  const response = await fetch("/api/v1/workspaces", { credentials: "include" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body?.error?.message ?? `Workspace discovery failed with HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = body?.error?.code;
+    throw error;
+  }
+  return Array.isArray(body.data) ? body.data : [];
+}
+
+export function authorizedWorkspace(workspaces, organizationId, branchId) {
+  const organization = workspaces.find((item) => item.organizationId === organizationId);
+  const branch = organization?.branches?.find((item) => item.branchId === branchId);
+  return branch ? { organizationId, branchId } : null;
+}
+
+export function preferredWorkspace(workspaces, previous = null) {
+  const existing = previous && authorizedWorkspace(workspaces, previous.organizationId, previous.branchId);
+  if (existing) return existing;
+  for (const organization of workspaces) {
+    if (organization.branches?.length) return { organizationId: organization.organizationId, branchId: organization.branches[0].branchId };
+  }
+  return null;
+}
+
+export async function connectPreferredWorkspace(previous = null, storage = globalThis.sessionStorage) {
+  const workspaces = await discoverWorkspaces();
+  const selected = preferredWorkspace(workspaces, previous);
+  if (selected) setWorkspaceContext(selected, storage);
+  else clearWorkspaceContext(storage);
+  return { workspaces, selected };
+}
+

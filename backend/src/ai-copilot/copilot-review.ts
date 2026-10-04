@@ -6,6 +6,8 @@ import type { AiDraftLine, AiInputIntent as CopilotDraftIntent } from "../ai-inp
 import type { AssistantIntentResolver } from "../ai-assistant/assistant.types.js";
 import type { StructuredAiProvider } from "../ai-input/openai.provider.js";
 import { ProviderDocumentExtractor } from "../ai-input/openai.provider.js";
+import type { PricingService } from "../services/pricing.service.js";
+import type { ResolvedPrice } from "../types/pricing.types.js";
 
 const MAX_CATALOG_ROWS = 5_000;
 const MATCH_CANDIDATE_LIMIT = 5;
@@ -39,6 +41,7 @@ export interface CopilotCatalogRateList {
   vendorId?: number | null;
   customerId?: number | null;
   currencyCode: string;
+  isActive?: boolean;
 }
 
 export interface CopilotCatalog {
@@ -76,7 +79,7 @@ export class SupabaseCopilotCatalogRepository implements CopilotCatalogRepositor
       this.rows("customers", "id, name", organizationId),
       this.rows("vendors", "id, name", organizationId),
       this.rows("warehouses", "id, name", organizationId),
-      this.rows("rate_lists", "id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code", organizationId),
+      this.rows("rate_lists", "id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active", organizationId),
     ]);
     const brandNames = new Map<number, string>(brands.map((brand) => [Number(brand.id), String(brand.name)]));
     return {
@@ -88,13 +91,13 @@ export class SupabaseCopilotCatalogRepository implements CopilotCatalogRepositor
       vendors: vendors.map((party) => ({ id: Number(party.id), name: String(party.name) })),
       warehouses: warehouses.map((warehouse) => ({ id: Number(warehouse.id), name: String(warehouse.name) })),
       rateLists: rateLists
-        .filter((rateList) => rateList.price_type === "SALE" || rateList.price_type === "PURCHASE")
+        .filter((rateList) => (rateList.price_type === "SALE" || rateList.price_type === "PURCHASE") && rateList.is_active === true)
         .map((rateList) => ({
           id: Number(rateList.id), name: String(rateList.name), code: String(rateList.code),
           priceType: rateList.price_type, scopeType: rateList.scope_type,
           ...(rateList.vendor_id == null ? {} : { vendorId: Number(rateList.vendor_id) }),
           ...(rateList.customer_id == null ? {} : { customerId: Number(rateList.customer_id) }),
-          currencyCode: String(rateList.currency_code),
+          currencyCode: String(rateList.currency_code), isActive: true,
         })),
     };
   }
@@ -124,6 +127,8 @@ export interface CopilotLineReview {
   quantity: number | null;
   unit: string | null;
   explicitUnitRate: number | null;
+  resolvedPrice?: ResolvedPrice;
+  amount?: number;
   confidence: number;
   product: CopilotMatch;
   rateList: CopilotMatch;
@@ -174,8 +179,23 @@ export interface CopilotReviewRequest {
   rateListId?: number;
 }
 
+export interface CopilotQuoteRequest {
+  organizationId: string;
+  userId: string;
+  productId: number;
+  quantity: number;
+  unit: string;
+  customerId?: number;
+  rateListId?: number;
+}
+
 function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+}
+
+function requestedRateListHint(text: string | undefined): string | null {
+  const match = text?.match(/\busing\s+([^.,;]+?)(?=\s+(?:for|to|with)\b|[.,;]|$)/iu);
+  return match?.[1]?.trim() || null;
 }
 
 function tokens(value: string): Set<string> {
@@ -199,6 +219,7 @@ function candidateStatus(candidates: CopilotMatchCandidate[], input: string | nu
   const best = candidates[0];
   if (!best || best.confidence < threshold) return "unresolved";
   const second = candidates[1];
+  if (best.confidence === 1 && (!second || second.confidence < 1)) return "matched";
   if (second && best.confidence - second.confidence < AMBIGUITY_MARGIN) return "ambiguous";
   return "matched";
 }
@@ -278,7 +299,7 @@ function buildProposal(request: CopilotReviewRequest, intent: CopilotDraftIntent
       ...(line.product.selectedId === undefined ? {} : { productId: toField(String(line.product.selectedId), source, line.product.candidates[0]?.confidence ?? line.confidence) }),
       ...(line.quantity == null ? {} : { quantity: toField(line.quantity, source, line.confidence) }),
       ...(line.unit == null ? {} : { unit: toField(line.unit, source, line.confidence) }),
-      ...(line.explicitUnitRate == null ? {} : { unitRate: toField(line.explicitUnitRate, source, line.confidence) }),
+      ...(intent === "estimate" || line.explicitUnitRate == null ? {} : { unitRate: toField(line.explicitUnitRate, source, line.confidence) }),
       ...(line.rateList.selectedId === undefined ? {} : { rateListId: toField(String(line.rateList.selectedId), source, line.rateList.candidates[0]?.confidence ?? line.confidence) }),
     })),
     confidence,
@@ -293,8 +314,33 @@ export class CopilotReviewService {
     provider: StructuredAiProvider,
     private readonly catalog: CopilotCatalogRepository,
     private readonly resolver?: AssistantIntentResolver,
+    private readonly pricing?: Pick<PricingService, "resolvePrice">,
   ) {
     this.pipeline = new AiInputPipeline(new ProviderDocumentExtractor(provider), new InMemoryAiInputGateway());
+  }
+
+  async quoteLine(request: CopilotQuoteRequest): Promise<{ resolvedPrice: ResolvedPrice | null; amount: number | null; warning: string | null }> {
+    if (!this.pricing) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Authoritative pricing is not configured");
+    const catalog = await this.catalog.getCatalog(request.organizationId);
+    if (!catalog.products.some((product) => product.id === request.productId)) throw new ApiError(422, "PRODUCT_NOT_FOUND", "Product is not available in this organization");
+    if (request.customerId !== undefined && !catalog.customers.some((customer) => customer.id === request.customerId)) throw new ApiError(422, "CUSTOMER_NOT_FOUND", "Customer is not available in this organization");
+    if (request.rateListId !== undefined && !catalog.rateLists.some((list) => list.id === request.rateListId && list.priceType === "SALE" && list.isActive !== false && (list.scopeType === "GLOBAL" || (list.scopeType === "CUSTOMER" && list.customerId === request.customerId)))) {
+      throw new ApiError(422, "SALE_RATE_LIST_NOT_FOUND", "Active sale Rate List is not available for this customer");
+    }
+    try {
+      const resolvedPrice = await this.pricing.resolvePrice({
+        organization_id: request.organizationId, price_type: "SALE", product_id: request.productId,
+        quantity: request.quantity, as_of: new Date().toISOString(),
+        ...(request.customerId === undefined ? {} : { customer_id: request.customerId }),
+        ...(request.rateListId === undefined ? {} : { rate_list_id: request.rateListId }),
+      });
+      if (!resolvedPrice) return { resolvedPrice: null, amount: null, warning: "No current authorized sale rate was found; choose a valid rate context or ask for clarification." };
+      if (normalize(request.unit) !== normalize(resolvedPrice.unit)) return { resolvedPrice: null, amount: null, warning: `Sale rate uses ${resolvedPrice.unit}, while the request uses ${request.unit}; confirm a supported unit conversion before calculating.` };
+      return { resolvedPrice, amount: request.quantity * resolvedPrice.unit_price, warning: null };
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("Ambiguous pricing:")) throw error;
+      return { resolvedPrice: null, amount: null, warning: "Multiple active sale Rate Lists apply; choose the authorized list." };
+    }
   }
 
   async prepare(request: CopilotReviewRequest): Promise<CopilotReview> {
@@ -339,25 +385,55 @@ export class CopilotReviewService {
     const warehouse = matchSelectedId(request.warehouseId, matchValues(document.warehouseName, warehouseValues), warehouseValues);
     const effectiveCustomerId = customer.selectedId;
     const effectiveVendorId = vendor.selectedId;
-    const lines: CopilotLineReview[] = document.lines.map((line, index) => {
+    const lines: CopilotLineReview[] = await Promise.all(document.lines.map(async (line, index) => {
       const product = matchValues(line.productCode ?? line.productName, catalog.products.map((candidate) => ({
         id: candidate.id,
         label: candidate.name,
         aliases: [candidate.sku, `${candidate.brandName ?? ""} ${candidate.name}`],
         details: { sku: candidate.sku, unit: candidate.unit, ...(candidate.brandName ? { brand: candidate.brandName } : {}) },
       })));
-      const rateInput = line.brandHint;
       const applicableLists = catalog.rateLists.filter((rateList) => rateList.priceType === ratePriceType)
+        .filter((rateList) => rateList.isActive !== false)
         .filter((rateList) => rateList.scopeType === "GLOBAL" || (rateList.scopeType === "CUSTOMER" && effectiveCustomerId != null && rateList.customerId === effectiveCustomerId) || (rateList.scopeType === "VENDOR" && effectiveVendorId != null && rateList.vendorId === effectiveVendorId));
+      const rateInput = requestedRateListHint(request.text) ?? line.brandHint;
       const rateList = request.rateListId !== undefined
         ? matchValues(String(request.rateListId), applicableLists.map((candidate) => ({ id: candidate.id, label: String(candidate.id), aliases: [candidate.name, candidate.code], details: { name: candidate.name, code: candidate.code, currency: candidate.currencyCode } })))
-        : matchValues(rateInput, applicableLists.map((candidate) => ({ id: candidate.id, label: candidate.name, aliases: [candidate.code], details: { code: candidate.code, currency: candidate.currencyCode, scope: candidate.scopeType } })), 0.8);
+        : matchValues(rateInput, applicableLists.map((candidate) => ({ id: candidate.id, label: candidate.name, aliases: [candidate.code], details: { code: candidate.code, currency: candidate.currencyCode, scope: candidate.scopeType } })), 1);
       const warnings: string[] = [];
       if (product.status !== "matched") warnings.push(product.status === "ambiguous" ? "Multiple products match this line; choose one." : "Product could not be matched; enter or choose a Product ID.");
-      if (rateInput && rateList.status !== "matched" && line.unitRate == null) warnings.push(rateList.status === "ambiguous" ? "Multiple Rate Lists match this brand/company hint; choose one." : "Brand/company rate context could not be matched; choose a Rate List or enter an explicit rate.");
+      if (rateInput && rateList.status !== "matched" && resolvedIntent === "estimate.create") warnings.push(rateList.status === "ambiguous" ? "Multiple sale Rate Lists match; choose the intended list." : `Sale Rate List '${rateInput}' could not be verified; choose an active sale Rate List.`);
       if (line.quantity == null) warnings.push("Quantity is missing or unclear.");
-      return { lineNumber: index + 1, productName: line.productName, productCode: line.productCode, brandHint: line.brandHint, quantity: line.quantity, unit: line.unit, explicitUnitRate: line.unitRate, confidence: line.confidence, product, rateList, warnings };
-    });
+      if (resolvedIntent === "estimate.create" && !line.unit?.trim()) warnings.push("Unit is missing or unclear.");
+      let resolvedPrice: ResolvedPrice | undefined;
+      let amount: number | undefined;
+      if (resolvedIntent === "estimate.create" && this.pricing && product.selectedId && line.quantity != null && line.quantity > 0 && line.unit?.trim() && (!rateInput || rateList.status === "matched")) {
+        try {
+          const price = await this.pricing.resolvePrice({
+            organization_id: request.organizationId, price_type: "SALE", product_id: product.selectedId,
+            quantity: line.quantity, as_of: new Date().toISOString(),
+            ...(effectiveCustomerId === undefined ? {} : { customer_id: effectiveCustomerId }),
+            ...(rateList.selectedId === undefined ? {} : { rate_list_id: rateList.selectedId }),
+          });
+          if (!price) warnings.push("No current authorized sale rate was found; choose a valid rate context or ask for clarification.");
+          else if (line.unit && normalize(line.unit) !== normalize(price.unit)) warnings.push(`Sale rate uses ${price.unit}, while the request uses ${line.unit}; confirm a supported unit conversion before calculating.`);
+          else if (document.currencyCode && normalize(document.currencyCode) !== normalize(price.currency_code)) warnings.push(`Sale rate currency is ${price.currency_code}, while the request uses ${document.currencyCode}; clarify the currency.`);
+          else {
+            resolvedPrice = price;
+            amount = line.quantity * price.unit_price;
+            rateList.selectedId = price.rate_list_id;
+            rateList.status = "matched";
+            if (!rateList.candidates.some((candidate) => candidate.id === price.rate_list_id)) {
+              const selectedList = applicableLists.find((candidate) => candidate.id === price.rate_list_id);
+              if (selectedList) rateList.candidates.unshift({ id: selectedList.id, label: selectedList.name, confidence: 1 });
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.startsWith("Ambiguous pricing:")) throw error;
+          warnings.push("Multiple active sale Rate Lists apply; choose the authorized list.");
+        }
+      }
+      return { lineNumber: index + 1, productName: line.productName, productCode: line.productCode, brandHint: line.brandHint, quantity: line.quantity, unit: line.unit, explicitUnitRate: line.unitRate, confidence: line.confidence, product, rateList, ...(resolvedPrice ? { resolvedPrice, amount: amount! } : {}), warnings };
+    }));
     const blockingReasons = lines.flatMap((line) => line.warnings.map((warning) => `line-${line.lineNumber}:${warning}`));
     if (lines.length === 0) blockingReasons.push("no-lines-extracted");
     if (customer.status === "ambiguous" || customer.status === "unresolved") blockingReasons.push("customer-match-requires-review");
