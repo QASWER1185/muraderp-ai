@@ -6,12 +6,14 @@ import type { ErpService } from "../../services/erp.service.js";
 import type { PricingService } from "../../services/pricing.service.js";
 import type { RateListLifecycleRepository, RateListRepository } from "../../repositories/rate-list.repository.js";
 import type { CopilotCatalogRepository } from "../copilot-review.js";
+import type { EntitySearchService } from "../../services/entity-search.service.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
   tenant: Pick<TenantAccessService, "assertPermission" | "assertBranchAccess">;
   erp: Pick<ErpService, "getProduct" | "getCustomer">;
   catalog: Pick<CopilotCatalogRepository, "getCatalog">;
+  search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
 };
@@ -37,16 +39,13 @@ const match = (value: string, term: string) => value.toLocaleLowerCase().include
 function defineTool<T extends z.ZodType>(tool: ErpTool<T>): ErpTool<T> { return tool; }
 
 export const ERP_TOOLS = [
-  defineTool({ name: "search_products", description: "Find products by name, SKU, or brand. Returns candidate IDs; use lookup and price tools to verify details.", schema: lookup, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { catalog }) => {
-    const rows = await catalog.getCatalog(scope.organizationId);
-    const terms = query.toLocaleLowerCase().split(/\s+/);
-    return { items: rows.products.filter((p) => { const text = `${p.name} ${p.sku} ${p.brandName ?? ""}`.toLocaleLowerCase(); return terms.every((term) => text.includes(term)); }).slice(0, limit), catalogLimitReached: rows.products.length >= 5000 };
+  defineTool({ name: "search_products", description: "Search ERP products with typo-tolerant database matching by name, SKU, brand, category, dimensions, PN rating or unit. Returns ranked candidates and resolution. Use bestCandidate only when resolved; otherwise ask for clarification.", schema: lookup, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { search }) => {
+    return search.searchProducts(query, limit, scope);
   } }),
-  defineTool({ name: "lookup_product", description: "Get one product by ID after finding it. Does not return purchase cost or an authoritative sale rate.", schema: productId, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ product_id }, scope, { erp, catalog }) => {
+  defineTool({ name: "lookup_product", description: "Get one product by ID after finding it. Does not return purchase cost or an authoritative sale rate.", schema: productId, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ product_id }, scope, { erp, search }) => {
     const product = await erp.getProduct(product_id, scope.organizationId);
     if (!product) return null;
-    const { products } = await catalog.getCatalog(scope.organizationId);
-    return { id: product.id, name: product.name, sku: product.sku, category: product.category, unit: product.unit, brandName: products.find((p) => p.id === product.id)?.brandName ?? null };
+    return { id: product.id, name: product.name, sku: product.sku, category: product.category, unit: product.unit, brandName: product.brand_id == null ? null : await search.getProductBrand(product.brand_id, scope.organizationId) };
   } }),
   defineTool({ name: "search_rate_lists", description: "Find active organization sale rate lists by name or code.", schema: lookup, permission: "sales.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { rateLists }) => {
     const rows = await rateLists.listActiveSaleRateLists(scope.organizationId);
@@ -72,7 +71,7 @@ export const ERP_TOOLS = [
     if (version.rate_list_id !== resolved.rate_list_id) throw new Error("Resolved rate-list version does not match its rate list");
     return { ...resolved, rate_list_version_number: version.version_number };
   } }),
-  defineTool({ name: "lookup_customers", description: "Find customers by name in the current organization.", schema: lookup, permission: "customers.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { catalog }) => { const rows = (await catalog.getCatalog(scope.organizationId)).customers; return { items: rows.filter((c) => match(c.name, query)).slice(0, limit), catalogLimitReached: rows.length >= 5000 }; } }),
+  defineTool({ name: "lookup_customers", description: "Search customers by imperfect name, city/address available in ERP, or exact phone. Supports honorifics and conservative Urdu/Latin matching. Returns ranked candidates; only resolved bestCandidate may be selected. Ask for clarification otherwise.", schema: lookup, permission: "customers.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { search }) => search.searchCustomers(query, limit, scope) }),
   defineTool({ name: "lookup_vendors", description: "Find vendors by name in the current organization.", schema: lookup, permission: "vendors.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { catalog }) => { const rows = (await catalog.getCatalog(scope.organizationId)).vendors; return { items: rows.filter((v) => match(v.name, query)).slice(0, limit), catalogLimitReached: rows.length >= 5000 }; } }),
 ] as const;
 

@@ -25,6 +25,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/express": "5.0.6",
     "@types/node": "26.2.0",
     "@types/supertest": "7.2.1",

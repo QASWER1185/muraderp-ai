@@ -1,3 +1,4 @@
+import { resolveCandidates } from "../../services/entity-search.service.js";
 import { describe, expect, it, vi } from "vitest";
 import { SupabaseRateListRepository } from "../../repositories/rate-list.repository.js";
 import { DefaultPricingService } from "../../services/pricing.service.js";
@@ -39,6 +40,11 @@ function setup(products = [product]) {
     tenant: { assertPermission: vi.fn(async () => {}), assertBranchAccess: vi.fn(async () => {}) },
     erp: { getProduct: vi.fn(async (id, organizationId) => organizationId === scope.organizationId && id === 26 ? product as any : null), getCustomer: vi.fn(async () => null) },
     catalog: { getCatalog: vi.fn(async (organizationId) => ({ products: organizationId === scope.organizationId ? products.map(({ id, name, sku, unit }) => ({ id, name, sku, unit })) : [], customers: [], vendors: [], warehouses: [], rateLists: [] })) },
+    search: {
+      searchProducts: vi.fn(async (query: string, limit: number, tenant: AgentScope) => resolveCandidates(tenant.organizationId === scope.organizationId ? products.filter(p => query.toLowerCase().split(/\s+/).every(t => p.name.toLowerCase().includes(t))).map(p => ({id:p.id,name:p.name,sku:p.sku,unit:p.unit,category:p.category,brandName:null,confidence:0.95,match_kind:"fuzzy"})) : [],limit)),
+      searchCustomers: vi.fn(async () => resolveCandidates([],10)),
+      getProductBrand: vi.fn(async () => null),
+    },
     pricing,
     rateLists,
   };

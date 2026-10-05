@@ -11,6 +11,7 @@ import { mediaSchema } from "../ai-input/document-extraction.js";
 import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth/supabase-authorization.gateway.js";
 import { SupabaseErpService } from "../services/erp.service.js";
+import { SupabaseEntitySearchService } from "../services/entity-search.service.js";
 import { SupabaseCopilotCatalogRepository } from "../ai-copilot/copilot-review.js";
 import { DefaultPricingService } from "../services/pricing.service.js";
 import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
@@ -26,6 +27,7 @@ function createReadOnlyAgent(): ReadOnlyCopilotAgent {
   return new ReadOnlyCopilotAgent(new GroqAgentModel(), new ErpToolRegistry({
     tenant: new TenantAccessService(authorization), erp: new SupabaseErpService(),
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
+    search: new SupabaseEntitySearchService(),
     pricing: new DefaultPricingService(rateLists),
     rateLists,
   }));

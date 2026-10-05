@@ -5,7 +5,7 @@ import type { AgentScope } from "./erp-tools.js";
 const secret = env.INTERNAL_API_TOKEN ?? randomBytes(32).toString("hex");
 export type ProductReference = { id: number; name: string; sku: string; unit: string };
 export type ProductContext = { candidates: ProductReference[]; ambiguous: boolean };
-export type Turn = { user: string; assistant: string; productContext?: ProductContext };
+export type Turn = { user: string; assistant: string; productContext?: ProductContext; customerAmbiguous?: boolean; productUnresolved?: boolean };
 type Payload = { userId: string; organizationId: string; branchId: string; expires: number; turns: Turn[] };
 const sign = (body: string) => createHmac("sha256", secret).update(body).digest("base64url");
 
@@ -33,14 +33,14 @@ export function readConversation(token: string | undefined, scope: AgentScope): 
     return data.turns.slice(-3).filter((turn) => typeof turn.user === "string" && typeof turn.assistant === "string" && turn.user.length <= 500 && turn.assistant.length <= 1200)
       .map((turn) => {
         const productContext = safeProductContext(turn.productContext);
-        return { user: turn.user, assistant: turn.assistant, ...(productContext ? { productContext } : {}) };
+        return { user: turn.user, assistant: turn.assistant, ...(productContext ? { productContext } : {}), ...(turn.customerAmbiguous === true ? { customerAmbiguous: true } : {}), ...(turn.productUnresolved === true ? { productUnresolved: true } : {}) };
       });
   } catch { return []; }
 }
 
-export function writeConversation(scope: AgentScope, previous: Turn[], user: string, assistant: string, productContext?: ProductContext): string {
+export function writeConversation(scope: AgentScope, previous: Turn[], user: string, assistant: string, productContext?: ProductContext, customerAmbiguous = false, productUnresolved = false): string {
   const safe = safeProductContext(productContext);
-  const payload: Payload = { ...scope, expires: Date.now() + 30 * 60_000, turns: [...previous.map(({ user: priorUser, assistant: priorAssistant }) => ({ user: priorUser, assistant: priorAssistant })), { user: user.slice(0, 500), assistant: assistant.slice(0, 1200), ...(safe ? { productContext: safe } : {}) }].slice(-3) };
+  const payload: Payload = { ...scope, expires: Date.now() + 30 * 60_000, turns: [...previous.map(({ user: priorUser, assistant: priorAssistant }) => ({ user: priorUser, assistant: priorAssistant })), { user: user.slice(0, 500), assistant: assistant.slice(0, 1200), ...(safe ? { productContext: safe } : {}), ...(customerAmbiguous ? { customerAmbiguous: true } : {}), ...(productUnresolved ? { productUnresolved: true } : {}) }].slice(-3) };
   let body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   // Multibyte messages must fit the same bound enforced by the HTTP route.
   while (body.length + 44 > 9000) {

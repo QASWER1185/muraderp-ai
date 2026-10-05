@@ -3,6 +3,7 @@ import { ApiError } from "../../errors/api-error.js";
 import { readConversation, writeConversation, type ProductContext, type ProductReference } from "./conversation.js";
 import type { AgentScope, ErpToolRegistry } from "./erp-tools.js";
 import type { AgentModel, FunctionCall } from "./model.js";
+import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
 
 const MAX_ITERATIONS = 10;
 const MAX_CALLS = 12;
@@ -27,7 +28,8 @@ function productReference(value: unknown): ProductReference | null {
 function productResults(tool: string, result: unknown): ProductReference[] | null {
   if (tool === "lookup_product") return result ? [productReference(result)].filter((item): item is ProductReference => item !== null) : [];
   if (tool !== "search_products") return null;
-  const items = result && typeof result === "object" && "items" in result ? result.items : null;
+  const resolved = result as EntityResolution<RankedEntity> | null;
+  const items = resolved?.resolution === "resolved" ? [resolved.bestCandidate] : resolved?.items;
   return Array.isArray(items) ? items.map(productReference).filter((item): item is ProductReference => item !== null) : [];
 }
 
@@ -48,6 +50,9 @@ export class ReadOnlyCopilotAgent {
     const previous = readConversation(request.conversationToken, scope);
     const input: unknown[] = previous.flatMap((turn) => [{ role: "user", content: turn.user }, { role: "assistant", content: turn.assistant }]);
     const priorProducts = previous.at(-1)?.productContext;
+    let customerAmbiguous = previous.at(-1)?.customerAmbiguous === true;
+    let productUnresolved = previous.at(-1)?.productUnresolved === true;
+    let resolvedCustomerId: number | undefined;
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
     input.push({ role: "user", content: request.message });
     const controller = new AbortController();
@@ -61,6 +66,15 @@ export class ReadOnlyCopilotAgent {
     let currentCandidates: ProductReference[] = [];
     let uniqueSearchThisTurn = false;
     let requiredToolRetry = false;
+    let unresolvedProduct: EntityResolution<RankedEntity> | undefined;
+    let unresolvedCustomer: EntityResolution<RankedEntity> | undefined;
+    const clarification = (result: EntityResolution<RankedEntity>, kind: string) => {
+      const candidates = result.items.map((r) => {
+        const row = r as RankedEntity & { city?: string; sku?: string };
+        return `${row.name}${row.city ? `, ${row.city}` : ""}${row.sku ? `, SKU ${row.sku}` : ""} (ID ${row.id})`;
+      });
+      return `Please clarify which ${kind} you mean${candidates.length ? ": " + candidates.join("; ") : " by name, SKU or location"}.`;
+    };
     let answer = FALLBACK;
     let status = "limit";
     try {
@@ -69,6 +83,18 @@ export class ReadOnlyCopilotAgent {
         const step = await withinDeadline(this.model.respond(input, this.tools.definitions(), controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
+          if (unresolvedProduct?.resolution === "no_match" || unresolvedCustomer?.resolution === "no_match") {
+            answer = unresolvedProduct?.resolution === "no_match" ? "No matching ERP product is available. Please clarify its name or SKU." : "No matching ERP customer is available. Please clarify the name or location.";
+            status = "completed"; break;
+          }
+          if (unresolvedProduct || unresolvedCustomer || customerAmbiguous) {
+            answer = unresolvedProduct ? clarification(unresolvedProduct,"product") : unresolvedCustomer ? clarification(unresolvedCustomer,"customer") : "Please clarify which customer you mean by name or location.";
+            status = "clarification"; break;
+          }
+          if (productUnresolved || productContext?.ambiguous) {
+            answer = CLARIFY_PRODUCT;
+            status = "clarification"; break;
+          }
           if (verifiedResults === 0 && priorProducts?.ambiguous) { answer = CLARIFY_PRODUCT; status = "clarification"; break; }
           if (verifiedResults === 0 && priorProducts?.candidates.length === 1 && !requiredToolRetry) { requiredToolRetry = true; continue; }
           if (step.text && verifiedResults > 0) { answer = step.text.slice(0, 4000); status = "completed"; }
@@ -85,24 +111,38 @@ export class ReadOnlyCopilotAgent {
           try { args = JSON.parse(call.arguments); } catch { status = "malformed"; break; }
           const key = `${call.name}:${JSON.stringify(canonical(args))}`;
           if (seen.has(key)) { status = "duplicate"; break; }
-          if (call.name === "lookup_current_sale_rate" && priorProducts?.ambiguous && !uniqueSearchThisTurn) {
-            answer = CLARIFY_PRODUCT; status = "clarification"; break;
+          if (call.name === "lookup_current_sale_rate" && args && typeof args === "object" &&
+              ((uniqueSearchThisTurn && "product_id" in args && args.product_id !== productContext?.candidates[0]?.id) ||
+               (resolvedCustomerId !== undefined && "customer_id" in args && args.customer_id !== resolvedCustomerId))) {
+            answer = "Please clarify the entity selection; the requested ID does not match the resolved ERP candidate.";
+            status = "clarification"; break;
+          }
+          if (call.name === "lookup_current_sale_rate" &&
+              (unresolvedProduct || unresolvedCustomer || productUnresolved || customerAmbiguous || (priorProducts?.ambiguous && !uniqueSearchThisTurn))) {
+            answer = unresolvedProduct ? clarification(unresolvedProduct,"product") : unresolvedCustomer ? clarification(unresolvedCustomer,"customer") : customerAmbiguous ? "Please clarify which customer you mean by name or location." : CLARIFY_PRODUCT;
+            status = "clarification"; break;
           }
           seen.add(key);
           calls++;
           try {
             const result = await withinDeadline(this.tools.execute(call.name, args, scope), controller.signal);
             verifiedResults++;
+            if (call.name === "search_products" || call.name === "lookup_customers") {
+              const resolution = result as EntityResolution<RankedEntity>;
+              const unresolved = resolution.requiresClarification ? resolution : undefined;
+              if (call.name === "search_products") { unresolvedProduct = unresolved; productUnresolved = resolution.resolution !== "resolved"; }
+              else { unresolvedCustomer = unresolved; customerAmbiguous = resolution.resolution !== "resolved"; resolvedCustomerId = resolution.bestCandidate?.id; }
+            }
             const candidates = productResults(call.name, result);
             if (candidates !== null) {
-              if (call.name === "search_products") { if (productSearches === 0) currentCandidates = []; productSearches++; }
+              if (call.name === "search_products") { currentCandidates = []; productSearches++; }
               else if (productSearches === 0 && productLookups === 0 && !priorProducts?.ambiguous) currentCandidates = [];
               if (call.name === "lookup_product") productLookups++;
               for (const item of candidates) if (!currentCandidates.some((candidate) => candidate.id === item.id)) currentCandidates.push(item);
               if (!(priorProducts?.ambiguous && productSearches === 0)) {
-                productContext = currentCandidates.length ? { candidates: currentCandidates.slice(0, 5), ambiguous: currentCandidates.length > 1 } : undefined;
+                productContext = currentCandidates.length ? { candidates: currentCandidates.slice(0, 5), ambiguous: !!unresolvedProduct || currentCandidates.length > 1 } : undefined;
               }
-              uniqueSearchThisTurn = productSearches > 0 && currentCandidates.length === 1;
+              uniqueSearchThisTurn = !unresolvedProduct && productSearches > 0 && currentCandidates.length === 1;
             }
             input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result ?? null) });
             logger?.info({ traceId, iteration, tool: call.name, outcome: "ok" }, "Copilot tool executed");
@@ -119,6 +159,6 @@ export class ReadOnlyCopilotAgent {
       status = controller.signal.aborted ? "timeout" : "error";
     } finally { clearTimeout(timer); }
     logger?.info({ traceId, status, calls }, "Copilot agent finished");
-    return { answer, conversationToken: writeConversation(scope, previous, request.message, answer, productContext), traceId, status };
+    return { answer, conversationToken: writeConversation(scope, previous, request.message, answer, productContext, customerAmbiguous, productUnresolved), traceId, status };
   }
 }
