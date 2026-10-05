@@ -1,3 +1,4 @@
+import { resolveCandidates } from "../../services/entity-search.service.js";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../errors/api-error.js";
 import { readConversation } from "./conversation.js";
@@ -12,6 +13,11 @@ function services(): ToolServices {
     tenant: { assertPermission: vi.fn(async () => {}), assertBranchAccess: vi.fn(async () => {}) },
     erp: { getProduct: vi.fn(async (id, org) => id === 7 && org === scope.organizationId ? product as any : null), getCustomer: vi.fn(async () => null) },
     catalog: { getCatalog: vi.fn(async (org) => ({ products: org === scope.organizationId ? [{ id: 7, name: product.name, sku: product.sku, unit: product.unit, brandName: "Popular" }] : [], customers: org === scope.organizationId ? [{ id: 1, name: "Alice" }] : [], vendors: org === scope.organizationId ? [{ id: 2, name: "Supply Co" }] : [], warehouses: [], rateLists: [{ id: 4, name: "Popular", code: "POP", priceType: "SALE" as const, scopeType: "GLOBAL" as const, currencyCode: "PKR" }] })) },
+    search: {
+      searchProducts: vi.fn(async (query: string, limit: number, tenant: AgentScope) => resolveCandidates(tenant.organizationId === scope.organizationId && query.toLowerCase().split(/\s+/).every(t => (product.name + " " + product.sku + " Popular").toLowerCase().includes(t)) ? [{id:7,name:product.name,sku:product.sku,unit:product.unit,category:product.category,brandName:"Popular",confidence:0.95,match_kind:"fuzzy"}] : [], limit)),
+      searchCustomers: vi.fn(async (query, limit, tenant) => resolveCandidates(tenant.organizationId === scope.organizationId && "alice".includes(query.toLowerCase()) ? [{id:1,name:"Alice",city:"",confidence:1,match_kind:"exact_name"}] : [],limit)),
+      getProductBrand: vi.fn(async () => "Popular"),
+    },
     pricing: { resolvePrice: vi.fn(async () => ({ product_id: 7, rate_list_id: 4, rate_list_version_id: 10, rate_list_item_id: 12, unit_price: 100, unit: "pcs", currency_code: "PKR", minimum_quantity: 1, scope_type: "GLOBAL" as const, effective_from: "2026-01-01T00:00:00Z" })) },
     rateLists: { listActiveSaleRateLists: vi.fn(async () => [{ id: 4, organization_id: scope.organizationId, name: "Popular", code: "POP", price_type: "SALE" as const, scope_type: "GLOBAL" as const, vendor_id: null, customer_id: null, currency_code: "PKR", is_active: true, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }]), getVersion: vi.fn(async () => ({ id: 10, rate_list_id: 4, version_number: 2, status: "ACTIVE" as const, effective_from: "2026-01-01T00:00:00Z", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" })) },
   };
@@ -25,6 +31,51 @@ function sequence(...steps: ModelStep[]) {
 }
 
 describe("read-only ERP agent", () => {
+  it.each(["ambiguous", "weak"])("blocks model guesses after a current-turn %s product search", async kind => {
+    const deps=services();
+    const candidates=[{id:7,name:product.name,sku:product.sku,unit:product.unit,category:product.category,brandName:"Popular",confidence:kind==="weak"?.75:.95,match_kind:"fuzzy"}];
+    if(kind==="ambiguous") candidates.push({...candidates[0]!,id:8});
+    vi.mocked(deps.search.searchProducts).mockResolvedValue(resolveCandidates(candidates,1));
+    const model=sequence(step(call("search_products",{query:"pipe",limit:1})),step(call("lookup_product",{product_id:7},"pick")),step(call("lookup_current_sale_rate",{product_id:7},"guess"))).model;
+    const result=await new ReadOnlyCopilotAgent(model,new ErpToolRegistry(deps)).run({message:"pipe rate"},scope);
+    expect(result.status).toBe("clarification");expect(deps.pricing.resolvePrice).not.toHaveBeenCalled();
+    expect(readConversation(result.conversationToken,scope).at(-1)?.productContext?.ambiguous).toBe(true);
+  });
+  it("overrides a model that silently chooses an ambiguous candidate in its final answer",async()=>{
+    const deps=services();
+    vi.mocked(deps.search.searchCustomers).mockResolvedValue(resolveCandidates([{id:1,name:"Qasim",city:"Lake City",confidence:1,match_kind:"exact_name"},{id:2,name:"Qasim",city:"DHA",confidence:1,match_kind:"exact_name"}],10));
+    const result=await new ReadOnlyCopilotAgent(sequence(step(call("lookup_customers",{query:"Qasim sahib"})),final("I chose customer 1")).model,new ErpToolRegistry(deps)).run({message:"Qasim sahib"},scope);
+    expect(result.status).toBe("clarification");expect(result.answer).not.toContain("I chose");
+    const followup=await new ReadOnlyCopilotAgent(sequence(step(call("lookup_current_sale_rate",{product_id:7,customer_id:1}))).model,new ErpToolRegistry(deps)).run({message:"his rate",conversationToken:result.conversationToken},scope);
+    expect(followup.status).toBe("clarification");expect(deps.pricing.resolvePrice).not.toHaveBeenCalled();
+  });
+  it("resolves a refined search in the same turn and permits authoritative pricing",async()=>{
+    const deps=services();
+    const p={id:7,name:product.name,sku:product.sku,unit:product.unit,category:product.category,brandName:"Popular",confidence:.95,match_kind:"fuzzy"};
+    vi.mocked(deps.search.searchProducts).mockResolvedValueOnce(resolveCandidates([p,{...p,id:8}],10)).mockResolvedValueOnce(resolveCandidates([p],10));
+    const result=await new ReadOnlyCopilotAgent(sequence(step(call("search_products",{query:"pipe"})),step(call("search_products",{query:"Popular 25mm"},"refine")),step(call("lookup_current_sale_rate",{product_id:7},"rate")),final("Verified rate")).model,new ErpToolRegistry(deps)).run({message:"Popular 25mm pipe rate"},scope);
+    expect(result.status).toBe("completed");expect(deps.pricing.resolvePrice).toHaveBeenCalledOnce();
+  });
+  it("blocks invented pricing after no match and never fetches the catalog for product lookup",async()=>{
+    const deps=services();
+    vi.mocked(deps.search.searchProducts).mockResolvedValue(resolveCandidates([],10));
+    const result=await new ReadOnlyCopilotAgent(sequence(step(call("search_products",{query:"unicorn"})),step(call("lookup_current_sale_rate",{product_id:7},"guess"))).model,new ErpToolRegistry(deps)).run({message:"unicorn rate"},scope);
+    expect(result.status).toBe("clarification");expect(deps.pricing.resolvePrice).not.toHaveBeenCalled();
+    await new ErpToolRegistry(deps).execute("lookup_product",{product_id:7},scope);
+    expect(deps.catalog.getCatalog).not.toHaveBeenCalled();
+    const followup=await new ReadOnlyCopilotAgent(sequence(step(call("lookup_product",{product_id:7},"lookup")),step(call("lookup_current_sale_rate",{product_id:7},"rate"))).model,new ErpToolRegistry(deps)).run({message:"its rate",conversationToken:result.conversationToken},scope);
+    expect(followup.status).toBe("clarification");expect(deps.pricing.resolvePrice).not.toHaveBeenCalled();
+  });
+  it("rejects a model using another ID instead of the resolved product or customer",async()=>{
+    for(const entity of ['product','customer']) {
+      const deps=services();
+      const model=entity==='product'
+        ? sequence(step(call('search_products',{query:'25mm'})),step(call('lookup_current_sale_rate',{product_id:8},'wrong'))).model
+        : sequence(step(call('lookup_customers',{query:'Alice'})),step(call('lookup_current_sale_rate',{product_id:7,customer_id:2},'wrong'))).model;
+      expect((await new ReadOnlyCopilotAgent(model,new ErpToolRegistry(deps)).run({message:'rate'},scope)).status).toBe('clarification');
+      expect(deps.pricing.resolvePrice).not.toHaveBeenCalled();
+    }
+  });
   it("loads six valid native tool definitions and rejects invalid schemas", async () => {
     const registry = new ErpToolRegistry(services());
     expect(ERP_TOOLS).toHaveLength(6);
@@ -93,7 +144,7 @@ describe("read-only ERP agent", () => {
 
   it("does not begin another ERP call after a tool exceeds the deadline", async () => {
     const deps = services();
-    vi.mocked(deps.catalog.getCatalog).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(deps.search.searchProducts).mockImplementation(() => new Promise(() => {}));
     const { model } = sequence(step(call("search_products", { query: "pipe" }), call("lookup_product", { product_id: 7 }, "second")));
     const result = await new ReadOnlyCopilotAgent(model, new ErpToolRegistry(deps), 5).run({ message: "Pipe" }, scope);
     expect(result.status).toBe("timeout");
@@ -104,7 +155,7 @@ describe("read-only ERP agent", () => {
     const deps = services();
     const registry = new ErpToolRegistry(deps);
     const missing = await new ReadOnlyCopilotAgent(sequence(step(call("search_products", { query: "ABC XYZ 9999" })), final("No matching ERP product is available.")).model, registry).run({ message: "ABC XYZ 9999" }, scope);
-    expect(missing).toMatchObject({ status: "completed", answer: "No matching ERP product is available." });
+    expect(missing).toMatchObject({ status: "completed", answer: "No matching ERP product is available. Please clarify its name or SKU." });
     vi.mocked(deps.pricing.resolvePrice).mockResolvedValueOnce(null);
     const rate = await new ReadOnlyCopilotAgent(sequence(step(call("lookup_current_sale_rate", { product_id: 7 })), final("No authorized current sale rate is available.")).model, registry).run({ message: "Current rate" }, scope);
     expect(rate).toMatchObject({ status: "completed", answer: "No authorized current sale rate is available." });
@@ -113,7 +164,7 @@ describe("read-only ERP agent", () => {
 
   it("feeds tool failures back to the model and permits a different authorized recovery call", async () => {
     const deps = services();
-    vi.mocked(deps.catalog.getCatalog).mockRejectedValueOnce(new Error("unavailable"));
+    vi.mocked(deps.search.searchProducts).mockRejectedValueOnce(new Error("unavailable"));
     const { model, respond } = sequence(step(call("search_products", { query: "pipe" })), step(call("lookup_product", { product_id: 7 }, "recovery")), final("Verified pipe"));
     const result = await new ReadOnlyCopilotAgent(model, new ErpToolRegistry(deps)).run({ message: "Pipe" }, scope);
     expect(result).toMatchObject({ status: "completed", answer: "Verified pipe" });
