@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
@@ -155,6 +156,28 @@ export function createAiCopilotRouter(
     const action = await getRuntime().createConversationDraft(state, view);
     response.setHeader("Cache-Control", "no-store");
     response.status(201).json({ data: action, draft: view, requiresConfirmation: true, executed: false });
+  });
+
+  router.post("/conversation/payments", authorize, async (request, response) => {
+    const userId = request.browserPrincipal?.userId;
+    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required.");
+    const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
+    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
+    const input = z.strictObject({ conversationToken: z.string().min(1).max(9000), conversationId: z.string().uuid() }).parse(request.body);
+    const scope = { userId, organizationId, branchId };
+    const state = readBusinessState(input.conversationToken, scope, input.conversationId);
+    if (!state.paymentPreparation) throw new ApiError(422, "PAYMENT_NOT_PREPARED", "Prepare the payment for review first.");
+    const business = getConversationalTools().business;
+    if (!business) throw new ApiError(503, "BUSINESS_TOOLS_UNAVAILABLE", "Payment preparation is not configured.");
+    const preparation = await business.validatePayment(state.paymentPreparation, scope, state);
+    // Content and signed identity bind retries to the same payment review. Read
+    // refresh/expiry cannot accidentally create a second approval action.
+    const idempotencyKey = "conversation-payment-" + createHash("sha256").update(JSON.stringify({
+      ...scope, conversationId: state.conversationId, intent: preparation.intent, payment: preparation.payment,
+    })).digest("hex");
+    const action = await getRuntime().createFinancialDraft({ ...scope, source: "text", intent: preparation.intent, payment: preparation.payment }, idempotencyKey);
+    response.setHeader("Cache-Control", "no-store");
+    response.status(201).json({ data: { ...action, idempotencyKey }, paymentPreparation: preparation, requiresConfirmation: true, executed: false });
   });
 
   router.post("/review", authorize, async (request, response) => {

@@ -38,6 +38,13 @@ export async function prepareConversationDraft(conversationToken, conversationId
   });
 }
 
+export async function prepareConversationPayment(conversationToken, conversationId, organizationId, branchId) {
+  return api("/api/v1/ai/copilot/conversation/payments", {
+    method: "POST", headers: { "X-Organization-Id": organizationId, "X-Branch-Id": branchId },
+    body: JSON.stringify({ conversationToken, conversationId }),
+  });
+}
+
 export async function quoteCopilotEstimateLine(input, branchId) {
   return api("/api/v1/ai/copilot/review/quote", {
     method: "POST", headers: { "X-Branch-Id": branchId }, body: JSON.stringify(input),

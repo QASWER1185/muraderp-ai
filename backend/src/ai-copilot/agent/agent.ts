@@ -6,6 +6,10 @@ import { newBusinessState, readBusinessState, writeBusinessState, touchDraft, ty
 import { draftAnswer, type DraftView } from "./draft-tools.js";
 import type { AgentModel, FunctionCall } from "./model.js";
 import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
+import { businessAnswer } from "./business-answer.js";
+import { BUSINESS_TOOL_DEFINITIONS, type BusinessFact } from "./business-tools.js";
+
+const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
 const MAX_ITERATIONS = 10;
 const MAX_CALLS = 12;
@@ -65,12 +69,16 @@ export class UnifiedCopilotAgent {
     }
     const input: unknown[] = state.lastMessage ? [{ role: "user", content: "Previous untrusted wording (not entity or price authority): " + state.lastMessage }] : [];
     const priorProducts = state.productContext;
+    // A new user turn replaces transient approval controls. A fresh payment
+    // preparation tool must validate all choices before another review is offered.
+    delete state.paymentPreparation;
     let customerAmbiguous = state.customerAmbiguous === true;
     let productUnresolved = state.productUnresolved === true;
     let resolvedCustomerId: number | undefined = state.customer?.id;
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
     input.push({ role: "assistant", content: "Server-validated business context (references and user choices only; current prices must be obtained from tools):" + JSON.stringify({
-      conversationId: state.conversationId, customer: state.customer, customerAmbiguous, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,
+      conversationId: state.conversationId, customer: state.customer, customerAmbiguous, vendor: state.vendor, vendorAmbiguous: state.vendorAmbiguous,
+      comparison: state.comparison, comparisonAnalysis: state.comparisonAnalysis, analysis: state.analysis, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,
     }) });
     input.push({ role: "user", content: request.message });
     const controller = new AbortController();
@@ -80,6 +88,7 @@ export class UnifiedCopilotAgent {
     const toolNames: string[] = [];
     let draftView: DraftView | undefined;
     let review: unknown;
+    const businessFacts: BusinessFact[] = [];
     let verifiedResults = 0;
     let productContext: ProductContext | undefined = priorProducts;
     let productSearches = 0;
@@ -104,6 +113,14 @@ export class UnifiedCopilotAgent {
         const step = await withinDeadline(this.model.respond(input, this.tools.definitions(), controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
+          if (businessFacts.length) {
+            answer = businessAnswer(businessFacts, request.message);
+            if (draftView) answer += "\n\n" + draftAnswer(draftView, request.message);
+            status = "completed"; break;
+          }
+          if (state.vendorAmbiguous && toolNames.includes("lookup_vendors")) {
+            answer = "Please clarify which vendor you mean by name or location."; status = "clarification"; break;
+          }
           if (unresolvedProduct?.resolution === "no_match" || unresolvedCustomer?.resolution === "no_match") {
             answer = unresolvedProduct?.resolution === "no_match" ? "No matching ERP product is available. Please clarify its name or SKU." : "No matching ERP customer is available. Please clarify the name or location.";
             status = "completed"; break;
@@ -149,9 +166,24 @@ export class UnifiedCopilotAgent {
             state.productContext = productContext;
             state.productUnresolved = productUnresolved;
             state.customerAmbiguous = customerAmbiguous;
+            const priorCustomerId = state.customer?.id;
             const result = await withinDeadline(this.tools.execute(call.name, args, scope, state, request.message, controller.signal), controller.signal);
             verifiedResults++;
             toolNames.push(call.name);
+            if (BUSINESS_TOOLS.has(call.name)) {
+              productContext = state.productContext;
+              productUnresolved = state.productUnresolved === true;
+              customerAmbiguous = state.customerAmbiguous === true;
+              resolvedCustomerId = state.customer?.id;
+              if (priorCustomerId !== resolvedCustomerId && state.draft) { touchDraft(state); draftView = undefined; }
+              if (result && typeof result === "object" && "kind" in result) {
+                businessFacts.push(result as BusinessFact);
+                if ("product" in result) { unresolvedProduct = undefined; uniqueSearchThisTurn = true; }
+                if ("customer" in result) unresolvedCustomer = undefined;
+              }
+            } else if (call.name === "lookup_current_sale_rate" && this.tools.definitions().some(tool => tool && typeof tool === "object" && "name" in tool && tool.name === "query_inventory")) {
+              businessFacts.push({ kind: "sale_rate", rate: result });
+            }
             if (result && typeof result === "object" && "review" in result && result.review) {
               review = result.review; answer = "Review the prepared ERP action and confirm it explicitly before execution."; status = "completed"; break;
             }
@@ -182,9 +214,24 @@ export class UnifiedCopilotAgent {
             logger?.info({ traceId, iteration, tool: call.name, outcome: "ok" }, "Copilot tool executed");
           } catch (error) {
             if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
-            if (error instanceof ApiError && error.code === "DRAFT_CONTEXT_REQUIRED") {
+            // A failed new selection must not leave a previous entity available
+            // for an unrelated payment or pronoun follow-up.
+            if (BUSINESS_TOOLS.has(call.name) && args && typeof args === "object") {
+              if (call.name === "lookup_vendors") { delete state.vendor; state.vendorAmbiguous = true; }
+              if (call.name === "query_customer_ledger" && "query" in args) {
+                if (state.draft) { touchDraft(state); draftView = undefined; }
+                delete state.customer; customerAmbiguous = true; resolvedCustomerId = undefined;
+              }
+              if (["query_inventory", "calculate_margin", "compare_products"].includes(call.name) && ("query" in args || "queries" in args)) {
+                productContext = undefined; productUnresolved = true; delete state.analysis;
+                if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
+              }
+            }
+            if (error instanceof ApiError && ["DRAFT_CONTEXT_REQUIRED", "BUSINESS_CONTEXT_REQUIRED"].includes(error.code)) {
+              if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
               answer = error.message; status = "clarification"; break;
             }
+            if (BUSINESS_TOOLS.has(call.name)) businessFacts.push({ kind: "unavailable", message: `${call.name}: authoritative result unavailable or arguments invalid. Please clarify or retry.` });
             input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ error: "Tool result unavailable or arguments invalid" }) });
             logger?.warn({ traceId, iteration, tool: call.name, outcome: "error" }, "Copilot tool failed");
           }
@@ -202,11 +249,14 @@ export class UnifiedCopilotAgent {
     state.lastMessage = request.message.slice(0, 500);
     state.expires = Date.now() + 30 * 60_000;
     state.revision++;
-    if (draftView && status === "completed") {
+    if (draftView && status === "completed" && businessFacts.length === 0) {
       answer = draftAnswer(draftView, request.message);
     }
+    if (status !== "completed") delete state.paymentPreparation;
     return { answer, conversationToken: writeBusinessState(state), conversationId: state.conversationId, traceId, status, toolNames,
-      ...(draftView ? { draft: draftView } : {}), ...(review ? { review } : {}), requiresConfirmation: Boolean(review || draftView?.prepared) };
+      ...(draftView ? { draft: draftView } : {}), ...(review ? { review } : {}),
+      ...(businessFacts.length ? { businessFacts } : {}), ...(state.paymentPreparation ? { paymentPreparation: state.paymentPreparation } : {}),
+      requiresConfirmation: Boolean(review || draftView?.prepared || state.paymentPreparation) };
   }
 }
 

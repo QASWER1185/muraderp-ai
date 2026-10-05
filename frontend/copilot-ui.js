@@ -1,4 +1,4 @@
-import { createCopilotDraft, createCopilotReview, askCopilot, prepareConversationDraft, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
+import { createCopilotDraft, createCopilotReview, askCopilot, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
@@ -40,6 +40,19 @@ export function conversationDraftMarkup(draft) {
     <p><strong>${draft.totals ? "Total: " + escapeHtml(draft.currencyCode) + " " + escapeHtml(draft.totals.grand_total.toFixed(2)) : "Total unavailable until all rates are verified."}</strong></p>
     <p>Continue this conversation to add, remove or correct items. Nothing is executed without your explicit confirmation.</p>
     ${draft.prepared && draft.totals ? '<button class="button primary" type="button" data-prepare-conversation-draft>Prepare draft</button>' : ""}</article>`;
+}
+
+export function conversationPaymentMarkup(preparation, ready = false) {
+  const payment = preparation.payment;
+  const receipt = preparation.intent === "customer_payment";
+  return `<article class="review-card" data-conversation-payment><div class="review-heading"><h3>${receipt ? "Customer receipt" : "Vendor payment"}</h3><span class="status-pill review">Review required</span></div>
+    <p>${escapeHtml(preparation.partyName)} · ${escapeHtml(payment.currency_code ?? "Currency is not tracked by the vendor payment domain")} ${escapeHtml(payment.amount)}</p>
+    <p>Date: ${escapeHtml(payment.payment_date)} · Method: ${escapeHtml(payment.payment_method)}</p>
+    <div class="review-lines">${payment.allocations.map(row => `<p>${receipt ? "Invoice" : "Purchase"} ${escapeHtml(row.invoice_id ?? row.purchase_id)}: ${escapeHtml(row.amount)}</p>`).join("")}</div>
+    ${payment.reference_number || payment.reference ? `<p>Reference: ${escapeHtml(payment.reference_number ?? payment.reference)}</p>` : ""}
+    ${payment.notes ? `<p>Notes: ${escapeHtml(payment.notes)}</p>` : ""}
+    <p>${receipt ? "This receives a customer payment against the listed invoices." : "This pays a vendor against the listed purchases."} Nothing is posted until explicit confirmation.</p>
+    ${ready ? "" : '<button class="button primary" type="button" data-prepare-conversation-payment>Prepare payment draft</button>'}</article>`;
 }
 
 export function attachmentLabel(file) {
@@ -257,15 +270,20 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
         const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
+        activeDraft = null; preparedConversation = null;
+        thread.querySelectorAll("[data-conversation-draft], [data-conversation-payment], .confirmation-card").forEach(card => card.remove());
         const response = await askCopilot(text, context.organizationId, context.branchId, token, conversationId);
         if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         activeDraft = null; preparedConversation = null;
-        thread.querySelectorAll("[data-conversation-draft], .confirmation-card").forEach(card => card.remove());
-        appendMessage("assistant", `<p>${escapeHtml(response.data.answer)}</p>`);
+        appendMessage("assistant", `<p>${escapeHtml(response.data.answer).split("\n\n").join("</p><p>")}</p>`);
         if (response.data.draft) {
           appendMessage("assistant", conversationDraftMarkup(response.data.draft));
           if (response.data.draft.prepared) preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId };
+        }
+        if (response.data.paymentPreparation) {
+          appendMessage("assistant", conversationPaymentMarkup(response.data.paymentPreparation));
+          preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId, kind: "payment" };
         }
         return;
       }
@@ -344,14 +362,17 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const userId = getAuthenticatedUserId();
     if (!preparedConversation || conversation.tokenFor(userId, context.organizationId, context.branchId) !== preparedConversation.token) throw new Error("Review the current conversation draft first.");
     if (!navigator.onLine) throw new Error("Go online before preparing an ERP approval draft.");
-    setBusy(true, "Preparing the reviewed estimate");
+    const payment = preparedConversation.kind === "payment";
+    setBusy(true, payment ? "Preparing the reviewed payment" : "Preparing the reviewed estimate");
     try {
-      const response = await prepareConversationDraft(preparedConversation.token, preparedConversation.conversationId, context.organizationId, context.branchId);
-      activeDraft = { id: response.data.id, organizationId: context.organizationId, branchId: context.branchId, idempotencyKey: response.data.idempotencyKey, intent: "estimate" };
-      thread.querySelectorAll("[data-conversation-draft]").forEach(card => card.remove());
-      appendMessage("assistant", conversationDraftMarkup(response.draft));
+      const prepare = payment ? prepareConversationPayment : prepareConversationDraft;
+      const response = await prepare(preparedConversation.token, preparedConversation.conversationId, context.organizationId, context.branchId);
+      activeDraft = { id: response.data.id, organizationId: context.organizationId, branchId: context.branchId, idempotencyKey: response.data.idempotencyKey, intent: payment ? response.paymentPreparation.intent : "estimate" };
+      thread.querySelectorAll("[data-conversation-draft], [data-conversation-payment]").forEach(card => card.remove());
+      appendMessage("assistant", payment ? conversationPaymentMarkup(response.paymentPreparation, true) : conversationDraftMarkup(response.draft));
+      preparedConversation = null;
       thread.querySelectorAll(".confirmation-card").forEach(card => card.remove());
-      appendMessage("assistant", '<article class="confirmation-card"><h3>Estimate ready for confirmation</h3><p>Review the customer, items, rates, discount and total above. Confirm action to execute through the ERP service.</p><div class="review-actions"><button class="button secondary" type="button" data-draft-cancel>Cancel</button><button class="button danger" type="button" data-confirm-draft>Confirm action</button></div></article>');
+      appendMessage("assistant", `<article class="confirmation-card"><h3>${payment ? "Payment" : "Estimate"} ready for confirmation</h3><p>${payment ? "Review the party, payment direction, amount, date, method and allocations above." : "Review the customer, items, rates, discount and total above."} Confirm action to execute through the ERP service.</p><div class="review-actions"><button class="button secondary" type="button" data-draft-cancel>Cancel</button><button class="button danger" type="button" data-confirm-draft>Confirm action</button></div></article>`);
     } finally { setBusy(false); }
   }
 
@@ -385,6 +406,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (event.target.closest("[data-review-cancel]")) { review = null; quoteVersions.clear(); event.target.closest(".review-card")?.remove(); appendMessage("assistant", "<p>Review cancelled. No ERP data was changed.</p>"); }
     if (event.target.closest("[data-prepare-draft]")) void run(prepareDraft);
     if (event.target.closest("[data-prepare-conversation-draft]")) void run(prepareStatefulDraft);
+    if (event.target.closest("[data-prepare-conversation-payment]")) void run(prepareStatefulDraft);
     if (event.target.closest("[data-draft-cancel]")) { activeDraft = null; event.target.closest(".confirmation-card")?.remove(); appendMessage("assistant", "<p>Draft cancelled. Nothing was posted.</p>"); }
     if (event.target.closest("[data-confirm-draft]")) void run(confirmDraft);
     if (event.target.closest("[data-copilot-retry]") && retryAction) void run(retryAction);

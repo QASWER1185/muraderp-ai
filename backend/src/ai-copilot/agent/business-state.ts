@@ -23,6 +23,7 @@ export const businessStateSchema = z.strictObject({
   vendor: z.strictObject({ id, name: z.string().max(160) }).optional(),
   vendorAmbiguous: z.boolean().optional(),
   comparison: z.array(product).min(2).max(5).optional(),
+  comparisonAnalysis: z.strictObject({ quantity: z.number().finite().positive().max(1_000_000), discountPercent: z.number().finite().min(0).max(100) }).optional(),
   analysis: z.strictObject({ productId: id, quantity: z.number().finite().positive().max(1_000_000), discountPercent: z.number().finite().min(0).max(100) }).optional(),
   paymentPreparation: paymentStateSchema.optional(),
   customerAmbiguous: z.boolean().optional(), productUnresolved: z.boolean().optional(),

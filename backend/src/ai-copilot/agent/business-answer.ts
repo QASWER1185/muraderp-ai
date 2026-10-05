@@ -13,6 +13,7 @@ export function businessAnswer(facts: BusinessFact[], message: string): string {
       const rows = fact.balances as Array<{ warehouseId: number; quantity: number; unit: string }>;
       rendered.push(`${name(fact.product)}: ${label("organization / warehouse stock", "ادارے / گودام کا اسٹاک")} — ${rows.length ? rows.map(row => `${number(row.quantity)} ${row.unit} (${label("warehouse", "گودام")} ${row.warehouseId})`).join("; ") : number(null)}. ${label("Branch on-hand is unsupported; only movement history is branch scoped.", "برانچ کا موجودہ اسٹاک الگ محفوظ نہیں ہوتا؛ صرف نقل و حرکت کی تاریخ برانچ کے مطابق ہے۔")}`);
       if (fact.nextCursor) rendered.push(label("More warehouses exist; this page is not a total.", "مزید گودام موجود ہیں؛ یہ صفحہ کل اسٹاک نہیں ہے۔"));
+      if (fact.totalQuantity !== null) rendered.push(`${label("Total organization / warehouse quantity", "ادارے / گودام کی کل مقدار")}: ${number(fact.totalQuantity)} ${nameUnit(fact.product)}.`);
       const movements = fact.movements as Array<{ date: string; type: string; quantity: number; warehouseId: number; referenceType: string; referenceId: unknown }>;
       if (movements.length) rendered.push(label("Recent branch movements: ", "برانچ کی حالیہ نقل و حرکت: ") + movements.map(row => `${row.date} ${row.type} ${number(row.quantity)} (${row.warehouseId}; ${row.referenceType} ${row.referenceId ?? ""})`).join("; "));
     } else if (fact.kind === "margin") {
@@ -29,7 +30,8 @@ export function businessAnswer(facts: BusinessFact[], message: string): string {
       if (fact.nextCursor) rendered.push(label("More transactions are available on the next page.", "مزید لین دین اگلے صفحے پر دستیاب ہیں۔"));
     } else if (fact.kind === "comparison") {
       const rows = fact.rows as BusinessFact[]; const values = fact.values as unknown[];
-      rendered.push(`${label("Comparison", "موازنہ")} (${fact.metric}): ${rows.map((row, index) => `${name(row.product)} ${number(values[index])}${fact.metric === "margin" && values[index] != null ? "%" : ""} ${fact.metric === "stock" ? nameUnit(row.product) : String(row.currencyCode ?? (row.purchaseCost as { currency_code?: string } | null)?.currency_code ?? "")}`).join("; ")}. ${label("Selected", "منتخب")}: ${(fact.winners as unknown[]).map(name).join(", ") || number(null)}. ${fact.reason ?? ""}`);
+      rendered.push(`${label("Comparison", "موازنہ")} (${fact.metric}): ${rows.map((row, index) => `${name(row.product)} ${number(values[index])}${fact.metric === "margin" && values[index] != null ? "%" : ""} ${fact.metric === "margin" ? "" : fact.metric === "stock" ? nameUnit(row.product) : String(row.currencyCode ?? (row.purchaseCost as { currency_code?: string } | null)?.currency_code ?? "")}`).join("; ")}. ${label("Selected", "منتخب")}: ${(fact.winners as unknown[]).map(name).join(", ") || number(null)}. ${fact.reason ?? ""}`);
+      if (["profit", "margin"].includes(String(fact.metric))) rendered.push(`${label("Quantity", "مقدار")}: ${number(fact.quantity)}; ${label("discount", "رعایت")}: ${number(fact.discountPercent)}%.`);
       if (fact.metric === "stock") rendered.push(label("Stock comparison uses organization / warehouse balances; branch stock is unsupported.", "اسٹاک کا موازنہ ادارے / گودام کے مطابق ہے؛ برانچ کا اسٹاک دستیاب نہیں۔"));
       if (["purchase_cost", "profit", "margin"].includes(String(fact.metric))) rendered.push(label("Costs and profit use active purchase rates as an estimate.", "لاگت اور منافع فعال خرید ریٹ کے مطابق تخمینے ہیں۔"));
     } else if (fact.kind === "payment_preparation") {

@@ -81,7 +81,7 @@ async function updateConnectionStatus() {
 const copilotUi = mountCopilot({
   getAuthenticatedUserId: () => authenticatedUserId,
   openNativeAction: (intent, recordId) => {
-    const section = ({ estimate: "estimates", supplier_bill: "purchases", customer_return: "returns", rate_list_update: "rates" })[intent] ?? "dashboard";
+    const section = ({ estimate: "estimates", supplier_bill: "purchases", customer_return: "returns", rate_list_update: "rates", customer_payment: "payments", vendor_payment: "vendor-payments" })[intent] ?? "dashboard";
     navigate(section);
     if (intent === "estimate") { const sourceInput = content.querySelector('input[name="source"]'); if (sourceInput) { sourceInput.value = String(recordId); sourceInput.focus(); } }
   },

@@ -6,6 +6,7 @@ import type { CopilotBusinessRepository } from "../../repositories/copilot-busin
 import type { CustomerPaymentBrowserRepository } from "../../repositories/customer-payment-browser.repository.js";
 import type { VendorPaymentBrowserRepository } from "../../repositories/vendor-payment-browser.repository.js";
 import { DefaultEstimateProfitService } from "../../services/estimate-profit.service.js";
+import { calculateEstimateTotals } from "../../services/estimate.service.js";
 import type { ResolvedPrice } from "../../types/pricing.types.js";
 import type { AgentScope, ToolServices } from "./erp-tools.js";
 import type { BusinessState } from "./business-state.js";
@@ -21,7 +22,7 @@ const discount = z.number().finite().min(0).max(100).optional();
 const schemas = {
   lookup_vendors: z.strictObject({ query, limit }),
   query_customer_ledger: z.strictObject({ customer_id: id.optional(), query: query.optional(), limit, before_id: cursor }),
-  query_inventory: z.strictObject({ ...product, warehouse_id: id.optional(), balance_scope: z.enum(["organization", "branch"]).default("organization"), limit, cursor }),
+  query_inventory: z.strictObject({ ...product, warehouse_id: id.optional(), balance_scope: z.enum(["organization", "branch"]).default("organization"), limit, cursor, movement_cursor: cursor }),
   calculate_margin: z.strictObject({ ...product, quantity, discount_percent: discount }),
   compare_products: z.strictObject({ queries: z.array(query).min(2).max(5).optional(), metric: z.enum(["sale_price", "purchase_cost", "profit", "margin", "stock"]), quantity, discount_percent: discount }),
   list_payment_documents: z.strictObject({ party_type: z.enum(["customer", "vendor"]), party_id: id.optional(), limit, cursor }),
@@ -47,7 +48,7 @@ export type BusinessServices = {
 };
 export type BusinessFact = { kind: string; [key: string]: unknown };
 type Reference = { id: number; name: string; sku: string; unit: string };
-const clarification = (message: string): never => { throw new ApiError(422, "BUSINESS_CONTEXT_REQUIRED", message); };
+function clarification(message: string): never { throw new ApiError(422, "BUSINESS_CONTEXT_REQUIRED", message); }
 const unitKey = (value: string) => value.trim().toUpperCase();
 
 export class BusinessIntelligenceTools {
@@ -93,7 +94,10 @@ export class BusinessIntelligenceTools {
     const record = kind === "customer" ? await this.base.erp.getCustomer(selected, scope.organizationId) : await this.services.erp.getVendor(selected, scope.organizationId);
     signal?.throwIfAborted();
     if (!record) throw new ApiError(404, "PARTY_NOT_FOUND", `${kind} unavailable in this organization.`);
-    return { id: record.id, name: record.name.slice(0, 160) };
+    const reference = { id: record.id, name: record.name.slice(0, 160) };
+    if (kind === "customer") state.customer = reference;
+    else state.vendor = reference;
+    return reference;
   }
   private rememberProduct(state: BusinessState, reference: Reference) {
     state.productContext = { candidates: [reference], ambiguous: false }; state.productUnresolved = false;
@@ -109,7 +113,9 @@ export class BusinessIntelligenceTools {
     signal?.throwIfAborted();
     // Balance and movement cursors are different orders; expose history separately
     // and do not apply the balance cursor to movement history.
-    const movements = await this.services.erp.listStockMovements({ ...filters, cursor: undefined }, scope.organizationId, scope.branchId);
+    const movements = await this.services.erp.listStockMovements({ limit: input.limit, product_id: reference.id,
+      ...(input.warehouse_id === undefined ? {} : { warehouse_id: input.warehouse_id }),
+      ...(input.movement_cursor === undefined ? {} : { cursor: input.movement_cursor }) }, scope.organizationId, scope.branchId);
     signal?.throwIfAborted();
     const rows = balances?.data.map(row => ({ warehouseId: row.warehouse_id, quantity: Number(row.quantity), unit: reference.unit })) ?? [];
     return { kind: "inventory", product: reference, balanceScope: "ORGANIZATION_WAREHOUSE", branchOnHand: null,
@@ -121,6 +127,7 @@ export class BusinessIntelligenceTools {
       movementNextCursor: movements.next_cursor, movementScope: "BRANCH" };
   }
   private async prices(reference: Reference, scope: AgentScope, state: BusinessState, qty: number, includeCost: boolean, signal?: AbortSignal) {
+    if (state.customerAmbiguous) clarification("Please clarify the customer before requesting applicable prices.");
     const asOf = new Date().toISOString();
     const customer = state.customer ? await this.party("customer", state.customer.id, scope, state, signal) : undefined;
     const resolve = async (type: "SALE" | "PURCHASE") => {
@@ -152,8 +159,9 @@ export class BusinessIntelligenceTools {
     const compatibleSale = sale.value && unitKey(sale.value.unit) === unitKey(reference.unit);
     const compatibleCost = compatibleSale && cost.value && unitKey(cost.value.unit) === unitKey(sale.value!.unit) && cost.value.currency_code === sale.value!.currency_code;
     const revenue = compatibleSale ? Math.round(qty * sale.value!.unit_price * 100) / 100 : null;
-    const discountAmount = revenue === null ? null : Math.round(revenue * discountPercent) / 100;
-    const netRevenue = revenue === null ? null : Math.round((revenue - discountAmount!) * 100) / 100;
+    const discountAmount = revenue === null ? null : Math.min(revenue, Math.round(revenue * discountPercent) / 100);
+    const netRevenue = revenue === null ? null : Math.round(calculateEstimateTotals([{ line_number: 1, product_id: reference.id,
+      quantity: qty, unit: reference.unit, unit_price: sale.value!.unit_price, discount_amount: discountAmount!, pricing_source: "RESOLVED_RATE" }]).grand_total * 100) / 100;
     const netUnitPrice = netRevenue === null ? null : netRevenue / qty;
     const summary = netUnitPrice === null ? null : await new DefaultEstimateProfitService({ resolveEstimatedCost: async () => compatibleCost ? cost.value!.unit_price : null }).analyze([
       { line_number: 1, product_id: reference.id, quantity: qty, unit: reference.unit, unit_price: netUnitPrice, pricing_source: "RESOLVED_RATE" },
@@ -167,6 +175,7 @@ export class BusinessIntelligenceTools {
       grossProfit: profit === undefined || profit === null ? null : Math.round(profit * 100) / 100, marginPercent: summary?.expected_margin_percent ?? null };
   }
   async validatePayment(preparation: PaymentPreparation, scope: AgentScope, state: BusinessState, signal?: AbortSignal) {
+    this.assertStateScope(state, scope);
     await this.authorize(scope, ["payments.create", preparation.intent === "customer_payment" ? "customers.read" : "vendors.read", preparation.intent === "customer_payment" ? "sales.read" : "purchases.read"], signal);
     const parsed = paymentStateSchema.parse(preparation);
     const isCustomer = parsed.intent === "customer_payment";
@@ -186,6 +195,7 @@ export class BusinessIntelligenceTools {
     return { ...parsed, partyName: party.name };
   }
   async execute(name: keyof typeof schemas, raw: unknown, scope: AgentScope, state: BusinessState, signal?: AbortSignal): Promise<unknown> {
+    this.assertStateScope(state, scope);
     const permissions: PermissionCode[] = name === "lookup_vendors" ? ["vendors.read"] : name === "query_customer_ledger" ? ["accounting.read", "customers.read"] : name === "query_inventory" ? ["products.read", "inventory.read"] : name === "calculate_margin" ? ["products.read", "sales.read", "purchases.read"] : name === "compare_products" ? ["products.read"] : name === "list_payment_documents" ? ["payments.create"] : ["payments.create"];
     await this.authorize(scope, permissions, signal);
     const candidate = structuredClone(state);
@@ -244,21 +254,32 @@ export class BusinessIntelligenceTools {
       }
       if (new Set(references.map(ref => ref.id)).size !== references.length) clarification("Please choose distinct products for comparison.");
       const rows: BusinessFact[] = [];
-      const qty = input.quantity ?? 1; const percent = input.discount_percent ?? 0;
+      const prior = input.queries ? undefined : candidate.comparisonAnalysis;
+      const qty = input.quantity ?? prior?.quantity ?? 1; const percent = input.discount_percent ?? prior?.discountPercent ?? 0;
       for (const ref of references) {
         if (input.metric === "stock") rows.push(await this.inventory(ref, scope, { limit: 20, balance_scope: "organization" }, signal));
         else if (input.metric === "sale_price") {
           const { sale } = await this.prices(ref, scope, candidate, qty, false, signal);
-          rows.push({ kind: "sale_price", product: ref, value: sale.value?.unit_price ?? null, unit: sale.value?.unit ?? ref.unit, currencyCode: sale.value?.currency_code ?? null, status: sale.status });
+          const compatible = sale.value && unitKey(sale.value.unit) === unitKey(ref.unit);
+          rows.push({ kind: "sale_price", product: ref, value: compatible ? sale.value!.unit_price : null, unit: sale.value?.unit ?? ref.unit, currencyCode: sale.value?.currency_code ?? null, status: compatible ? sale.status : "unavailable" });
         } else rows.push(await this.margin(ref, scope, candidate, qty, percent, signal));
       }
-      const values = rows.map(row => input.metric === "stock" ? row.totalQuantity : input.metric === "sale_price" ? row.value : input.metric === "purchase_cost" ? (row.purchaseCost as ResolvedPrice | null)?.unit_price ?? null : input.metric === "profit" ? row.grossProfit : row.marginPercent);
+      const values = rows.map((row,index) => {
+        if (input.metric === "stock") return row.totalQuantity;
+        if (input.metric === "sale_price") return row.value;
+        if (input.metric === "purchase_cost") {
+          const cost = row.purchaseCost as ResolvedPrice | null;
+          return cost && unitKey(cost.unit) === unitKey(references[index]!.unit) ? cost.unit_price : null;
+        }
+        return input.metric === "profit" ? row.grossProfit : row.marginPercent;
+      });
       const units = rows.map((row,index) => input.metric === "sale_price" ? unitKey(String(row.unit)) : unitKey(references[index]!.unit));
       const currencies = rows.map(row => input.metric === "purchase_cost" ? (row.purchaseCost as ResolvedPrice | null)?.currency_code : row.currencyCode);
       const comparable = values.every(value => typeof value === "number" && Number.isFinite(value)) && new Set(units).size === 1 && (input.metric === "stock" || new Set(currencies).size === 1);
       const best = comparable ? (input.metric === "sale_price" || input.metric === "purchase_cost" ? Math.min(...values as number[]) : Math.max(...values as number[])) : null;
       result = { kind: "comparison", metric: input.metric, quantity: qty, discountPercent: percent, rows, values, status: comparable ? "available" : "unavailable", reason: comparable ? null : "Missing or incomplete data, or incompatible units/currencies; no reliable winner.", winners: best === null ? [] : references.filter((_,index) => values[index] === best), balanceScope: input.metric === "stock" ? "ORGANIZATION_WAREHOUSE" : undefined };
       candidate.comparison = references;
+      candidate.comparisonAnalysis = { quantity: qty, discountPercent: percent };
     } else if (name === "list_payment_documents") {
       const input = checked(name);
       await this.authorize(scope, input.party_type === "customer" ? ["customers.read", "sales.read"] : ["vendors.read", "purchases.read"], signal);
@@ -279,5 +300,10 @@ export class BusinessIntelligenceTools {
     // Object.assign cannot remove optional fields cleared in the candidate.
     if (!candidate.vendor) delete state.vendor;
     return result;
+  }
+  private assertStateScope(state: BusinessState, scope: AgentScope) {
+    if (state.userId !== scope.userId || state.organizationId !== scope.organizationId || state.branchId !== scope.branchId) {
+      throw new ApiError(403, "BUSINESS_CONTEXT_SCOPE_MISMATCH", "Business context does not match the authenticated scope.");
+    }
   }
 }
