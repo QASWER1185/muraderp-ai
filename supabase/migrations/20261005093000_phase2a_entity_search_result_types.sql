@@ -1,5 +1,8 @@
 -- Forward-only correction: customer name/city are varchar, RPC outputs are text.
 -- Existing RPC grants and ranking are preserved; no master data changes.
+-- Load pg_trgm before declaring its user-settable function configuration.
+select extensions.word_similarity('migration', 'migration');
+
 create or replace function public.search_customers_fuzzy(
   p_user_id uuid, p_organization_id uuid, p_branch_id uuid, p_query text, p_limit integer default 10
 ) returns table(id bigint, name text, city text, confidence real, match_kind text)

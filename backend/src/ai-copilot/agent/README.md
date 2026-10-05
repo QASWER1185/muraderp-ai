@@ -6,7 +6,7 @@ The model receives the six registered ERP functions through the provider's nativ
 
 ## Phase 2A search
 
-Also apply `20261005093000_phase2a_entity_search_result_types.sql`, the forward-only customer varchar-to-text return-contract correction. Database fixtures reproduce that production contract failure before applying the fix. Already-applied migrations are never edited or repaired.
+Also apply `20261005093000_phase2a_entity_search_result_types.sql`, the forward-only customer varchar-to-text return-contract correction. Database fixtures reproduce that production contract failure before applying the fix. The correction first initializes the existing pg_trgm library so a fresh migration connection recognizes its user-settable threshold configuration. Already-applied migrations are never edited or repaired.
 
 Apply `20261005090000_phase2a_entity_search.sql` using the existing Supabase migration workflow before deploying the backend. `pg_trgm` lives in `extensions`; immutable expression indexes normalize matching text without editing authoritative master data. GIN trigram predicates preselect products and brands; customer search adds indexed consonant-key and exact-phone lookup. Products/customers are organization-wide masters (no branch column); every RPC still requires the exact active branch grant and the appropriate read permission through the existing P0-5 helpers. RPCs are SECURITY INVOKER, service-role only, with a fixed empty search path. Existing RLS and application authentication remain in force.
 
