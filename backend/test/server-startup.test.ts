@@ -1,7 +1,8 @@
 import type { Server } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 let server: Server | undefined;
+let startServer: typeof import("../src/server.js")["startServer"];
 
 afterEach(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
@@ -11,7 +12,8 @@ afterEach(async () => {
 });
 
 describe("production server startup", () => {
-  it("listens on port 8080 without OPENAI_API_KEY", async () => {
+  // Cold TypeScript module loading belongs to fixture setup, outside the listener/health timeout.
+  beforeAll(async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("PORT", "8080");
     vi.stubEnv("OPENAI_API_KEY", undefined);
@@ -20,7 +22,10 @@ describe("production server startup", () => {
     vi.stubEnv("INTERNAL_API_TOKEN", "t".repeat(64));
     vi.stubEnv("INTERNAL_API_PRINCIPAL_ID", "muraderp-api-prod-01");
 
-    const { startServer } = await import("../src/server.js");
+    ({ startServer } = await import("../src/server.js"));
+  }, 120_000);
+
+  it("listens on port 8080 without OPENAI_API_KEY", async () => {
     server = startServer();
     if (!server.listening) await new Promise<void>((resolve) => server?.once("listening", resolve));
 

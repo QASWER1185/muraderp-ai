@@ -7,6 +7,8 @@ import type { PricingService } from "../../services/pricing.service.js";
 import type { RateListLifecycleRepository, RateListRepository } from "../../repositories/rate-list.repository.js";
 import type { CopilotCatalogRepository } from "../copilot-review.js";
 import type { EntitySearchService } from "../../services/entity-search.service.js";
+import type { BusinessState } from "./business-state.js";
+import { ConversationalDraftService, DRAFT_TOOL_DEFINITIONS } from "./draft-tools.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -25,7 +27,7 @@ export type ErpTool<T extends z.ZodType = z.ZodType> = {
   authentication: "required";
   scope: "organization_and_branch";
   classification: "read";
-  execute: (input: z.output<T>, scope: AgentScope, services: ToolServices) => Promise<unknown>;
+  execute: (input: z.output<T>, scope: AgentScope, services: ToolServices, signal?: AbortSignal) => Promise<unknown>;
 };
 
 const query = z.string().trim().min(1).max(120);
@@ -51,21 +53,26 @@ export const ERP_TOOLS = [
     const rows = await rateLists.listActiveSaleRateLists(scope.organizationId);
     return rows.filter((r) => [r.name, r.code].some((v) => match(v, query))).slice(0, limit).map((r) => ({ id: r.id, name: r.name, code: r.code, scopeType: r.scope_type, customerId: r.customer_id, currencyCode: r.currency_code }));
   } }),
-  defineTool({ name: "lookup_current_sale_rate", description: "Resolve the authorized active sale rate for a product and optional rate list, customer, and quantity. Never infer a rate from product fields.", schema: priceInput, permission: "sales.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ product_id, rate_list_id, customer_id, quantity }, scope, { erp, rateLists, pricing, tenant }) => {
+  defineTool({ name: "lookup_current_sale_rate", description: "Resolve the authorized active sale rate for a product and optional rate list, customer, and quantity. Never infer a rate from product fields.", schema: priceInput, permission: "sales.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ product_id, rate_list_id, customer_id, quantity }, scope, { erp, rateLists, pricing, tenant }, signal) => {
     const product = await erp.getProduct(product_id, scope.organizationId);
+    signal?.throwIfAborted();
     if (!product) throw new ApiError(404, "PRODUCT_NOT_FOUND", "Product is not available in this organization");
     if (customer_id !== undefined) {
       await tenant.assertPermission({ userId: scope.userId, organizationId: scope.organizationId }, "customers.read");
+      signal?.throwIfAborted();
       if (!await erp.getCustomer(customer_id, scope.organizationId)) throw new ApiError(404, "CUSTOMER_NOT_FOUND", "Customer is not available in this organization");
+      signal?.throwIfAborted();
     }
     if (rate_list_id !== undefined) {
       const lists = await rateLists.listActiveSaleRateLists(scope.organizationId);
+      signal?.throwIfAborted();
       const list = lists.find((r) => r.id === rate_list_id);
       if (!list || (list.scope_type === "CUSTOMER" && list.customer_id !== customer_id) || list.scope_type === "VENDOR") {
         throw new ApiError(403, "RATE_LIST_ACCESS_DENIED", "Sale rate list is not applicable to this request");
       }
     }
     const resolved = await pricing.resolvePrice({ organization_id: scope.organizationId, price_type: "SALE", product_id, quantity, as_of: new Date().toISOString(), ...(rate_list_id === undefined ? {} : { rate_list_id }), ...(customer_id === undefined ? {} : { customer_id }) });
+    signal?.throwIfAborted();
     if (!resolved) return null;
     const version = await rateLists.getVersion(resolved.rate_list_version_id);
     if (version.rate_list_id !== resolved.rate_list_id) throw new Error("Resolved rate-list version does not match its rate list");
@@ -77,16 +84,32 @@ export const ERP_TOOLS = [
 
 export class ErpToolRegistry {
   private readonly tools = new Map<string, ErpTool>(ERP_TOOLS.map((tool) => [tool.name, tool]));
-  constructor(private readonly services: ToolServices) {}
-  definitions() { return [...this.tools.values()].map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) })); }
-  async execute(name: string, raw: unknown, scope: AgentScope): Promise<unknown> {
+  readonly drafts: ConversationalDraftService;
+  constructor(private readonly services: ToolServices, private readonly conversationalDrafts = false) {
+    this.drafts = new ConversationalDraftService(services, (input, scope, signal) => this.execute("lookup_current_sale_rate", input, scope, undefined, undefined, signal));
+  }
+  async assertScope(scope: AgentScope) {
+    await this.services.tenant.assertBranchAccess(scope, scope.branchId);
+  }
+  definitions() {
+    const reads = [...this.tools.values()].map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
+    return this.conversationalDrafts ? [...reads, ...DRAFT_TOOL_DEFINITIONS] : reads;
+  }
+  async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
+    if (this.conversationalDrafts && this.drafts.handles(name)) {
+      if (!state) throw new ApiError(400, "CONVERSATION_CONTEXT_REQUIRED", "Validated conversation state is required.");
+      return this.drafts.execute(name, raw, scope, state, signal);
+    }
     const tool = this.tools.get(name);
     if (!tool) throw new ApiError(400, "UNKNOWN_COPILOT_TOOL", "Requested Copilot tool is unavailable");
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401, "TENANT_CONTEXT_REQUIRED", "Authenticated user and tenant context are required");
     await this.services.tenant.assertPermission({ userId: scope.userId, organizationId: scope.organizationId }, tool.permission);
+    signal?.throwIfAborted();
     await this.services.tenant.assertBranchAccess({ userId: scope.userId, organizationId: scope.organizationId }, scope.branchId);
+    signal?.throwIfAborted();
     const input = tool.schema.safeParse(raw);
     if (!input.success) throw new ApiError(400, "INVALID_COPILOT_TOOL_INPUT", "Copilot tool arguments are invalid");
-    return tool.execute(input.data, scope, this.services);
+    return tool.execute(input.data, scope, this.services, signal);
   }
 }

@@ -8,7 +8,7 @@ import type {
 import type { PricingService } from "./pricing.service.js";
 
 export class DefaultEstimatePricingService implements EstimatePricingService {
-  constructor(private readonly pricingService: PricingService) {}
+  constructor(private readonly pricingService: Pick<PricingService, "resolvePrice"> & Partial<Pick<PricingService, "resolveCandidate">>) {}
 
   async priceLine(
     line: EstimateLineDraft,

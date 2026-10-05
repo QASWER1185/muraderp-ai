@@ -23,6 +23,10 @@ export interface CopilotLineCandidate {
   rateSource: CopilotRateSource;
   pricingSelection?: EstimatePricingSelection;
   sourceItemId?: number;
+  /** Server-derived conversational estimate approval; never model/client prices. */
+  discountPercent?: number;
+  approvedUnitPrice?: number;
+  approvedCurrencyCode?: string;
 }
 
 export interface CopilotActionPlan {

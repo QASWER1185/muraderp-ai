@@ -1,4 +1,4 @@
-import { createCopilotDraft, createCopilotReview, askCopilot, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
+import { createCopilotDraft, createCopilotReview, askCopilot, prepareConversationDraft, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
@@ -10,25 +10,37 @@ export function createCopilotConversation(now = Date.now) {
   let token = null;
   let scope = null;
   let expiresAt = 0;
+  let conversationId = null;
   const key = (userId, organizationId, branchId) => JSON.stringify([userId, organizationId, branchId]);
   return {
     tokenFor(userId, organizationId, branchId) {
       const current = key(userId, organizationId, branchId);
-      if (scope !== current || now() >= expiresAt) { token = null; scope = current; }
+      if (scope !== current || now() >= expiresAt) { token = null; conversationId = null; scope = current; }
       return token;
     },
-    accept(value, userId, organizationId, branchId) {
+    idFor(userId, organizationId, branchId) { this.tokenFor(userId, organizationId, branchId); return conversationId; },
+    accept(value, userId, organizationId, branchId, id) {
       scope = key(userId, organizationId, branchId);
       token = typeof value === "string" && value.length > 0 && value.length <= 9000 ? value : null;
       expiresAt = token ? now() + CONVERSATION_MAX_AGE_MS : 0;
+      conversationId = token && typeof id === "string" ? id : null;
     },
-    clear() { token = null; scope = null; expiresAt = 0; },
+    clear() { token = null; conversationId = null; scope = null; expiresAt = 0; },
   };
 }
 function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
 function apiIntent(action) { return action === "purchase" ? "supplier_bill" : action === "return" ? "customer_return" : action; }
 function fieldValue(field) { return field && typeof field === "object" && "value" in field ? field.value : undefined; }
 function humanIntent(intent) { return ({ estimate: "Estimate", supplier_bill: "Supplier bill", customer_return: "Customer return", inventory_adjustment: "Stock adjustment", rate_list_update: "Rate list update", invoice: "Invoice" })[intent] ?? "ERP action"; }
+
+export function conversationDraftMarkup(draft) {
+  return `<article class="review-card" data-conversation-draft><div class="review-heading"><h3>Estimate in progress</h3><span class="status-pill review">${draft.prepared ? "Review required" : "Conversation draft"}</span></div>
+    <p>Customer: ${escapeHtml(draft.customer?.name ?? "Please identify the customer")}</p>
+    <div class="review-lines">${(draft.lines ?? []).map(line => `<div class="review-line"><strong>${escapeHtml(line.productName)}</strong><p>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} · ${escapeHtml(line.discountPercent)}% discount</p><p>${line.rate ? escapeHtml(line.rate.currency_code) + " " + escapeHtml(line.rate.unit_price) + " / " + escapeHtml(line.rate.unit) : "Current rate unavailable"}</p><p>${line.amount == null ? escapeHtml(line.error ?? "Needs verification") : escapeHtml(draft.currencyCode) + " " + escapeHtml(line.amount.toFixed(2))}</p></div>`).join("")}</div>
+    <p><strong>${draft.totals ? "Total: " + escapeHtml(draft.currencyCode) + " " + escapeHtml(draft.totals.grand_total.toFixed(2)) : "Total unavailable until all rates are verified."}</strong></p>
+    <p>Continue this conversation to add, remove or correct items. Nothing is executed without your explicit confirmation.</p>
+    ${draft.prepared && draft.totals ? '<button class="button primary" type="button" data-prepare-conversation-draft>Prepare draft</button>' : ""}</article>`;
+}
 
 export function attachmentLabel(file) {
   if (!file) return "";
@@ -103,6 +115,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let attachmentUrl = null;
   let review = null;
   let activeDraft = null;
+  let preparedConversation = null;
+  let operationBusy = false;
   let recorder = null;
   let recordingStream = null;
   let recordingChunks = [];
@@ -128,6 +142,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     appendMessage("assistant", `<p><strong>Ask about your ERP data or prepare an action.</strong></p><p>I can look up products and current Rate List prices, or prepare an estimate, supplier bill, or return for your review. Select a task to prepare an action or analyze an image, PDF, or voice note.</p><div class="prompt-chips"><button type="button" data-prompt="What is the current rate of 25mm PPRC pipe?">Check a rate</button><button type="button" data-task="estimate" data-prompt="Prepare an estimate for 50 pieces of 25mm Popular pipe">New estimate</button><button type="button" data-task="purchase" data-prompt="Review this supplier bill">Supplier bill</button></div>`);
   }
   function setBusy(busy, message = "") {
+    operationBusy = busy;
     sendButton.disabled = busy; task.disabled = busy; input.disabled = busy;
     status.hidden = !busy; status.innerHTML = busy ? `<span class="spinner"></span>${escapeHtml(message)}` : "";
   }
@@ -224,6 +239,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function analyze() {
+    if (operationBusy) return;
     const context = contextOrThrow();
     const text = input.value.trim();
     if (!text && !attachment) throw new Error("Write a message or add an attachment first.");
@@ -237,13 +253,20 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     setBusy(true, source === "voice" ? "Transcribing and reviewing" : "Reviewing your request");
     const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
     try {
-      if (action === "auto" && source === "text") {
+      if ((action === "auto" || action === "estimate") && source === "text") {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
-        const response = await askCopilot(text, context.organizationId, context.branchId, token);
+        const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
+        const response = await askCopilot(text, context.organizationId, context.branchId, token, conversationId);
         if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
-        conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId);
+        conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
+        activeDraft = null; preparedConversation = null;
+        thread.querySelectorAll("[data-conversation-draft], .confirmation-card").forEach(card => card.remove());
         appendMessage("assistant", `<p>${escapeHtml(response.data.answer)}</p>`);
+        if (response.data.draft) {
+          appendMessage("assistant", conversationDraftMarkup(response.data.draft));
+          if (response.data.draft.prepared) preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId };
+        }
         return;
       }
       if (action === "invoice_extract") {
@@ -298,16 +321,37 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function confirmDraft() {
+    if (operationBusy) return;
     if (!activeDraft) throw new Error("No draft is waiting for confirmation.");
+    const context = getWorkspaceContext();
+    if (context.organizationId !== activeDraft.organizationId || context.branchId !== activeDraft.branchId) throw new Error("Return to the draft's workspace and branch before confirming.");
     if (!navigator.onLine) throw new Error("Go online before confirming an ERP action.");
     setBusy(true, "Confirming with the authoritative ERP service");
     try {
       const response = await confirmCopilotDraft({ ...activeDraft, userId: getAuthenticatedUserId() });
       const completed = activeDraft;
       activeDraft = null;
+      conversation.clear(); preparedConversation = null;
       appendMessage("assistant", `<div class="${response.verified ? "message-success" : "message-status"}">${icon(response.verified ? "check" : "alert")}<span><strong>${response.verified ? "Verified in ERP" : "Action not verified"}</strong><p>${response.verified ? "The ERP service executed this action and an independent read confirmed the resulting record." : "The resulting ERP record has not been verified. Check the action status before continuing."}</p>${response.verified ? '<button class="button secondary compact" type="button" data-open-record>Open in ERP</button>' : ""}</span></div>`);
       const button = thread.querySelector("[data-open-record]:last-of-type");
       if (button) { button.dataset.intent = completed.intent; button.dataset.recordId = String(response.data?.result?.id ?? response.data?.result?.purchase?.id ?? response.data?.result?.credit_note?.id ?? ""); }
+    } finally { setBusy(false); }
+  }
+
+  async function prepareStatefulDraft() {
+    if (operationBusy) return;
+    const context = getWorkspaceContext();
+    const userId = getAuthenticatedUserId();
+    if (!preparedConversation || conversation.tokenFor(userId, context.organizationId, context.branchId) !== preparedConversation.token) throw new Error("Review the current conversation draft first.");
+    if (!navigator.onLine) throw new Error("Go online before preparing an ERP approval draft.");
+    setBusy(true, "Preparing the reviewed estimate");
+    try {
+      const response = await prepareConversationDraft(preparedConversation.token, preparedConversation.conversationId, context.organizationId, context.branchId);
+      activeDraft = { id: response.data.id, organizationId: context.organizationId, branchId: context.branchId, idempotencyKey: response.data.idempotencyKey, intent: "estimate" };
+      thread.querySelectorAll("[data-conversation-draft]").forEach(card => card.remove());
+      appendMessage("assistant", conversationDraftMarkup(response.draft));
+      thread.querySelectorAll(".confirmation-card").forEach(card => card.remove());
+      appendMessage("assistant", '<article class="confirmation-card"><h3>Estimate ready for confirmation</h3><p>Review the customer, items, rates, discount and total above. Confirm action to execute through the ERP service.</p><div class="review-actions"><button class="button secondary" type="button" data-draft-cancel>Cancel</button><button class="button danger" type="button" data-confirm-draft>Confirm action</button></div></article>');
     } finally { setBusy(false); }
   }
 
@@ -323,12 +367,12 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function run(action) { try { retryAction = null; await action(); } catch (error) { setBusy(false); showError(error, action); } }
-  function reset() { if (recorder?.state === "recording") recorder.stop(); clearAttachment(); review = null; activeDraft = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
+  function reset() { if (recorder?.state === "recording") recorder.stop(); clearAttachment(); review = null; activeDraft = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
 
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 150)}px`; });
   input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(analyze); } });
   sendButton.addEventListener("click", () => void run(analyze));
-  task.addEventListener("change", () => conversation.clear());
+  task.addEventListener("change", () => { if (!["auto", "estimate"].includes(task.value)) { conversation.clear(); preparedConversation = null; } });
   document.querySelector("#copilot-attach").addEventListener("click", () => fileInput.click());
   document.querySelector("#copilot-camera-button").addEventListener("click", () => cameraInput.click());
   micButton.addEventListener("click", () => void run(toggleRecording));
@@ -340,6 +384,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (prompt) { if (prompt.dataset.task) { task.value = prompt.dataset.task; conversation.clear(); } input.value = prompt.dataset.prompt; input.focus(); }
     if (event.target.closest("[data-review-cancel]")) { review = null; quoteVersions.clear(); event.target.closest(".review-card")?.remove(); appendMessage("assistant", "<p>Review cancelled. No ERP data was changed.</p>"); }
     if (event.target.closest("[data-prepare-draft]")) void run(prepareDraft);
+    if (event.target.closest("[data-prepare-conversation-draft]")) void run(prepareStatefulDraft);
     if (event.target.closest("[data-draft-cancel]")) { activeDraft = null; event.target.closest(".confirmation-card")?.remove(); appendMessage("assistant", "<p>Draft cancelled. Nothing was posted.</p>"); }
     if (event.target.closest("[data-confirm-draft]")) void run(confirmDraft);
     if (event.target.closest("[data-copilot-retry]") && retryAction) void run(retryAction);

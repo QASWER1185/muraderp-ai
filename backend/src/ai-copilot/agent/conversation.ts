@@ -9,6 +9,21 @@ export type Turn = { user: string; assistant: string; productContext?: ProductCo
 type Payload = { userId: string; organizationId: string; branchId: string; expires: number; turns: Turn[] };
 const sign = (body: string) => createHmac("sha256", secret).update(body).digest("base64url");
 
+export function signConversationPayload(payload: unknown): string {
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${body}.${sign(body)}`;
+}
+export function verifyConversationPayload(token: string): Record<string, unknown> | null {
+  if (token.length > 9000) return null;
+  const pieces = token.split(".");
+  if (pieces.length !== 2) return null;
+  const [body, signature] = pieces;
+  if (!body || !signature) return null;
+  const actual = Buffer.from(signature), expected = Buffer.from(sign(body));
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+  try { return JSON.parse(Buffer.from(body, "base64url").toString("utf8")); } catch { return null; }
+}
+
 function safeProductContext(value: unknown): ProductContext | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<ProductContext>;
@@ -21,6 +36,17 @@ function safeProductContext(value: unknown): ProductContext | undefined {
 }
 
 export function readConversation(token: string | undefined, scope: AgentScope): Turn[] {
+  if (token) {
+    const state = verifyConversationPayload(token);
+    if (state?.version === 2) {
+      if (state.userId !== scope.userId || state.organizationId !== scope.organizationId || state.branchId !== scope.branchId ||
+          typeof state.expires !== "number" || state.expires <= Date.now()) return [];
+      const productContext = safeProductContext(state.productContext);
+      return [{ user: typeof state.lastMessage === "string" ? state.lastMessage : "", assistant: "",
+        ...(productContext ? { productContext } : {}), ...(state.customerAmbiguous === true ? { customerAmbiguous: true } : {}),
+        ...(state.productUnresolved === true ? { productUnresolved: true } : {}) }];
+    }
+  }
   if (!token || token.length > 9000) return [];
   const [body, signature] = token.split(".");
   if (!body || !signature) return [];

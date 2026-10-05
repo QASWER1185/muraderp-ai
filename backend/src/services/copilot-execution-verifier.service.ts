@@ -93,6 +93,16 @@ export class DefaultCopilotExecutionVerifier implements CopilotExecutionVerifier
       if (!Array.isArray(executedLines)) throw new Error("Estimate execution lines are missing");
       sameLines("Estimate lines", persisted.items, executedLines, ["line_number", "product_id", "quantity", "unit", "unit_price"]);
       sameLines("Approved estimate products", persisted.items, plan.lines.map((line, index) => ({ line_number: index + 1, product_id: line.productId, quantity: line.quantity })), ["line_number", "product_id", "quantity"]);
+      for (const [index, line] of plan.lines.entries()) {
+        if (line.discountPercent === undefined) continue;
+        if (line.approvedUnitPrice === undefined) throw new Error("Approved estimate price is missing");
+        const persistedLine = persisted.items.find(item => item.line_number === index + 1);
+        if (!persistedLine) throw new Error("Approved estimate line is missing");
+        same("Approved estimate price", persistedLine.unit_price, line.approvedUnitPrice);
+        same("Approved estimate unit", persistedLine.unit, line.unit);
+        same("Approved estimate discount", persistedLine.discount_amount,
+          Math.min(line.quantity * line.approvedUnitPrice, Math.round(line.quantity * line.approvedUnitPrice * line.discountPercent) / 100));
+      }
       return;
     }
 

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../../errors/api-error.js";
-import { readConversation, writeConversation, type ProductContext, type ProductReference } from "./conversation.js";
-import type { AgentScope, ErpToolRegistry } from "./erp-tools.js";
+import { type ProductContext, type ProductReference } from "./conversation.js";
+import type { AgentScope } from "./erp-tools.js";
+import { newBusinessState, readBusinessState, writeBusinessState, touchDraft, type BusinessState } from "./business-state.js";
+import { draftAnswer, type DraftView } from "./draft-tools.js";
 import type { AgentModel, FunctionCall } from "./model.js";
 import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
 
@@ -11,6 +13,11 @@ const TIMEOUT_MS = 40_000;
 const FALLBACK = "I could not verify that request right now. Please clarify or try again.";
 const CLARIFY_PRODUCT = "Which product do you mean? Please provide its name or SKU.";
 export type AgentLogger = { info: (fields: Record<string, unknown>, message: string) => void; warn: (fields: Record<string, unknown>, message: string) => void };
+export interface AgentToolExecutor {
+  definitions(): unknown[];
+  assertScope?(scope: AgentScope): Promise<void>;
+  execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, originalMessage?: string, signal?: AbortSignal): Promise<unknown>;
+}
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -22,11 +29,11 @@ function productReference(value: unknown): ProductReference | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   if (!Number.isSafeInteger(row.id) || Number(row.id) <= 0 || typeof row.name !== "string" || typeof row.sku !== "string" || typeof row.unit !== "string") return null;
-  return { id: Number(row.id), name: row.name, sku: row.sku, unit: row.unit };
+  return { id: Number(row.id), name: row.name.slice(0, 160), sku: row.sku.slice(0, 100), unit: row.unit.slice(0, 30) };
 }
 
 function productResults(tool: string, result: unknown): ProductReference[] | null {
-  if (tool === "lookup_product") return result ? [productReference(result)].filter((item): item is ProductReference => item !== null) : [];
+  if (tool === "lookup_product" || tool === "get_product") return result ? [productReference(result)].filter((item): item is ProductReference => item !== null) : [];
   if (tool !== "search_products") return null;
   const resolved = result as EntityResolution<RankedEntity> | null;
   const items = resolved?.resolution === "resolved" ? [resolved.bestCandidate] : resolved?.items;
@@ -42,23 +49,37 @@ async function withinDeadline<T>(task: Promise<T>, signal: AbortSignal): Promise
   });
 }
 
-export class ReadOnlyCopilotAgent {
-  constructor(private readonly model: AgentModel, private readonly tools: ErpToolRegistry, private readonly timeoutMs = TIMEOUT_MS) {}
-  async run(request: { message: string; conversationToken?: string | undefined }, scope: AgentScope, logger?: AgentLogger) {
+export class UnifiedCopilotAgent {
+  constructor(private readonly model: AgentModel, private readonly tools: AgentToolExecutor, private readonly timeoutMs = TIMEOUT_MS) {}
+  async run(request: { message: string; conversationToken?: string | undefined; conversationId?: string | undefined }, scope: AgentScope, logger?: AgentLogger) {
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401, "TENANT_CONTEXT_REQUIRED", "Authenticated user and tenant context are required");
+    if (!request.message.trim() || request.message.length > 20_000) throw new ApiError(400, "VALIDATION_ERROR", "A valid bounded message is required.");
+    await this.tools.assertScope?.(scope);
     const traceId = randomUUID();
-    const previous = readConversation(request.conversationToken, scope);
-    const input: unknown[] = previous.flatMap((turn) => [{ role: "user", content: turn.user }, { role: "assistant", content: turn.assistant }]);
-    const priorProducts = previous.at(-1)?.productContext;
-    let customerAmbiguous = previous.at(-1)?.customerAmbiguous === true;
-    let productUnresolved = previous.at(-1)?.productUnresolved === true;
-    let resolvedCustomerId: number | undefined;
+    let state: BusinessState;
+    try { state = readBusinessState(request.conversationToken, scope, request.conversationId); }
+    catch {
+      const fresh = newBusinessState(scope);
+      return { answer: "The conversation context is invalid or expired. Please identify the customer and products again.",
+        conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
+    }
+    const input: unknown[] = state.lastMessage ? [{ role: "user", content: "Previous untrusted wording (not entity or price authority): " + state.lastMessage }] : [];
+    const priorProducts = state.productContext;
+    let customerAmbiguous = state.customerAmbiguous === true;
+    let productUnresolved = state.productUnresolved === true;
+    let resolvedCustomerId: number | undefined = state.customer?.id;
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
+    input.push({ role: "assistant", content: "Server-validated business context (references and user choices only; current prices must be obtained from tools):" + JSON.stringify({
+      conversationId: state.conversationId, customer: state.customer, customerAmbiguous, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,
+    }) });
     input.push({ role: "user", content: request.message });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, TIMEOUT_MS));
     const seen = new Set<string>();
     let calls = 0;
+    const toolNames: string[] = [];
+    let draftView: DraftView | undefined;
+    let review: unknown;
     let verifiedResults = 0;
     let productContext: ProductContext | undefined = priorProducts;
     let productSearches = 0;
@@ -97,7 +118,7 @@ export class ReadOnlyCopilotAgent {
           }
           if (verifiedResults === 0 && priorProducts?.ambiguous) { answer = CLARIFY_PRODUCT; status = "clarification"; break; }
           if (verifiedResults === 0 && priorProducts?.candidates.length === 1 && !requiredToolRetry) { requiredToolRetry = true; continue; }
-          if (step.text && verifiedResults > 0) { answer = step.text.slice(0, 4000); status = "completed"; }
+          if (step.text && verifiedResults > 0) { answer = draftView ? draftAnswer(draftView, request.message) : step.text.slice(0, 4000); status = "completed"; }
           else status = "empty";
           break;
         }
@@ -125,13 +146,26 @@ export class ReadOnlyCopilotAgent {
           seen.add(key);
           calls++;
           try {
-            const result = await withinDeadline(this.tools.execute(call.name, args, scope), controller.signal);
+            state.productContext = productContext;
+            state.productUnresolved = productUnresolved;
+            state.customerAmbiguous = customerAmbiguous;
+            const result = await withinDeadline(this.tools.execute(call.name, args, scope, state, request.message, controller.signal), controller.signal);
             verifiedResults++;
+            toolNames.push(call.name);
+            if (result && typeof result === "object" && "review" in result && result.review) {
+              review = result.review; answer = "Review the prepared ERP action and confirm it explicitly before execution."; status = "completed"; break;
+            }
+            if (result && typeof result === "object" && "requiresConfirmation" in result && "lines" in result && "totals" in result) draftView = result as DraftView;
             if (call.name === "search_products" || call.name === "lookup_customers") {
               const resolution = result as EntityResolution<RankedEntity>;
               const unresolved = resolution.requiresClarification ? resolution : undefined;
               if (call.name === "search_products") { unresolvedProduct = unresolved; productUnresolved = resolution.resolution !== "resolved"; }
-              else { unresolvedCustomer = unresolved; customerAmbiguous = resolution.resolution !== "resolved"; resolvedCustomerId = resolution.bestCandidate?.id; }
+              else {
+                unresolvedCustomer = unresolved; customerAmbiguous = resolution.resolution !== "resolved"; resolvedCustomerId = resolution.bestCandidate?.id;
+                if (state.customer?.id !== resolvedCustomerId && state.draft) { touchDraft(state); draftView = undefined; }
+                if (!customerAmbiguous && resolution.bestCandidate) state.customer = { id: resolution.bestCandidate.id, name: resolution.bestCandidate.name.slice(0, 160) };
+                else delete state.customer;
+              }
             }
             const candidates = productResults(call.name, result);
             if (candidates !== null) {
@@ -148,17 +182,33 @@ export class ReadOnlyCopilotAgent {
             logger?.info({ traceId, iteration, tool: call.name, outcome: "ok" }, "Copilot tool executed");
           } catch (error) {
             if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
+            if (error instanceof ApiError && error.code === "DRAFT_CONTEXT_REQUIRED") {
+              answer = error.message; status = "clarification"; break;
+            }
             input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ error: "Tool result unavailable or arguments invalid" }) });
             logger?.warn({ traceId, iteration, tool: call.name, outcome: "error" }, "Copilot tool failed");
           }
         }
-        if (status === "malformed" || status === "duplicate" || status === "clarification" || status === "timeout") break;
+        if (review || status === "malformed" || status === "duplicate" || status === "clarification" || status === "timeout") break;
       }
     } catch (error) {
       if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
       status = controller.signal.aborted ? "timeout" : "error";
     } finally { clearTimeout(timer); }
     logger?.info({ traceId, status, calls }, "Copilot agent finished");
-    return { answer, conversationToken: writeConversation(scope, previous, request.message, answer, productContext, customerAmbiguous, productUnresolved), traceId, status };
+    state.productContext = productContext;
+    state.customerAmbiguous = customerAmbiguous;
+    state.productUnresolved = productUnresolved;
+    state.lastMessage = request.message.slice(0, 500);
+    state.expires = Date.now() + 30 * 60_000;
+    state.revision++;
+    if (draftView && status === "completed") {
+      answer = draftAnswer(draftView, request.message);
+    }
+    return { answer, conversationToken: writeBusinessState(state), conversationId: state.conversationId, traceId, status, toolNames,
+      ...(draftView ? { draft: draftView } : {}), ...(review ? { review } : {}), requiresConfirmation: Boolean(review || draftView?.prepared) };
   }
 }
+
+// Compatibility name for Phase 1 callers; the implementation is the unified loop.
+export { UnifiedCopilotAgent as ReadOnlyCopilotAgent };

@@ -28,6 +28,8 @@ import type { RateListSelectionSource } from "../types/pricing.types.js";
 import type { AiDraft } from "../ai-input/contracts.js";
 import type { CopilotActionPlan } from "./copilot.types.js";
 import { createCopilotPlanFromDraft, assertCopilotDraftExecution } from "./copilot.service.js";
+import type { BusinessState } from "./agent/business-state.js";
+import type { DraftView } from "./agent/draft-tools.js";
 import {
   SupabaseCopilotReferenceResolver,
   type CopilotReferenceResolver,
@@ -95,6 +97,9 @@ type RuntimeLine = {
   rateListSelectionSource?: RateListSelectionSource;
   brandHint?: string;
   sourceItemId?: number;
+  discountPercent?: number;
+  approvedUnitPrice?: number;
+  approvedCurrencyCode?: string;
 };
 
 function requireLineProducts(plan: CopilotActionPlan): RuntimeLine[] {
@@ -104,6 +109,12 @@ function requireLineProducts(plan: CopilotActionPlan): RuntimeLine[] {
       throw new ApiError(422, "UNRESOLVED_BRAND_HINT", `Brand/company hint for ${line.productName} could not be resolved to an explicit rate list`);
     }
     const result: RuntimeLine = { productId: line.productId, quantity: line.quantity };
+    if (line.discountPercent !== undefined) {
+      if (!Number.isFinite(line.discountPercent) || line.discountPercent < 0 || line.discountPercent > 100) throw new Error("Invalid conversational discount");
+      result.discountPercent = line.discountPercent;
+    }
+    if (line.approvedUnitPrice !== undefined) result.approvedUnitPrice = line.approvedUnitPrice;
+    if (line.approvedCurrencyCode !== undefined) result.approvedCurrencyCode = line.approvedCurrencyCode;
     if (line.unit !== undefined) result.unit = line.unit;
     if (line.explicitUnitRate !== undefined) result.rate = line.explicitUnitRate;
     const rateListId = line.pricingSelection?.mode === "RATE_LIST" ? line.pricingSelection.rate_list_id : undefined;
@@ -293,6 +304,30 @@ export class CopilotRuntime {
     }
     const plan = createCopilotPlanFromDraft(draft, context).plan;
     return this.persistPlan(plan, idempotencyKey);
+  }
+
+  /** Called only by the authenticated prepare endpoint after signed-state validation and live repricing. */
+  async createConversationDraft(state: BusinessState, view: DraftView) {
+    if (!state.draft || state.draft.preparedRevision !== state.draft.revision || !state.customer ||
+        !view.prepared || view.id !== state.draft.id || view.revision !== state.draft.revision ||
+        !view.totals || !view.currencyCode || !view.lines.length || view.lines.some(line => !line.rate)) {
+      throw new ApiError(422, "DRAFT_NOT_PREPARED", "Prepare and review the current estimate before creating its approval draft.");
+    }
+    const idempotencyKey = `conversation-${state.userId}-${state.draft.id}-${state.draft.revision}`;
+    const plan: CopilotActionPlan = {
+      organizationId: state.organizationId, branchId: state.branchId, userId: state.userId,
+      source: "text", target: "estimate", customerId: String(state.customer.id),
+      documentNumber: `AI-${state.draft.id}`, currencyCode: view.currencyCode,
+      reason: `Conversation ${state.conversationId}, revision ${state.draft.revision}`,
+      lines: view.lines.map(line => ({
+        productId: line.productId, productName: line.productName, quantity: line.quantity, unit: line.unit,
+        rateSource: "SELECTED_RATE_LIST", pricingSelection: { mode: "RATE_LIST", rate_list_id: line.rate!.rate_list_id, source: "LINE_OVERRIDE" },
+        discountPercent: line.discountPercent, approvedUnitPrice: line.rate!.unit_price, approvedCurrencyCode: line.rate!.currency_code,
+      })),
+      requiresConfirmation: true,
+    };
+    const action = await this.persistPlan(plan, idempotencyKey);
+    return { ...action, idempotencyKey };
   }
 
   async createMasterDataDraft(
@@ -563,7 +598,8 @@ export class CopilotRuntime {
 
     if (plan.target === "estimate") {
       const customerId = positiveId(plan.customerId, "customerId");
-      const pricedLines = await Promise.all(lines.map((line, index) => estimatePricing.priceLine({
+      const pricedLines = await Promise.all(lines.map(async (line, index) => {
+        const priced = await estimatePricing.priceLine({
         line_number: index + 1,
         product_id: line.productId,
         quantity: line.quantity,
@@ -571,7 +607,15 @@ export class CopilotRuntime {
         ...(line.rate !== undefined ? { unit_price: line.rate } : {}),
         ...(line.brandHint !== undefined ? { brand_hint: line.brandHint } : {}),
         ...(line.rateListId !== undefined ? { rate_list_id: line.rateListId, ...(line.rateListSelectionSource ? { rate_list_selection_source: line.rateListSelectionSource } : {}) } : {}),
-      }, { organization_id: plan.organizationId, price_type: "SALE", as_of: date, customer_id: customerId })));
+        }, { organization_id: plan.organizationId, price_type: "SALE", as_of: date, customer_id: customerId });
+        if (line.approvedUnitPrice !== undefined && (priced.unit_price !== line.approvedUnitPrice ||
+            priced.resolved_price?.currency_code !== line.approvedCurrencyCode || priced.unit !== line.unit)) {
+          throw new ApiError(409, "DRAFT_PRICE_CHANGED", "The ERP price/unit changed after review. Recalculate and prepare the estimate again.");
+        }
+        return line.discountPercent === undefined ? priced : {
+          ...priced, discount_amount: Math.min(priced.quantity * priced.unit_price, Math.round(priced.quantity * priced.unit_price * line.discountPercent) / 100),
+        };
+      }));
       return this.dependencies.estimate.createDraft({
         definition: {
           organization_id: plan.organizationId,
@@ -589,7 +633,16 @@ export class CopilotRuntime {
         ...(plan.branchId !== undefined ? { branch_id: plan.branchId } : {}),
         actor_user_id: plan.userId,
         idempotency_key: idempotencyKey,
-      });
+      }, ...(lines.some(line => line.approvedUnitPrice !== undefined) ? [(finalLines: typeof pricedLines) => {
+        for (const [index, line] of lines.entries()) {
+          const final = finalLines[index];
+          if (line.approvedUnitPrice !== undefined && (!final || final.unit_price !== line.approvedUnitPrice ||
+              final.resolved_price?.currency_code !== line.approvedCurrencyCode || final.unit !== line.unit ||
+              final.discount_amount !== Math.min(line.quantity * line.approvedUnitPrice, Math.round(line.quantity * line.approvedUnitPrice * (line.discountPercent ?? 0)) / 100))) {
+            throw new ApiError(409, "DRAFT_PRICE_CHANGED", "The ERP price/unit changed after review. Recalculate and prepare the estimate again.");
+          }
+        }
+      }] as const : []));
     }
 
     if (plan.target === "invoice") {

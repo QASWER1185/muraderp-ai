@@ -6,6 +6,7 @@ export interface EstimateService {
   createDraft(
     draft: EstimateDraft,
     source?: Pick<CreateEstimateInput, "source_type" | "source_reference" | "branch_id" | "actor_user_id" | "idempotency_key">,
+    validatePricedLines?: (lines: PricedEstimateLine[]) => void,
   ): Promise<EstimateDocument>;
 }
 
@@ -13,7 +14,7 @@ function assertPositiveInteger(value: number, field: string): void {
   if (!Number.isInteger(value) || value <= 0) throw new Error(`${field} must be a positive integer`);
 }
 
-function calculateTotals(lines: PricedEstimateLine[], passThroughRent = 0): EstimateTotals {
+export function calculateEstimateTotals(lines: PricedEstimateLine[], passThroughRent = 0): EstimateTotals {
   if (!Number.isFinite(passThroughRent) || passThroughRent < 0) throw new Error("pass_through_rent must be zero or greater");
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unit_price, 0);
   const discount_total = lines.reduce((sum, line) => sum + (line.discount_amount ?? 0), 0);
@@ -44,6 +45,7 @@ export class DefaultEstimateService implements EstimateService {
   async createDraft(
     draft: EstimateDraft,
     source: Pick<CreateEstimateInput, "source_type" | "source_reference" | "branch_id" | "actor_user_id" | "idempotency_key"> = {},
+    validatePricedLines?: (lines: PricedEstimateLine[]) => void,
   ): Promise<EstimateDocument> {
     assertPositiveInteger(draft.definition.customer_id, "customer_id");
     if (!draft.definition.estimate_number.trim()) throw new Error("estimate_number is required");
@@ -75,6 +77,8 @@ export class DefaultEstimateService implements EstimateService {
     }
 
     validateLines(pricedLines);
+    // An approval boundary can validate the final authoritative quote before any write.
+    validatePricedLines?.(pricedLines);
     const input: CreateEstimateInput = { definition: draft.definition, ...source, lines: pricedLines };
     if (!this.repository.createEstimateAtomic) {
       throw new Error("atomic estimate repository operation is required");
@@ -86,7 +90,7 @@ export class DefaultEstimateService implements EstimateService {
       status: record.status,
       definition: draft.definition,
       lines: pricedLines,
-      totals: calculateTotals(pricedLines, draft.definition.pass_through_rent ?? 0),
+      totals: calculateEstimateTotals(pricedLines, draft.definition.pass_through_rent ?? 0),
     };
   }
 }

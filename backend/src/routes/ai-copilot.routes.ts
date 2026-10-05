@@ -5,36 +5,17 @@ import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
 import { CopilotAgent, createCopilotAgent } from "../ai-copilot/copilot-agent.js";
 import { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
 import { ErpToolRegistry } from "../ai-copilot/agent/erp-tools.js";
-import { GroqAgentModel } from "../ai-copilot/agent/model.js";
+import { createConversationalTools } from "../ai-copilot/agent/factory.js";
+import { readBusinessState } from "../ai-copilot/agent/business-state.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
-import { TenantAccessService } from "../auth/tenant-access.service.js";
-import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth/supabase-authorization.gateway.js";
-import { SupabaseErpService } from "../services/erp.service.js";
-import { SupabaseEntitySearchService } from "../services/entity-search.service.js";
-import { SupabaseCopilotCatalogRepository } from "../ai-copilot/copilot-review.js";
-import { DefaultPricingService } from "../services/pricing.service.js";
-import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
-import { getSupabaseAdminClient } from "../config/supabase.js";
-import { env } from "../config/env.js";
 
 const idSchema = z.coerce.number().int().positive();
-const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional() });
-function createReadOnlyAgent(): ReadOnlyCopilotAgent {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
-  const authorization = new SupabaseAuthorizationGateway(createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY));
-  const rateLists = new SupabaseRateListRepository();
-  return new ReadOnlyCopilotAgent(new GroqAgentModel(), new ErpToolRegistry({
-    tenant: new TenantAccessService(authorization), erp: new SupabaseErpService(),
-    catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
-    search: new SupabaseEntitySearchService(),
-    pricing: new DefaultPricingService(rateLists),
-    rateLists,
-  }));
-}
+const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional() });
 const chatSchema = z.strictObject({
   organizationId: z.string().uuid(), userId: z.string().uuid().optional(),
   message: z.string().trim().min(1).max(20_000),
+  conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),
 });
 const draftLineSchema = z.strictObject({ productName: z.string().trim().min(1).max(200), productId: z.union([z.number(), z.string()]).optional(), quantity: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(), unitRate: z.number().finite().nonnegative().optional(), rateListId: idSchema.optional(), sourceItemId: idSchema.optional(), brandHint: z.string().trim().min(1).max(100).optional() });
 const draftSchema = z.strictObject({ organizationId: z.string().uuid(), userId: z.string().uuid().optional(), intent: z.enum(["estimate", "invoice", "customer_return", "supplier_bill", "inventory_adjustment"]), source: z.enum(["text", "image", "camera", "voice"]), customerId: z.string().optional(), vendorId: z.string().optional(), documentNumber: z.string().trim().min(1).max(100).optional(), documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), currencyCode: z.string().trim().min(3).max(10).optional(), warehouseId: idSchema.optional(), rateListId: idSchema.optional(), reason: z.string().trim().min(1).max(2_000).optional(), lines: z.array(draftLineSchema).min(1).max(500), confidence: z.number().finite().min(0).max(1).default(1) });
@@ -122,6 +103,7 @@ export function createAiCopilotRouter(
   servicePrincipalId?: string,
   agent?: CopilotAgent,
   readOnlyAgent?: ReadOnlyCopilotAgent,
+  conversationalTools?: ErpToolRegistry,
 ) {
   const router = Router();
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
@@ -130,7 +112,9 @@ export function createAiCopilotRouter(
   let activeAgent = agent;
   const getAgent = () => { activeAgent ??= createCopilotAgent(); return activeAgent; };
   let activeReadOnlyAgent = readOnlyAgent;
-  const getReadOnlyAgent = () => { activeReadOnlyAgent ??= createReadOnlyAgent(); return activeReadOnlyAgent; };
+  const getReadOnlyAgent = () => { activeReadOnlyAgent ??= getAgent().core; return activeReadOnlyAgent; };
+  let activeTools = conversationalTools;
+  const getConversationalTools = () => { activeTools ??= createConversationalTools(); return activeTools; };
 
   router.post("/agent", authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
@@ -139,7 +123,8 @@ export function createAiCopilotRouter(
     const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
     const parsed = agentRequestSchema.parse(request.body);
     const result = await getReadOnlyAgent().run(parsed, { userId, organizationId, branchId }, request.log);
-    response.status(200).json({ data: result });
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).json({ data: result, requiresConfirmation: result.requiresConfirmation });
   });
 
   router.post("/chat", authorize, async (request, response) => {
@@ -149,9 +134,27 @@ export function createAiCopilotRouter(
     const userId = authenticatedUserId ?? parsed.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
     if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
-    const result = await getAgent().respond(parsed.message, { userId, organizationId: parsed.organizationId, branchId });
+    const context = { userId, organizationId: parsed.organizationId, branchId };
+    const result = parsed.conversationToken || parsed.conversationId
+      ? await getAgent().respond(parsed.message, context, parsed.conversationToken, parsed.conversationId)
+      : await getAgent().respond(parsed.message, context);
     response.setHeader("Cache-Control", "no-store");
-    response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review) });
+    response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review || result.requiresConfirmation) });
+  });
+
+  router.post("/conversation/drafts", authorize, async (request, response) => {
+    const userId = request.browserPrincipal?.userId;
+    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required.");
+    const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
+    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
+    const input = z.strictObject({ conversationToken: z.string().min(1).max(9000), conversationId: z.string().uuid() }).parse(request.body);
+    const scope = { userId, organizationId, branchId };
+    const state = readBusinessState(input.conversationToken, scope, input.conversationId);
+    if (!state.draft || state.draft.preparedRevision !== state.draft.revision) throw new ApiError(422, "DRAFT_NOT_PREPARED", "Prepare the current estimate for review first.");
+    const view = await getConversationalTools().drafts.inspect(state, scope);
+    const action = await getRuntime().createConversationDraft(state, view);
+    response.setHeader("Cache-Control", "no-store");
+    response.status(201).json({ data: action, draft: view, requiresConfirmation: true, executed: false });
   });
 
   router.post("/review", authorize, async (request, response) => {
