@@ -29,7 +29,7 @@ beforeAll(async () => {
     create table branch_access_grants(user_id uuid,organization_id uuid,branch_id uuid,status text);
     create table brands(id bigint primary key,organization_id uuid,name text);
     create table products(id bigint primary key,organization_id uuid,name text,sku text,unit text,category text,brand_id bigint);
-    create table customers(id bigint primary key,organization_id uuid,name text,city text,phone text);
+    create table customers(id bigint primary key,organization_id uuid,name varchar(255),city varchar(100),phone varchar(50));
     insert into organization_memberships values('${user}','${org}','owner','active');
     insert into role_permissions values('owner','products.read'),('owner','customers.read');
     insert into branches values('${branch}','${org}','active'),('${other}','${org}','active');
@@ -59,6 +59,9 @@ beforeAll(async () => {
   const helpers = auth.slice(auth.indexOf('create or replace function public.is_organization_member_for_user'),auth.indexOf('-- User-context helpers'));
   await db.exec(helpers);
   await db.exec(migration);
+  // Reproduce the production varchar/text contract failure before the forward fix.
+  await expect(search('customers','Qasim')).rejects.toMatchObject({code:'42804'});
+  await db.exec(readFileSync(resolve(process.cwd(),'../supabase/migrations/20261005093000_phase2a_entity_search_result_types.sql'),'utf8'));
   await db.exec('set role service_role');
 },60000);
 afterAll(async () => {await db?.close();});
