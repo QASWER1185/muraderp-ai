@@ -11,16 +11,20 @@ import { SupabaseCopilotCatalogRepository } from "../copilot-review.js";
 import { UnifiedCopilotAgent } from "./agent.js";
 import { ErpToolRegistry } from "./erp-tools.js";
 import { ProviderAgentModel } from "./model.js";
+import { SupabaseCopilotBusinessRepository } from "../../repositories/copilot-business.repository.js";
+import { SupabaseCustomerPaymentBrowserRepository } from "../../repositories/customer-payment-browser.repository.js";
+import { SupabaseVendorPaymentBrowserRepository } from "../../repositories/vendor-payment-browser.repository.js";
 
 export function createConversationalTools(): ErpToolRegistry {
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
   const authorization = new SupabaseAuthorizationGateway(createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY));
   const rateLists = new SupabaseRateListRepository();
+  const erp = new SupabaseErpService();
   return new ErpToolRegistry({
-    tenant: new TenantAccessService(authorization), erp: new SupabaseErpService(),
+    tenant: new TenantAccessService(authorization), erp,
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
     search: new SupabaseEntitySearchService(), pricing: new DefaultPricingService(rateLists), rateLists,
-  }, true);
+  }, true, { erp, repository: new SupabaseCopilotBusinessRepository(), customers: new SupabaseCustomerPaymentBrowserRepository(), vendors: new SupabaseVendorPaymentBrowserRepository() });
 }
 export function createUnifiedAgent(): UnifiedCopilotAgent {
   return new UnifiedCopilotAgent(new ProviderAgentModel(), createConversationalTools());

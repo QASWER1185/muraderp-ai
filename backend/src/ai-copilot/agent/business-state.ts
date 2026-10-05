@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ApiError } from "../../errors/api-error.js";
 import { readConversation, signConversationPayload, verifyConversationPayload } from "./conversation.js";
 import type { AgentScope } from "./erp-tools.js";
+import { paymentStateSchema } from "./payment-state.js";
 
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const product = z.strictObject({ id, name: z.string().max(160), sku: z.string().max(100), unit: z.string().max(30) });
@@ -19,6 +20,11 @@ export const businessStateSchema = z.strictObject({
   lastMessage: z.string().max(500).optional(),
   productContext: z.strictObject({ candidates: z.array(product).max(5), ambiguous: z.boolean() }).optional(),
   customer: z.strictObject({ id, name: z.string().max(160) }).optional(),
+  vendor: z.strictObject({ id, name: z.string().max(160) }).optional(),
+  vendorAmbiguous: z.boolean().optional(),
+  comparison: z.array(product).min(2).max(5).optional(),
+  analysis: z.strictObject({ productId: id, quantity: z.number().finite().positive().max(1_000_000), discountPercent: z.number().finite().min(0).max(100) }).optional(),
+  paymentPreparation: paymentStateSchema.optional(),
   customerAmbiguous: z.boolean().optional(), productUnresolved: z.boolean().optional(),
   brandHint: z.string().max(120).optional(), rateListId: id.optional(),
   draft: z.strictObject({

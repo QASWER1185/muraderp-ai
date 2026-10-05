@@ -37,7 +37,7 @@ export interface VendorPaymentAllocationSummary {
 }
 
 export interface VendorPaymentBrowserRepository {
-  listPayables(organizationId: string, branchId: string, limit: number, cursor?: number): Promise<{ data: PayableSummary[]; next_cursor: number | null }>;
+  listPayables(organizationId: string, branchId: string, limit: number, cursor?: number, filter?: { vendorId: number; purchaseIds?: number[] }): Promise<{ data: PayableSummary[]; next_cursor: number | null }>;
   allocationPurchases(organizationId: string, branchId: string, purchaseIds: number[]): Promise<Array<{ id: number; vendor_id: number }>>;
   listPayments(organizationId: string, branchId: string, limit: number, cursor?: number): Promise<{ data: VendorPaymentSummary[]; next_cursor: number | null }>;
   getPayment(organizationId: string, branchId: string, id: number): Promise<{ payment: VendorPaymentSummary; allocations: VendorPaymentAllocationSummary[] } | null>;
@@ -62,12 +62,14 @@ export class SupabaseVendorPaymentBrowserRepository implements VendorPaymentBrow
     return new Map<number, string>((data ?? []).map((row: any) => [row.id, row.name]));
   }
 
-  async listPayables(organizationId: string, branchId: string, limit: number, cursor?: number) {
+  async listPayables(organizationId: string, branchId: string, limit: number, cursor?: number, filter?: { vendorId: number; purchaseIds?: number[] }) {
     let query = this.client.from("purchases")
       .select("id,purchase_date,invoice_number,vendor_id,total")
       .eq("organization_id", organizationId).eq("branch_id", branchId)
       .order("id", { ascending: false }).limit(limit + 1);
     if (cursor !== undefined) query = query.lt("id", cursor);
+    if (filter) query = query.eq("vendor_id", filter.vendorId);
+    if (filter?.purchaseIds) query = query.in("id", filter.purchaseIds);
     const { data, error } = await query;
     if (error) throw readError("Purchase payables could not be loaded");
     const rows = (data ?? []) as Array<{ id: number; purchase_date: string; invoice_number: string | null; vendor_id: number; total: number }>;

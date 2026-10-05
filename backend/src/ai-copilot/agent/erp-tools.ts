@@ -9,6 +9,7 @@ import type { CopilotCatalogRepository } from "../copilot-review.js";
 import type { EntitySearchService } from "../../services/entity-search.service.js";
 import type { BusinessState } from "./business-state.js";
 import { ConversationalDraftService, DRAFT_TOOL_DEFINITIONS } from "./draft-tools.js";
+import { BusinessIntelligenceTools, BUSINESS_TOOL_DEFINITIONS, type BusinessServices } from "./business-tools.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -85,18 +86,24 @@ export const ERP_TOOLS = [
 export class ErpToolRegistry {
   private readonly tools = new Map<string, ErpTool>(ERP_TOOLS.map((tool) => [tool.name, tool]));
   readonly drafts: ConversationalDraftService;
-  constructor(private readonly services: ToolServices, private readonly conversationalDrafts = false) {
+  readonly business?: BusinessIntelligenceTools;
+  constructor(private readonly services: ToolServices, private readonly conversationalDrafts = false, businessServices?: BusinessServices) {
     this.drafts = new ConversationalDraftService(services, (input, scope, signal) => this.execute("lookup_current_sale_rate", input, scope, undefined, undefined, signal));
+    if (businessServices) this.business = new BusinessIntelligenceTools(services, businessServices);
   }
   async assertScope(scope: AgentScope) {
     await this.services.tenant.assertBranchAccess(scope, scope.branchId);
   }
   definitions() {
-    const reads = [...this.tools.values()].map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
-    return this.conversationalDrafts ? [...reads, ...DRAFT_TOOL_DEFINITIONS] : reads;
+    const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
+    return [...reads, ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    if (this.business?.handles(name)) {
+      if (!state) throw new ApiError(400, "CONVERSATION_CONTEXT_REQUIRED", "Validated conversation state is required.");
+      return this.business.execute(name, raw, scope, state, signal);
+    }
     if (this.conversationalDrafts && this.drafts.handles(name)) {
       if (!state) throw new ApiError(400, "CONVERSATION_CONTEXT_REQUIRED", "Validated conversation state is required.");
       return this.drafts.execute(name, raw, scope, state, signal);

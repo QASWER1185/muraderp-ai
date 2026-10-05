@@ -38,7 +38,7 @@ export interface PaymentAllocationSummary {
 }
 
 export interface CustomerPaymentBrowserRepository {
-  listReceivables(organizationId: string, branchId: string, limit: number, cursor?: number): Promise<{ data: ReceivableSummary[]; next_cursor: number | null }>;
+  listReceivables(organizationId: string, branchId: string, limit: number, cursor?: number, filter?: { customerId: number; invoiceIds?: number[] }): Promise<{ data: ReceivableSummary[]; next_cursor: number | null }>;
   allocationInvoices(organizationId: string, branchId: string, invoiceIds: number[]): Promise<Array<{ id: number; customer_id: number; currency_code: string }>>;
   listPayments(organizationId: string, branchId: string, limit: number, cursor?: number): Promise<{ data: PaymentSummary[]; next_cursor: number | null }>;
   getPayment(organizationId: string, branchId: string, id: number): Promise<{ payment: PaymentSummary; allocations: PaymentAllocationSummary[] } | null>;
@@ -56,13 +56,15 @@ export class SupabaseCustomerPaymentBrowserRepository implements CustomerPayment
     return this.clientFactory() as unknown as UntypedClient;
   }
 
-  async listReceivables(organizationId: string, branchId: string, limit: number, cursor?: number) {
+  async listReceivables(organizationId: string, branchId: string, limit: number, cursor?: number, filter?: { customerId: number; invoiceIds?: number[] }) {
     let query = this.client.from("invoices")
       .select("id, invoice_number, customer_id, status, currency_code, grand_total, pass_through_rent")
       .eq("organization_id", organizationId).eq("branch_id", branchId)
       .in("status", ["POSTED", "PARTIALLY_PAID", "PAID"])
       .order("id", { ascending: false }).limit(limit + 1);
     if (cursor !== undefined) query = query.lt("id", cursor);
+    if (filter) query = query.eq("customer_id", filter.customerId);
+    if (filter?.invoiceIds) query = query.in("id", filter.invoiceIds);
     const { data, error } = await query;
     if (error) throw readError("Receivables could not be loaded");
     const rows = (data ?? []) as Array<{ id: number; invoice_number: string; customer_id: number; status: string; currency_code: string; grand_total: number; pass_through_rent: number }>;
