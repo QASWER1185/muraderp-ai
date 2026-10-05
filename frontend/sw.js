@@ -1,4 +1,4 @@
-const CACHE_NAME = "muraderp-ai-shell-v19";
+const CACHE_NAME = "muraderp-ai-shell-v20";
 const APP_SHELL = [
   "/",
   "/index.html",

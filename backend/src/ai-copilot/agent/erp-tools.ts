@@ -9,6 +9,7 @@ import type { CopilotCatalogRepository } from "../copilot-review.js";
 import type { EntitySearchService } from "../../services/entity-search.service.js";
 import type { BusinessState } from "./business-state.js";
 import { ConversationalDraftService, DRAFT_TOOL_DEFINITIONS } from "./draft-tools.js";
+import { touchDraft } from "./business-state.js";
 import { BusinessIntelligenceTools, BUSINESS_TOOL_DEFINITIONS, type BusinessServices } from "./business-tools.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
@@ -93,6 +94,29 @@ export class ErpToolRegistry {
   }
   async assertScope(scope: AgentScope) {
     await this.services.tenant.assertBranchAccess(scope, scope.branchId);
+  }
+  async applySelection(selection:{kind:"product"|"customer"|"vendor";id:number},scope:AgentScope,state:BusinessState) {
+    if (state.userId!==scope.userId || state.organizationId!==scope.organizationId || state.branchId!==scope.branchId ||
+      state.clarification?.kind!==selection.kind || !state.clarification.candidates.some(row=>row.id===selection.id)) {
+      throw new ApiError(422,"INVALID_ENTITY_SELECTION","Choose a candidate from the current conversation.");
+    }
+    await this.assertScope(scope);
+    await this.services.tenant.assertPermission(scope,selection.kind==="product"?"products.read":selection.kind==="customer"?"customers.read":"vendors.read");
+    if(selection.kind==="product") {
+      const product=await this.services.erp.getProduct(selection.id,scope.organizationId);
+      if(!product) throw new ApiError(404,"PRODUCT_NOT_FOUND","Selected product is unavailable.");
+      state.productContext={candidates:[{id:product.id,name:product.name.slice(0,160),sku:product.sku.slice(0,100),unit:product.unit.slice(0,30)}],ambiguous:false};
+      state.productUnresolved=false;
+    } else if(selection.kind==="customer") {
+      const customer=await this.services.erp.getCustomer(selection.id,scope.organizationId);
+      if(!customer) throw new ApiError(404,"CUSTOMER_NOT_FOUND","Selected customer is unavailable.");
+      if(state.customer?.id!==customer.id && state.draft) touchDraft(state);
+      state.customer={id:customer.id,name:customer.name.slice(0,160)};state.customerAmbiguous=false;
+    } else {
+      if(!this.business) throw new ApiError(503,"BUSINESS_TOOLS_UNAVAILABLE","Vendor selection is unavailable.");
+      await this.business.selectVendor(selection.id,scope,state);
+    }
+    delete state.clarification;delete state.paymentPreparation;
   }
   definitions() {
     const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));

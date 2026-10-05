@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ApiError } from "../../errors/api-error.js";
 import { type ProductContext, type ProductReference } from "./conversation.js";
 import type { AgentScope } from "./erp-tools.js";
-import { newBusinessState, readBusinessState, writeBusinessState, touchDraft, type BusinessState } from "./business-state.js";
+import { newBusinessState, readBusinessState, writeBusinessState, touchDraft, businessStateSchema, type BusinessState } from "./business-state.js";
 import { draftAnswer, type DraftView } from "./draft-tools.js";
 import type { AgentModel, FunctionCall } from "./model.js";
 import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
@@ -20,6 +20,7 @@ export type AgentLogger = { info: (fields: Record<string, unknown>, message: str
 export interface AgentToolExecutor {
   definitions(): unknown[];
   assertScope?(scope: AgentScope): Promise<void>;
+  applySelection?(selection:{kind:"product"|"customer"|"vendor";id:number},scope:AgentScope,state:BusinessState):Promise<void>;
   execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, originalMessage?: string, signal?: AbortSignal): Promise<unknown>;
 }
 
@@ -55,7 +56,7 @@ async function withinDeadline<T>(task: Promise<T>, signal: AbortSignal): Promise
 
 export class UnifiedCopilotAgent {
   constructor(private readonly model: AgentModel, private readonly tools: AgentToolExecutor, private readonly timeoutMs = TIMEOUT_MS) {}
-  async run(request: { message: string; conversationToken?: string | undefined; conversationId?: string | undefined }, scope: AgentScope, logger?: AgentLogger) {
+  async run(request: { message: string; conversationToken?: string | undefined; conversationId?: string | undefined;selection?:{kind:"product"|"customer"|"vendor";id:number}|undefined }, scope: AgentScope, logger?: AgentLogger) {
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401, "TENANT_CONTEXT_REQUIRED", "Authenticated user and tenant context are required");
     if (!request.message.trim() || request.message.length > 20_000) throw new ApiError(400, "VALIDATION_ERROR", "A valid bounded message is required.");
     await this.tools.assertScope?.(scope);
@@ -68,12 +69,19 @@ export class UnifiedCopilotAgent {
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
     }
     const input: unknown[] = state.lastMessage ? [{ role: "user", content: "Previous untrusted wording (not entity or price authority): " + state.lastMessage }] : [];
+    if(request.selection) {
+      if(!request.conversationToken || !request.conversationId || !this.tools.applySelection) throw new ApiError(422,"INVALID_ENTITY_SELECTION","Select within the current conversation.");
+      await this.tools.applySelection(request.selection,scope,state);
+      if(state.pendingRequest) input.push({role:"user",content:"Continue this pending untrusted request using the selected ERP reference: "+state.pendingRequest});
+    }
     const priorProducts = state.productContext;
     // A new user turn replaces transient approval controls. A fresh payment
     // preparation tool must validate all choices before another review is offered.
     delete state.paymentPreparation;
     let customerAmbiguous = state.customerAmbiguous === true;
     let productUnresolved = state.productUnresolved === true;
+    const previouslyUnresolved = productUnresolved;
+    let failedProductSearch = false;
     let resolvedCustomerId: number | undefined = state.customer?.id;
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
     input.push({ role: "assistant", content: "Server-validated business context (references and user choices only; current prices must be obtained from tools):" + JSON.stringify({
@@ -191,6 +199,11 @@ export class UnifiedCopilotAgent {
             if (call.name === "search_products" || call.name === "lookup_customers") {
               const resolution = result as EntityResolution<RankedEntity>;
               const unresolved = resolution.requiresClarification ? resolution : undefined;
+              if(unresolved && resolution.items.length) state.clarification={kind:call.name==="search_products"?"product":"customer",candidates:resolution.items.slice(0,5).map(row=>{
+                const candidate=row as RankedEntity & {sku?:string;unit?:string;city?:string};
+                return {id:row.id,name:row.name.slice(0,160),...(candidate.sku?{sku:candidate.sku.slice(0,100)}:{}),...(candidate.unit?{unit:candidate.unit.slice(0,30)}:{}),...(candidate.city?{city:candidate.city.slice(0,120)}:{})};
+              })};
+              else if(state.clarification?.kind===(call.name==="search_products"?"product":"customer")) delete state.clarification;
               if (call.name === "search_products") { unresolvedProduct = unresolved; productUnresolved = resolution.resolution !== "resolved"; }
               else {
                 unresolvedCustomer = unresolved; customerAmbiguous = resolution.resolution !== "resolved"; resolvedCustomerId = resolution.bestCandidate?.id;
@@ -209,11 +222,17 @@ export class UnifiedCopilotAgent {
                 productContext = currentCandidates.length ? { candidates: currentCandidates.slice(0, 5), ambiguous: !!unresolvedProduct || currentCandidates.length > 1 } : undefined;
               }
               uniqueSearchThisTurn = !unresolvedProduct && productSearches > 0 && currentCandidates.length === 1;
+              if (call.name !== "search_products" && failedProductSearch && !previouslyUnresolved && !priorProducts?.ambiguous && currentCandidates.length === 1 && !unresolvedProduct) productUnresolved = false;
             }
             input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(result ?? null) });
             logger?.info({ traceId, iteration, tool: call.name, outcome: "ok" }, "Copilot tool executed");
           } catch (error) {
             if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
+            if (["search_products", "lookup_customers", "lookup_vendors"].includes(call.name)) {
+              delete state.clarification;
+              if (call.name === "search_products") { productContext = undefined; productUnresolved = true; failedProductSearch = true; }
+              if (call.name === "lookup_customers") { delete state.customer; customerAmbiguous = true; resolvedCustomerId = undefined; }
+            }
             // A failed new selection must not leave a previous entity available
             // for an unrelated payment or pronoun follow-up.
             if (BUSINESS_TOOLS.has(call.name) && args && typeof args === "object") {
@@ -228,6 +247,8 @@ export class UnifiedCopilotAgent {
               }
             }
             if (error instanceof ApiError && ["DRAFT_CONTEXT_REQUIRED", "BUSINESS_CONTEXT_REQUIRED"].includes(error.code)) {
+              const candidates = businessStateSchema.shape.clarification.safeParse(error.details);
+              if (candidates.success && candidates.data) state.clarification = candidates.data;
               if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
               answer = error.message; status = "clarification"; break;
             }
@@ -253,9 +274,13 @@ export class UnifiedCopilotAgent {
       answer = draftAnswer(draftView, request.message);
     }
     if (status !== "completed") delete state.paymentPreparation;
+    if(!state.productUnresolved && !state.customerAmbiguous && !state.vendorAmbiguous) delete state.clarification;
+    if(status==="clarification" && !request.selection && request.message.length<=4000) state.pendingRequest=request.message;
+    if(status==="completed" && !state.clarification) delete state.pendingRequest;
     return { answer, conversationToken: writeBusinessState(state), conversationId: state.conversationId, traceId, status, toolNames,
       ...(draftView ? { draft: draftView } : {}), ...(review ? { review } : {}),
       ...(businessFacts.length ? { businessFacts } : {}), ...(state.paymentPreparation ? { paymentPreparation: state.paymentPreparation } : {}),
+      ...(state.clarification ? {clarification:state.clarification}:{}),
       requiresConfirmation: Boolean(review || draftView?.prepared || state.paymentPreparation) };
   }
 }

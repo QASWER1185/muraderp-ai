@@ -94,6 +94,23 @@ export class AiProvider implements StructuredAiProvider {
     if (this.name === "groq" && content.some((part) => typeof part === "object" && part !== null && "type" in part && part.type === "input_file")) {
       throw new ApiError(422, "AI_INPUT_UNSUPPORTED", "PDF input is unavailable with the configured AI provider. Use an image or text input.");
     }
+    // Groq vision uses Chat Completions with JSON mode, not the text-only
+    // Responses transport. Validate the proposal locally in either transport.
+    if (this.name === "groq" && content.some(part => part && typeof part === "object" && "type" in part && part.type === "input_image")) {
+      const parts = content.map(part => {
+        const value = part as { type: string; text?: string; image_url?: string };
+        return value.type === "input_image" ? { type: "image_url", image_url: { url: value.image_url } } : { type: "text", text: value.text };
+      });
+      const result = await this.request("chat/completions", JSON.stringify({
+        model: this.configuration.visionModel ?? this.configuration.model,
+        messages: [{ role: "system", content: instructions + " Return JSON conforming to this schema: " + JSON.stringify(z.toJSONSchema(schema)) }, { role: "user", content: parts }],
+        response_format: { type: "json_object" }, max_completion_tokens: 8000,
+      }), true);
+      try {
+        if (result.choices?.[0]?.finish_reason !== "stop") throw new Error("Incomplete vision output");
+        return schema.parse(JSON.parse(result.choices[0].message.content));
+      } catch { throw new ApiError(422, "AI_INVALID_OUTPUT", "The extraction could not be validated. Please clarify or use manual entry."); }
+    }
     const result = await this.request("responses", JSON.stringify({
       model: content.some((part) => typeof part === "object" && part !== null && "type" in part && part.type === "input_image")
         ? this.configuration.visionModel ?? this.configuration.model : this.configuration.model,
@@ -120,7 +137,11 @@ export class AiProvider implements StructuredAiProvider {
     const extensions: Record<string, string> = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg" };
     form.set("file", new Blob([new Uint8Array(media.bytes)], { type: media.mimeType }), `voice.${extensions[media.mimeType]}`);
     form.set("model", this.configuration.speechModel);
+    if (this.name === "groq") form.set("response_format", "verbose_json");
     const result = await this.request("audio/transcriptions", form, false);
+    if (Array.isArray(result.segments) && result.segments.length && result.segments.every((segment: any) => segment.no_speech_prob >= 0.8)) {
+      throw new ApiError(422, "VOICE_UNRECOGNIZED", "No usable speech was recognized. Please record again or type your request.");
+    }
     const parsed = z.string().trim().min(1).max(20000).safeParse(result.text);
     if (!parsed.success) throw new ApiError(422, "VOICE_UNRECOGNIZED", "No usable speech was recognized. Please record again or type your request.");
     return parsed.data;

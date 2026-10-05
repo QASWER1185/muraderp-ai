@@ -48,12 +48,20 @@ export type BusinessServices = {
 };
 export type BusinessFact = { kind: string; [key: string]: unknown };
 type Reference = { id: number; name: string; sku: string; unit: string };
-function clarification(message: string): never { throw new ApiError(422, "BUSINESS_CONTEXT_REQUIRED", message); }
+function clarification(message: string, candidates?: BusinessState["clarification"]): never {
+  throw new ApiError(422, "BUSINESS_CONTEXT_REQUIRED", message, candidates);
+}
 const unitKey = (value: string) => value.trim().toUpperCase();
 
 export class BusinessIntelligenceTools {
   constructor(private readonly base: ToolServices, private readonly services: BusinessServices) {}
   handles(name: string): name is keyof typeof schemas { return Object.hasOwn(schemas, name); }
+  async selectVendor(id:number,scope:AgentScope,state:BusinessState) {
+    this.assertStateScope(state,scope);await this.authorize(scope,["vendors.read"]);
+    const vendor=await this.services.erp.getVendor(id,scope.organizationId);
+    if(!vendor) throw new ApiError(404,"PARTY_NOT_FOUND","Selected vendor is unavailable.");
+    state.vendor={id:vendor.id,name:vendor.name.slice(0,160)};state.vendorAmbiguous=false;
+  }
   private async authorize(scope: AgentScope, permissions: PermissionCode[], signal?: AbortSignal) {
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401, "TENANT_CONTEXT_REQUIRED", "Authenticated user and tenant scope are required.");
     await this.base.tenant.assertBranchAccess(scope, scope.branchId);
@@ -71,7 +79,8 @@ export class BusinessIntelligenceTools {
       signal?.throwIfAborted();
       if (resolution.resolution !== "resolved" || !resolution.bestCandidate) {
         delete state.productContext; state.productUnresolved = true;
-        clarification("Please identify the product by name, SKU, brand or size" + (resolution.items.length ? ": " + resolution.items.map(p => `${p.name} (ID ${p.id})`).join("; ") : "; no matching ERP product is available."));
+        clarification("Please identify the product by name, SKU, brand or size" + (resolution.items.length ? ": " + resolution.items.map(p => `${p.name} (ID ${p.id})`).join("; ") : "; no matching ERP product is available."),
+          resolution.items.length ? {kind:"product",candidates:resolution.items.slice(0,5).map(row=>({id:row.id,name:row.name.slice(0,160),sku:row.sku.slice(0,100),unit:row.unit.slice(0,30)}))} : undefined);
       }
       selected = resolution.bestCandidate.id;
     } else {
@@ -211,6 +220,8 @@ export class BusinessIntelligenceTools {
       candidate.vendorAmbiguous = resolution.resolution !== "resolved";
       if (!candidate.vendorAmbiguous && resolution.bestCandidate) candidate.vendor = { id: resolution.bestCandidate.id, name: resolution.bestCandidate.name.slice(0, 160) };
       else delete candidate.vendor;
+      if(candidate.vendorAmbiguous && resolution.items.length) candidate.clarification={kind:"vendor",candidates:resolution.items.slice(0,5).map(row=>({id:row.id,name:row.name.slice(0,160)}))};
+      else if(candidate.clarification?.kind==="vendor") delete candidate.clarification;
       result = resolution;
     } else if (name === "query_customer_ledger") {
       const input = checked(name);
@@ -218,7 +229,8 @@ export class BusinessIntelligenceTools {
         if (input.customer_id !== undefined) clarification("Use a customer query or verified ID, not both.");
         const resolution = await this.base.search.searchCustomers(input.query, 5, scope);
         signal?.throwIfAborted();
-        if (resolution.resolution !== "resolved" || !resolution.bestCandidate) clarification("Please clarify the customer by name or location: " + resolution.items.map(row => row.name + " (ID " + row.id + ")").join("; "));
+        if (resolution.resolution !== "resolved" || !resolution.bestCandidate) clarification("Please clarify the customer by name or location: " + resolution.items.map(row => row.name + " (ID " + row.id + ")").join("; "),
+          resolution.items.length ? {kind:"customer",candidates:resolution.items.slice(0,5).map(row=>({id:row.id,name:row.name.slice(0,160),city:row.city.slice(0,120)}))} : undefined);
         candidate.customer = { id: resolution.bestCandidate.id, name: resolution.bestCandidate.name.slice(0,160) }; candidate.customerAmbiguous = false;
       }
       const party = await this.party("customer", input.customer_id, scope, candidate, signal);
@@ -299,6 +311,7 @@ export class BusinessIntelligenceTools {
     Object.assign(state, candidate);
     // Object.assign cannot remove optional fields cleared in the candidate.
     if (!candidate.vendor) delete state.vendor;
+    if (!candidate.clarification) delete state.clarification;
     return result;
   }
   private assertStateScope(state: BusinessState, scope: AgentScope) {

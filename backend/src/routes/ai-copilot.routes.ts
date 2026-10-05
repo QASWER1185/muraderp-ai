@@ -10,9 +10,11 @@ import { createConversationalTools } from "../ai-copilot/agent/factory.js";
 import { readBusinessState } from "../ai-copilot/agent/business-state.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
+import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
+import { writeBusinessState } from "../ai-copilot/agent/business-state.js";
 
 const idSchema = z.coerce.number().int().positive();
-const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional() });
+const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
 const chatSchema = z.strictObject({
   organizationId: z.string().uuid(), userId: z.string().uuid().optional(),
   message: z.string().trim().min(1).max(20_000),
@@ -105,6 +107,7 @@ export function createAiCopilotRouter(
   agent?: CopilotAgent,
   readOnlyAgent?: ReadOnlyCopilotAgent,
   conversationalTools?: ErpToolRegistry,
+  multimodalInput?: MultimodalAgentInput,
 ) {
   const router = Router();
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
@@ -116,6 +119,33 @@ export function createAiCopilotRouter(
   const getReadOnlyAgent = () => { activeReadOnlyAgent ??= getAgent().core; return activeReadOnlyAgent; };
   let activeTools = conversationalTools;
   const getConversationalTools = () => { activeTools ??= createConversationalTools(); return activeTools; };
+
+  router.post("/agent/input", authorize, async (request, response) => {
+    const userId = request.browserPrincipal?.userId;
+    if (!userId) throw new ApiError(401,"UNAUTHORIZED","A browser user session is required.");
+    const organizationId = z.string().uuid().parse(headerValue(request,"X-Organization-Id"));
+    const branchId = z.string().uuid().parse(headerValue(request,"X-Branch-Id"));
+    const input = z.strictObject({ source:z.enum(["image","camera","voice"]), media:mediaSchema,
+      message:z.string().trim().max(4000).optional(),task:z.enum(["auto","estimate"]).default("auto"),
+      conversationToken:z.string().max(9000).optional(),conversationId:z.string().uuid().optional() }).parse(request.body);
+    const scope = {userId,organizationId,branchId};
+    await getConversationalTools().assertScope(scope);
+    const state = readBusinessState(input.conversationToken,scope,input.conversationId);
+    state.inputSource=input.source;
+    // Any new request invalidates transient preparation, even if OCR needs review.
+    delete state.paymentPreparation;
+    if (state.draft) delete state.draft.preparedRevision;
+    const normalized = await (multimodalInput ??= new MultimodalAgentInput()).normalize(input,scope);
+    response.setHeader("Cache-Control","no-store");
+    if (normalized.reviewRequired) {
+      response.json({data:{answer:"The document needs review. Correct or confirm the extracted wording before continuing; no ERP action was prepared.",
+        status:"clarification",conversationToken:writeBusinessState(state),conversationId:state.conversationId,
+        extraction:normalized.extraction,reviewText:normalized.message,requiresConfirmation:false,toolNames:[]}});
+      return;
+    }
+    const result = await getReadOnlyAgent().run({message:normalized.message,conversationToken:writeBusinessState(state),conversationId:state.conversationId},scope,request.log);
+    response.json({data:{...result,extraction:normalized.extraction},requiresConfirmation:result.requiresConfirmation});
+  });
 
   router.post("/agent", authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
@@ -175,7 +205,7 @@ export function createAiCopilotRouter(
     const idempotencyKey = "conversation-payment-" + createHash("sha256").update(JSON.stringify({
       ...scope, conversationId: state.conversationId, intent: preparation.intent, payment: preparation.payment,
     })).digest("hex");
-    const action = await getRuntime().createFinancialDraft({ ...scope, source: "text", intent: preparation.intent, payment: preparation.payment }, idempotencyKey);
+    const action = await getRuntime().createFinancialDraft({ ...scope, source: state.inputSource??"text", intent: preparation.intent, payment: preparation.payment }, idempotencyKey);
     response.setHeader("Cache-Control", "no-store");
     response.status(201).json({ data: { ...action, idempotencyKey }, paymentPreparation: preparation, requiresConfirmation: true, executed: false });
   });

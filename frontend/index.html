@@ -58,11 +58,11 @@
       <p id="copilot-status" class="copilot-status" role="status" hidden></p>
       <div class="copilot-composer">
         <label class="sr-only" for="copilot-action">Task</label>
-        <select id="copilot-action" class="task-select" aria-label="Copilot task"><option value="auto">Ask ERP Copilot (read-only)</option><option value="estimate">Prepare estimate</option><option value="purchase">Review supplier bill</option><option value="return">Review customer return</option><option value="inventory_adjustment">Review stock adjustment</option><option value="rate_list_update">Review rate list</option><option value="invoice_extract">Extract invoice only</option></select>
+        <select id="copilot-action" class="task-select" aria-label="Copilot task"><option value="auto">ERP Business Agent</option><option value="estimate">Prepare estimate</option><option value="purchase">Review supplier bill</option><option value="return">Review customer return</option><option value="inventory_adjustment">Review stock adjustment</option><option value="rate_list_update">Review rate list</option><option value="invoice_extract">Extract invoice only</option></select>
         <textarea id="copilot-input" rows="1" placeholder="Ask about a product, rate, or ERP action" aria-label="Message Copilot"></textarea>
         <div class="composer-actions"><div><button id="copilot-attach" class="icon-button" type="button" aria-label="Attach image or PDF" title="Attach image or PDF"></button><button id="copilot-camera-button" class="icon-button" type="button" aria-label="Take a photo" title="Take a photo"></button><button id="copilot-mic" class="icon-button" type="button" aria-label="Record voice" title="Record voice"></button></div><button id="copilot-send" class="icon-button send-button" type="button" aria-label="Send message" title="Send message"></button></div>
-        <input id="copilot-file" type="file" accept="image/*,.pdf,application/pdf" hidden />
-        <input id="copilot-camera" type="file" accept="image/*" capture="environment" hidden />
+        <input id="copilot-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,audio/webm,audio/mp4,audio/mpeg,audio/wav,audio/ogg" hidden />
+        <input id="copilot-camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden />
       </div>
       <p class="copilot-boundary">Read answers use live ERP data. Actions require your review and explicit confirmation before the authoritative ERP service executes them.</p>
     </section>

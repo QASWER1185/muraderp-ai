@@ -1,10 +1,27 @@
-import { createCopilotDraft, createCopilotReview, askCopilot, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
+import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
+const MEDIA_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","audio/webm","audio/mp4","audio/mpeg","audio/wav","audio/ogg"]);
+export function validateAttachment(file) {
+  const mimeType=String(file.type).split(";")[0].trim().toLowerCase();
+  if(!MEDIA_TYPES.has(mimeType)) throw new Error("Use a JPEG, PNG, WebP, PDF, or supported audio file.");
+  if(!file.size) throw new Error("The attachment is empty.");
+  if(file.size>MAX_MEDIA_BYTES) throw new Error("Attachments must be 8 MB or smaller.");
+  return mimeType;
+}
+export function ambiguityMarkup(clarification) {
+  return `<article class="review-card" data-agent-ambiguity><h3>Choose the ${escapeHtml(clarification.kind)}</h3><p>Select an ERP candidate to continue the same conversation.</p>${clarification.candidates.map(row=>`<button class="button secondary" type="button" data-agent-candidate="${escapeHtml(row.id)}" data-candidate-kind="${escapeHtml(clarification.kind)}">${escapeHtml(row.name)}${row.city?" · "+escapeHtml(row.city):""}${row.sku?" · "+escapeHtml(row.sku):""}</button>`).join("")}</article>`;
+}
+export function extractionMarkup(extraction,reviewText) {
+  if(extraction.transcript) return `<article class="review-card"><h3>Voice transcript</h3><p>${escapeHtml(extraction.transcript)}</p><p>Transcription is proposed wording; ERP tools verify business values.</p></article>`;
+  const doc=extraction.document;
+  if(!doc) return "";
+  return `<article class="review-card" data-input-review><h3>Document observations</h3><p>Customer: ${escapeHtml(doc.customerName??"Unclear")}. ${Math.round(doc.confidence*100)}% extraction confidence.</p>${doc.lines.map(line=>`<p>${escapeHtml(line.productName)} · ${escapeHtml(line.quantity??"Quantity unclear")} ${escapeHtml(line.unit??"Unit unclear")} · observed rate ${escapeHtml(line.unitRate??"unavailable")} · discount ${escapeHtml(line.discountPercent??doc.discountPercent??"unclear")}%</p>`).join("")}<p>Observed subtotal: ${escapeHtml(doc.subtotal??"unavailable")}; total: ${escapeHtml(doc.total??"unavailable")}. Current ERP rates determine the draft.</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>Correct or confirm the extracted wording<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>Continue with reviewed text</button>`:""}</article>`;
+}
 
 export function createCopilotConversation(now = Date.now) {
   let token = null;
@@ -37,6 +54,7 @@ export function conversationDraftMarkup(draft) {
   return `<article class="review-card" data-conversation-draft><div class="review-heading"><h3>Estimate in progress</h3><span class="status-pill review">${draft.prepared ? "Review required" : "Conversation draft"}</span></div>
     <p>Customer: ${escapeHtml(draft.customer?.name ?? "Please identify the customer")}</p>
     <div class="review-lines">${(draft.lines ?? []).map(line => `<div class="review-line"><strong>${escapeHtml(line.productName)}</strong><p>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} · ${escapeHtml(line.discountPercent)}% discount</p><p>${line.rate ? escapeHtml(line.rate.currency_code) + " " + escapeHtml(line.rate.unit_price) + " / " + escapeHtml(line.rate.unit) : "Current rate unavailable"}</p><p>${line.amount == null ? escapeHtml(line.error ?? "Needs verification") : escapeHtml(draft.currencyCode) + " " + escapeHtml(line.amount.toFixed(2))}</p></div>`).join("")}</div>
+    ${draft.totals?`<p>Subtotal: ${escapeHtml(draft.currencyCode)} ${escapeHtml(draft.totals.subtotal?.toFixed(2) ?? "unavailable")} · Discount: ${escapeHtml(draft.currencyCode)} ${escapeHtml(draft.totals.discount_total?.toFixed(2) ?? "unavailable")}</p>`:""}
     <p><strong>${draft.totals ? "Total: " + escapeHtml(draft.currencyCode) + " " + escapeHtml(draft.totals.grand_total.toFixed(2)) : "Total unavailable until all rates are verified."}</strong></p>
     <p>Continue this conversation to add, remove or correct items. Nothing is executed without your explicit confirmation.</p>
     ${draft.prepared && draft.totals ? '<button class="button primary" type="button" data-prepare-conversation-draft>Prepare draft</button>' : ""}</article>`;
@@ -68,11 +86,11 @@ export function sourceForAttachment(file, camera = false) {
 }
 
 async function readFileAsBase64(file) {
-  if (file.size > MAX_MEDIA_BYTES) throw new Error("Attachments must be 8 MB or smaller.");
+  const mimeType=validateAttachment(file);
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
-  return { mimeType: file.type || "application/octet-stream", base64: btoa(binary) };
+  return { mimeType, base64: btoa(binary) };
 }
 
 function matchField(label, match, name) {
@@ -134,6 +152,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let recordingStream = null;
   let recordingChunks = [];
   let retryAction = null;
+  let operationVersion=0, recordingVersion=0, recordingTimer=null, recordingBytes=0;
   const conversation = createCopilotConversation();
   const quoteVersions = new Map();
 
@@ -157,6 +176,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   function setBusy(busy, message = "") {
     operationBusy = busy;
     sendButton.disabled = busy; task.disabled = busy; input.disabled = busy;
+    micButton.disabled=busy;
+    document.querySelector("#copilot-attach").disabled=busy;document.querySelector("#copilot-camera-button").disabled=busy;
     status.hidden = !busy; status.innerHTML = busy ? `<span class="spinner"></span>${escapeHtml(message)}` : "";
   }
   function clearAttachment() {
@@ -165,7 +186,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
   function showAttachment(file, fromCamera = false) {
     clearAttachment();
-    if (file.size > MAX_MEDIA_BYTES) { showError(new Error("Attachments must be 8 MB or smaller.")); return; }
+    try {validateAttachment(file);}catch(error){showError(error);return;}
     attachment = file; attachmentFromCamera = fromCamera;
     const imagePreview = file.type.startsWith("image/") ? `<img src="${(attachmentUrl = URL.createObjectURL(file))}" alt="Attachment preview" />` : `<span class="attachment-icon">${icon(file.type.startsWith("audio/") ? "mic" : "file")}</span>`;
     attachmentRoot.innerHTML = `${imagePreview}<span><strong>${escapeHtml(file.name || "Voice recording")}</strong><small>${escapeHtml(attachmentLabel(file))}</small></span><button class="icon-button" type="button" data-remove-attachment aria-label="Remove attachment">${icon("close")}</button>`;
@@ -251,32 +272,38 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     refreshReviewControls();
   }
 
-  async function analyze() {
+  async function analyze(selection) {
     if (operationBusy) return;
     const context = contextOrThrow();
     const text = input.value.trim();
     if (!text && !attachment) throw new Error("Write a message or add an attachment first.");
     const action = task.value;
     const source = sourceForAttachment(attachment, attachmentFromCamera);
-    if (action === "auto" && source !== "text") throw new Error("Choose the ERP task for voice, image, camera, or PDF input.");
+    if(recorder?.state==="recording") throw new Error("Stop recording before sending.");
     const display = text || (source === "voice" ? "Voice note" : fromCameraLabel(source));
     appendMessage("user", `<p>${escapeHtml(display)}</p>${attachment ? `<small>${escapeHtml(attachmentLabel(attachment))}</small>` : ""}`);
     const sentAttachment = attachment;
-    input.value = ""; input.style.height = "auto"; clearAttachment();
-    setBusy(true, source === "voice" ? "Transcribing and reviewing" : "Reviewing your request");
-    const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
+    const version=++operationVersion;
+    setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
-      if ((action === "auto" || action === "estimate") && source === "text") {
+      const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
+      if (action === "auto" || action === "estimate") {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
         const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
         activeDraft = null; preparedConversation = null;
-        thread.querySelectorAll("[data-conversation-draft], [data-conversation-payment], .confirmation-card").forEach(card => card.remove());
-        const response = await askCopilot(text, context.organizationId, context.branchId, token, conversationId);
+        thread.querySelectorAll("[data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
+        const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,media:payload.media,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
+        if(version!==operationVersion) return;
+        const current=getWorkspaceContext();
+        if(getAuthenticatedUserId()!==userId || current?.organizationId!==context.organizationId || current?.branchId!==context.branchId) {conversation.clear();throw new Error("Workspace changed. Please resend in the active workspace.");}
         if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant", `<p>${escapeHtml(response.data.answer).split("\n\n").join("</p><p>")}</p>`);
+        if(response.data.extraction) appendMessage("assistant",extractionMarkup(response.data.extraction,response.data.reviewText));
+        if(response.data.clarification) appendMessage("assistant",ambiguityMarkup(response.data.clarification));
+        if(response.data.toolNames?.length) appendMessage("assistant",`<details><summary>ERP tools completed</summary><p>${response.data.toolNames.map(escapeHtml).join(" · ")}</p></details>`);
         if (response.data.draft) {
           appendMessage("assistant", conversationDraftMarkup(response.data.draft));
           if (response.data.draft.prepared) preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId };
@@ -285,6 +312,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
           appendMessage("assistant", conversationPaymentMarkup(response.data.paymentPreparation));
           preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId, kind: "payment" };
         }
+        input.value="";input.style.height="auto";clearAttachment();
         return;
       }
       if (action === "invoice_extract") {
@@ -299,7 +327,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       review = response.data;
       quoteVersions.clear();
       appendMessage("assistant", reviewCardMarkup(review));
-    } finally { setBusy(false); }
+      input.value="";input.style.height="auto";clearAttachment();
+    } finally { if(version===operationVersion) setBusy(false); }
   }
   function fromCameraLabel(source) { return source === "camera" ? "Photo for review" : source === "image" ? "Attachment for review" : "ERP request"; }
 
@@ -363,32 +392,57 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (!preparedConversation || conversation.tokenFor(userId, context.organizationId, context.branchId) !== preparedConversation.token) throw new Error("Review the current conversation draft first.");
     if (!navigator.onLine) throw new Error("Go online before preparing an ERP approval draft.");
     const payment = preparedConversation.kind === "payment";
+    const version = ++operationVersion;
     setBusy(true, payment ? "Preparing the reviewed payment" : "Preparing the reviewed estimate");
     try {
       const prepare = payment ? prepareConversationPayment : prepareConversationDraft;
       const response = await prepare(preparedConversation.token, preparedConversation.conversationId, context.organizationId, context.branchId);
+      if (version !== operationVersion) return;
+      const current = getWorkspaceContext();
+      if (getAuthenticatedUserId() !== userId || current.organizationId !== context.organizationId || current.branchId !== context.branchId) throw new Error("Workspace changed. Review the current conversation again.");
       activeDraft = { id: response.data.id, organizationId: context.organizationId, branchId: context.branchId, idempotencyKey: response.data.idempotencyKey, intent: payment ? response.paymentPreparation.intent : "estimate" };
       thread.querySelectorAll("[data-conversation-draft], [data-conversation-payment]").forEach(card => card.remove());
       appendMessage("assistant", payment ? conversationPaymentMarkup(response.paymentPreparation, true) : conversationDraftMarkup(response.draft));
       preparedConversation = null;
       thread.querySelectorAll(".confirmation-card").forEach(card => card.remove());
       appendMessage("assistant", `<article class="confirmation-card"><h3>${payment ? "Payment" : "Estimate"} ready for confirmation</h3><p>${payment ? "Review the party, payment direction, amount, date, method and allocations above." : "Review the customer, items, rates, discount and total above."} Confirm action to execute through the ERP service.</p><div class="review-actions"><button class="button secondary" type="button" data-draft-cancel>Cancel</button><button class="button danger" type="button" data-confirm-draft>Confirm action</button></div></article>`);
-    } finally { setBusy(false); }
+    } finally { if (version === operationVersion) setBusy(false); }
   }
 
   async function toggleRecording() {
     if (recorder?.state === "recording") { recorder.stop(); return; }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") throw new Error("Voice recording is not supported by this browser.");
-    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    recordingChunks = [];
-    recorder = new MediaRecorder(recordingStream);
-    recorder.addEventListener("dataavailable", (event) => { if (event.data.size) recordingChunks.push(event.data); });
-    recorder.addEventListener("stop", () => { const blob = new Blob(recordingChunks, { type: recorder.mimeType || "audio/webm" }); showAttachment(new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })); recordingStream?.getTracks().forEach((track) => track.stop()); recordingStream = null; micButton.classList.remove("recording"); micButton.innerHTML = icon("mic"); micButton.setAttribute("aria-label", "Record voice"); status.hidden = true; status.textContent = ""; });
-    recorder.start(); micButton.classList.add("recording"); micButton.innerHTML = icon("stop"); micButton.setAttribute("aria-label", "Stop recording"); status.hidden = false; status.textContent = "Recording voice note. Select stop when finished.";
+    const version=++recordingVersion;
+    setBusy(true,"Requesting microphone access");
+    try {
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      if(version!==recordingVersion) {stream.getTracks().forEach(track=>track.stop());return;}
+      recordingStream=stream;recordingChunks=[];recordingBytes=0;
+      const mimeType=["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus"].find(type=>MediaRecorder.isTypeSupported?.(type));
+      const active=new MediaRecorder(stream,mimeType?{mimeType}:undefined);recorder=active;
+      active.addEventListener("dataavailable",event=>{
+        if(event.data.size) {recordingChunks.push(event.data);recordingBytes+=event.data.size;}
+        if(recordingBytes>MAX_MEDIA_BYTES && active.state==="recording") active.stop();
+      });
+      const cleanup=()=>{stream.getTracks().forEach(track=>track.stop());if(version!==recordingVersion) return;clearTimeout(recordingTimer);if(recordingStream===stream) recordingStream=null;micButton.classList.remove("recording");micButton.innerHTML=icon("mic");micButton.setAttribute("aria-label","Record voice");};
+      active.addEventListener("error",()=>{cleanup();if(version!==recordingVersion) return;recordingVersion++;setBusy(false);showError(new Error("Recording failed. Please record again."));});
+      active.addEventListener("stop",()=>{
+        cleanup();
+        if(version!==recordingVersion) return;
+        setBusy(false);
+        if(recordingBytes>MAX_MEDIA_BYTES) {showError(new Error("Recording exceeds 8 MB. Please record a shorter message."));return;}
+        const type=(active.mimeType||mimeType||"audio/webm").split(";")[0],blob=new Blob(recordingChunks,{type});
+        showAttachment(new File([blob],`voice-${Date.now()}.${type==="audio/mp4"?"m4a":type==="audio/ogg"?"ogg":"webm"}`,{type}));
+      });
+      active.start(1000);setBusy(false);sendButton.disabled=true;task.disabled=true;
+      recordingTimer=setTimeout(()=>{if(active.state==="recording") active.stop();},60_000);
+      micButton.classList.add("recording");micButton.innerHTML=icon("stop");micButton.setAttribute("aria-label","Stop recording");status.hidden=false;status.textContent="Recording voice note (up to 60 seconds). Select stop when finished.";
+    } catch(error) {recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null;throw error;}
+    finally {if(version===recordingVersion && recorder?.state!=="recording") setBusy(false);}
   }
 
   async function run(action) { try { retryAction = null; await action(); } catch (error) { setBusy(false); showError(error, action); } }
-  function reset() { if (recorder?.state === "recording") recorder.stop(); clearAttachment(); review = null; activeDraft = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
+  function reset() { operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
 
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 150)}px`; });
   input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(analyze); } });
@@ -401,6 +455,12 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   cameraInput.addEventListener("change", () => { if (cameraInput.files?.[0]) showAttachment(cameraInput.files[0], true); });
   attachmentRoot.addEventListener("click", (event) => { if (event.target.closest("[data-remove-attachment]")) clearAttachment(); });
   thread.addEventListener("click", (event) => {
+    const candidate=event.target.closest("[data-agent-candidate]");
+    if(candidate) {input.value="Continue the pending request using the selected ERP candidate.";void run(()=>analyze({kind:candidate.dataset.candidateKind,id:Number(candidate.dataset.agentCandidate)}));}
+    if(event.target.closest("[data-use-reviewed-input]")) {
+      const card=event.target.closest("[data-input-review]");
+      input.value=card?.querySelector("[data-input-review-text]")?.value??"";clearAttachment();void run(analyze);
+    }
     const prompt = event.target.closest("[data-prompt]");
     if (prompt) { if (prompt.dataset.task) { task.value = prompt.dataset.task; conversation.clear(); } input.value = prompt.dataset.prompt; input.focus(); }
     if (event.target.closest("[data-review-cancel]")) { review = null; quoteVersions.clear(); event.target.closest(".review-card")?.remove(); appendMessage("assistant", "<p>Review cancelled. No ERP data was changed.</p>"); }
@@ -424,7 +484,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       if (event.target.dataset.match === "customer" && review.intent === "estimate") thread.querySelectorAll("[data-review-card] [data-review-line]").forEach((lineRow) => void run(() => refreshLineQuote(lineRow)));
     }
   });
-  document.querySelector("#copilot-close").addEventListener("click", () => dialog.close());
+  document.querySelector("#copilot-close").addEventListener("click", () => {const wasRecording=recorder?.state==="recording";recordingVersion++;clearTimeout(recordingTimer);if(wasRecording) recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null;micButton.classList.remove("recording");micButton.innerHTML=icon("mic");if(wasRecording) setBusy(false);dialog.close();});
   document.querySelector("#copilot-button").addEventListener("click", () => { if (!dialog.open) dialog.showModal(); input.focus(); });
   welcome();
   return { open: () => { if (!dialog.open) dialog.showModal(); input.focus(); }, reset };

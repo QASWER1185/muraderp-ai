@@ -316,7 +316,7 @@ export class CopilotRuntime {
     const idempotencyKey = `conversation-${state.userId}-${state.draft.id}-${state.draft.revision}`;
     const plan: CopilotActionPlan = {
       organizationId: state.organizationId, branchId: state.branchId, userId: state.userId,
-      source: "text", target: "estimate", customerId: String(state.customer.id),
+      source: state.inputSource??"text", target: "estimate", customerId: String(state.customer.id),
       documentNumber: `AI-${state.draft.id}`, currencyCode: view.currencyCode,
       reason: `Conversation ${state.conversationId}, revision ${state.draft.revision}`,
       lines: view.lines.map(line => ({

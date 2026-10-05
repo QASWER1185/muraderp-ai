@@ -18,6 +18,8 @@ export const businessStateSchema = z.strictObject({
   expires: z.number().int(), revision: z.number().int().nonnegative(),
   // A display/model hint only. It never supplies entity, price, or permission authority.
   lastMessage: z.string().max(500).optional(),
+  pendingRequest: z.string().max(4000).optional(),
+  inputSource:z.enum(["text","image","camera","voice"]).optional(),
   productContext: z.strictObject({ candidates: z.array(product).max(5), ambiguous: z.boolean() }).optional(),
   customer: z.strictObject({ id, name: z.string().max(160) }).optional(),
   vendor: z.strictObject({ id, name: z.string().max(160) }).optional(),
@@ -27,6 +29,7 @@ export const businessStateSchema = z.strictObject({
   analysis: z.strictObject({ productId: id, quantity: z.number().finite().positive().max(1_000_000), discountPercent: z.number().finite().min(0).max(100) }).optional(),
   paymentPreparation: paymentStateSchema.optional(),
   customerAmbiguous: z.boolean().optional(), productUnresolved: z.boolean().optional(),
+  clarification: z.strictObject({kind:z.enum(["product","customer","vendor"]),candidates:z.array(z.strictObject({id,name:z.string().max(160),sku:z.string().max(100).optional(),unit:z.string().max(30).optional(),city:z.string().max(120).optional()})).min(1).max(5)}).optional(),
   brandHint: z.string().max(120).optional(), rateListId: id.optional(),
   draft: z.strictObject({
     id: z.string().uuid(), revision: z.number().int().nonnegative(),
