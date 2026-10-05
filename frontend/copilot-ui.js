@@ -306,11 +306,15 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         if(response.data.toolNames?.length) appendMessage("assistant",`<details><summary>ERP tools completed</summary><p>${response.data.toolNames.map(escapeHtml).join(" · ")}</p></details>`);
         if (response.data.draft) {
           appendMessage("assistant", conversationDraftMarkup(response.data.draft));
-          if (response.data.draft.prepared) preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId };
+          if (response.data.status!=="rate_limited" && response.data.draft.prepared) preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId };
         }
-        if (response.data.paymentPreparation) {
+        if (response.data.status!=="rate_limited" && response.data.paymentPreparation) {
           appendMessage("assistant", conversationPaymentMarkup(response.data.paymentPreparation));
           preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId, kind: "payment" };
+        }
+        if(response.data.status==="rate_limited") {
+          showError(new Error("The AI provider is temporarily rate limited. Your message and attachment are ready to retry."),()=>analyze(selection));
+          return;
         }
         input.value="";input.style.height="auto";clearAttachment();
         return;

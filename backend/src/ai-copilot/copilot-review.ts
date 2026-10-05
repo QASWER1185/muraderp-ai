@@ -4,8 +4,8 @@ import { AiInputPipeline, InMemoryAiInputGateway } from "../ai-input/pipeline.js
 import type { AiInputIntent, AiInputRequest, AiInputSource, ExtractedField } from "../ai-input/ai-input.types.js";
 import type { AiDraftLine, AiInputIntent as CopilotDraftIntent } from "../ai-input/contracts.js";
 import type { AssistantIntentResolver } from "../ai-assistant/assistant.types.js";
-import type { StructuredAiProvider } from "../ai-input/openai.provider.js";
-import { ProviderDocumentExtractor } from "../ai-input/openai.provider.js";
+import type { StructuredAiProvider } from "../ai/providers/contracts.js";
+import { ProviderDocumentExtractor } from "../ai-input/provider-extraction.js";
 import type { PricingService } from "../services/pricing.service.js";
 import type { ResolvedPrice } from "../types/pricing.types.js";
 

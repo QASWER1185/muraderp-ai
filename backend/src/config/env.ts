@@ -13,14 +13,19 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    AI_PROVIDER: z.enum(["groq", "openai", "compatible"]).optional(),
+    AI_PROVIDER: z.enum(["groq", "openai", "compatible", "gemini", "anthropic"]).optional(),
     AI_API_KEY: z.string().trim().min(20).optional(),
     AI_BASE_URL: z.url().optional(),
     GROQ_API_KEY: z.string().trim().min(20).optional(),
     OPENAI_API_KEY: z.string().trim().min(20).optional(),
+    GEMINI_API_KEY: z.string().trim().min(20).optional(),
+    ANTHROPIC_API_KEY: z.string().trim().min(20).optional(),
     AI_MODEL: z.string().trim().min(1).optional(),
     AI_VISION_MODEL: z.string().trim().min(1).optional(),
     AI_SPEECH_MODEL: z.string().trim().min(1).optional(),
+    AI_SPEECH_PROVIDER: z.enum(["groq", "openai", "compatible", "gemini"]).optional(),
+    AI_SPEECH_API_KEY: z.string().trim().min(20).optional(),
+    AI_SPEECH_BASE_URL: z.url().optional(),
     SUPABASE_URL: z.url().optional(),
     SUPABASE_SECRET_KEY: z.string().startsWith("sb_secret_").min(32).optional(),
     INTERNAL_API_TOKEN: z.string().min(32).optional(),
@@ -36,14 +41,24 @@ const envSchema = z
     if (configuration.AI_PROVIDER === "compatible" && !configuration.AI_BASE_URL) {
       context.addIssue({ code: "custom", path: ["AI_BASE_URL"], message: "Compatible AI providers require AI_BASE_URL" });
     }
-    if (configuration.AI_PROVIDER === "compatible" && !configuration.AI_MODEL) {
-      context.addIssue({ code: "custom", path: ["AI_MODEL"], message: "Compatible AI providers require AI_MODEL" });
+    if (["compatible", "gemini", "anthropic"].includes(configuration.AI_PROVIDER ?? "") && !configuration.AI_MODEL) {
+      context.addIssue({ code: "custom", path: ["AI_MODEL"], message: "The selected AI provider requires AI_MODEL" });
     }
     if (configuration.AI_BASE_URL) {
       const url = new URL(configuration.AI_BASE_URL);
       if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
         context.addIssue({ code: "custom", path: ["AI_BASE_URL"], message: "AI_BASE_URL must be an HTTPS URL without credentials, query, or fragment" });
       }
+    }
+    if (configuration.AI_SPEECH_PROVIDER === "compatible" && !configuration.AI_SPEECH_BASE_URL) {
+      context.addIssue({code:"custom",path:["AI_SPEECH_BASE_URL"],message:"Compatible speech providers require AI_SPEECH_BASE_URL"});
+    }
+    if (configuration.AI_SPEECH_PROVIDER && ["gemini","compatible"].includes(configuration.AI_SPEECH_PROVIDER) && !configuration.AI_SPEECH_MODEL) {
+      context.addIssue({code:"custom",path:["AI_SPEECH_MODEL"],message:"The selected speech provider requires AI_SPEECH_MODEL"});
+    }
+    if(configuration.AI_SPEECH_BASE_URL){
+      const url=new URL(configuration.AI_SPEECH_BASE_URL);
+      if(url.protocol!=="https:"||url.username||url.password||url.search||url.hash)context.addIssue({code:"custom",path:["AI_SPEECH_BASE_URL"],message:"Speech endpoint must use HTTPS without credentials, query or fragment"});
     }
     const erpValues = [
       configuration.SUPABASE_URL,
@@ -73,7 +88,7 @@ const envSchema = z
     }
 
     if (configuration.NODE_ENV === "production") {
-      for (const name of ["AI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY"] as const) {
+      for (const name of ["AI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "AI_SPEECH_API_KEY"] as const) {
         if (configuration[name]?.toLowerCase().includes("replace_me")) {
           context.addIssue({ code: "custom", path: [name], message: `Production ${name} cannot use a placeholder value` });
         }

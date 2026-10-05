@@ -34,7 +34,8 @@ import {
   SupabaseCopilotReferenceResolver,
   type CopilotReferenceResolver,
 } from "./copilot-reference.resolver.js";
-import { AiProvider, ProviderIntentResolver } from "../ai-input/openai.provider.js";
+import { createAiProvider } from "../ai/providers/factory.js";
+import { ProviderIntentResolver } from "../ai-input/provider-extraction.js";
 import {
   CopilotReviewService,
   SupabaseCopilotCatalogRepository,
@@ -160,7 +161,7 @@ function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
   const rateListRepository = new SupabaseRateListRepository();
   const estimateRepository = new SupabaseEstimateRepository();
   const pricing = new DefaultPricingService(rateListRepository);
-  const aiProvider = new AiProvider();
+  const aiProvider = createAiProvider();
   const servicePrincipalId = normalizeServicePrincipalId(env.INTERNAL_API_PRINCIPAL_ID);
   if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {

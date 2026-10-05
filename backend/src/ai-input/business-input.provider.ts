@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
-import { AiProvider, type StructuredAiProvider } from "./openai.provider.js";
+import type { StructuredAiProvider } from "../ai/providers/contracts.js";
+import { createAiProvider } from "../ai/providers/factory.js";
 import type { AiInputDraft, AiInputProvider, AiInputRequest } from "./ai-input.types.js";
 import { documentExtractionSchema, extractedLineSchema } from "./document-extraction.js";
 import { visionContent, validateAgentMedia } from "./media-validation.js";
@@ -16,7 +17,7 @@ export type BusinessDocument = z.infer<typeof businessDocumentSchema>;
 
 /** Extraction only. No ERP client, business tools, catalog or execution authority. */
 export class ProviderBusinessInput implements AiInputProvider {
-  constructor(private readonly provider: StructuredAiProvider = new AiProvider()) {}
+  constructor(private readonly provider: StructuredAiProvider = createAiProvider()) {}
   async extract(request: AiInputRequest): Promise<AiInputDraft> {
     if (!request.media) throw new ApiError(422, "INVALID_MEDIA", "Media is required.");
     const media = await validateAgentMedia(request.media, request.source);

@@ -46,11 +46,41 @@ controls after a reset. A workspace/user change invalidates acceptance.
 ## Provider and release configuration
 
 Production keeps existing Cloud Run Secret Manager bindings for server credentials.
-Frontend JavaScript receives no provider or database secrets. Groq uses the
-existing text model and dedicated vision/STT adapters; configurable model names
-are `AI_MODEL`, `AI_VISION_MODEL`, `AI_SPEECH_MODEL`.
+Frontend JavaScript receives no provider or database secrets. Business code depends
+on the internal structured-extraction and tool-turn contracts in
+`backend/src/ai/providers/contracts.ts`. The configuration factory selects isolated
+transports; no adapter receives ERP services or executes tools. The existing
+Unified Stateful Agent alone validates and invokes its registered tools.
+
+`AI_PROVIDER` selects `openai`, `groq`, `gemini`, `anthropic`, or `compatible`.
+`AI_API_KEY` supplies the selected server credential; named provider key variables
+remain supported. Model names are `AI_MODEL`, `AI_VISION_MODEL`, and
+`AI_SPEECH_MODEL`. Gemini, Anthropic and compatible providers require explicit
+`AI_MODEL`; model availability and modality support are account-dependent.
+Gemini uses native generateContent JSON schema, inline media/audio, and function
+calling. Anthropic uses native Messages image/document and tool schemas.
+Native tool IDs and opaque reasoning/thought signatures survive the adapter
+round trip; they do not become signed business state.
+OpenAI uses Responses with storage disabled. Compatible endpoints must implement
+the Responses protocol and supported extraction/transcription endpoints;
+`AI_BASE_URL` must be server-configured HTTPS without credentials, query or fragment.
+Native Anthropic transcription is unsupported and fails explicitly. An operator
+can configure `AI_SPEECH_PROVIDER` separately as OpenAI, Groq, Gemini or compatible,
+with `AI_SPEECH_API_KEY`, `AI_SPEECH_MODEL` and, for compatible speech,
+`AI_SPEECH_BASE_URL`. This is explicit routing, never automatic fallback.
+
+The current production configuration remains Groq with its existing text model.
 Groq vision uses Chat Completions JSON mode followed by local schema validation.
 PDF pages use the same vision transport. STT uses the transcription endpoint.
+No provider purchase, billing change, or automatic model switch is part of this release.
+
+A provider HTTP 429 is a known provider/environment limitation. The Agent returns
+`rate_limited`, preserves signed choices, clears transient preparation, and refreshes
+an existing draft through scoped ERP reads when available. The browser retains
+wording/media for retry. Extraction failures retain the original request in the
+browser. No quota response constitutes successful AI completion or authorizes
+execution. The current Groq 8,000 TPM limit is disclosed separately from engineering
+gates; the release request explicitly permits deployment with that known limitation.
 
 Part 3 migration `20261005110000_phase2c_business_reads.sql` is required for
 ledger/vendor business reads. Deployment preserves prior revisions and their tags.
@@ -69,6 +99,10 @@ transcription wording, signed context, authoritative pricing, weak OCR,
 existing-draft voice changes, preparation/confirmation separation, tenant rejection,
 candidate selection, recording cleanup, retry and reset races.
 Existing Parts 1–3 regression/database tests remain part of the full gate.
+Provider tests in `backend/src/ai/providers/adapters.test.ts` exercise native wire
+formats, strict output validation, configuration, speech capability boundaries,
+quota failures and the unchanged ERP tool loop. They use controlled transports;
+they do not claim live alternate-provider validation.
 
 Production acceptance uses synthetic media and scoped read/conversational draft
 requests. Do not execute financial transactions or destructive cleanup for smoke tests.

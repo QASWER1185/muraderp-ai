@@ -261,7 +261,22 @@ export class UnifiedCopilotAgent {
       }
     } catch (error) {
       if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
-      status = controller.signal.aborted ? "timeout" : "error";
+      if (error instanceof ApiError && error.status === 429) {
+        status = "rate_limited";
+        answer = "The configured AI provider rate limit was reached. Your conversation choices are preserved. Please wait before retrying.";
+        // Preserve choices, invalidate approval, and refresh the display only
+        // through the same scoped read tool. A quota failure never prepares work.
+        if (state.draft) {
+          delete state.draft.preparedRevision;
+          draftView = undefined;
+          try {
+            draftView = await withinDeadline(this.tools.execute("inspect_draft", {}, scope, state, request.message, controller.signal), controller.signal) as DraftView;
+            toolNames.push("inspect_draft");
+          } catch (refreshError) {
+            if (refreshError instanceof ApiError && [401, 403].includes(refreshError.status)) throw refreshError;
+          }
+        }
+      } else status = controller.signal.aborted ? "timeout" : "error";
     } finally { clearTimeout(timer); }
     logger?.info({ traceId, status, calls }, "Copilot agent finished");
     state.productContext = productContext;

@@ -43,6 +43,19 @@ describe("Part 4 multimodal browser workflow",()=>{
     const f=setup();let finish;mocks.media.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));f.attach(image());f.query("#copilot-send").listeners.get("click")();await vi.waitFor(()=>expect(mocks.media).toHaveBeenCalledOnce());
     f.controller.reset();finish({data:{answer:"STALE RESULT",conversationToken:"stale",conversationId:"id"}});await new Promise(resolve=>setTimeout(resolve,0));expect(f.markup()).not.toContain("STALE RESULT");await f.send("fresh");expect(mocks.ask).toHaveBeenLastCalledWith("fresh","org","branch",null,null,undefined);
   });
+  it("retains media and wording after HTTP 200 quota failure and retries with the updated signed context",async()=>{
+    const f=setup();await f.send("existing estimate");f.attach(image());
+    mocks.media.mockResolvedValueOnce({data:{answer:"Provider quota reached",status:"rate_limited",conversationToken:"quota-signed",conversationId:"id",draft:{id:"same",lines:[],prepared:false}}});
+    await f.send("change discount");
+    expect(f.query("#copilot-input").value).toBe("change discount");
+    expect(f.query("#copilot-attachment").hidden).toBe(false);
+    expect(f.markup()).toContain("temporarily rate limited");
+    expect(f.markup()).not.toContain("data-prepare-conversation-draft");
+    expect(mocks.prepare).not.toHaveBeenCalled();expect(mocks.confirm).not.toHaveBeenCalled();
+    await f.click("[data-copilot-retry]");
+    expect(mocks.media).toHaveBeenLastCalledWith(expect.objectContaining({message:"change discount",conversationToken:"quota-signed",conversationId:"id"}),"org","branch");
+    expect(f.query("#copilot-attachment").hidden).toBe(true);
+  });
   it("discards late approval preparation after reset",async()=>{
     const f=setup();await f.send("estimate");let finish;mocks.prepare.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
     const pending=f.click("[data-prepare-conversation-draft]");await vi.waitFor(()=>expect(mocks.prepare).toHaveBeenCalledOnce());f.controller.reset();
