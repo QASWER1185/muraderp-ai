@@ -129,7 +129,13 @@ document.querySelector("#auth-close").addEventListener("click", () => authDialog
 authForm.addEventListener("submit", async (event) => {
   event.preventDefault(); authResult.hidden = true;
   try { const session = await signIn(value("#auth-email"), value("#auth-password")); authenticatedUserId = session.user?.id ?? null; clearWorkspaceContext(); authResult.textContent = "Signed in securely."; authResult.hidden = false; authButton.textContent = "Account"; document.querySelector("#auth-signout").hidden = false; authDialog.close(); await connectDiscoveredWorkspace(); }
-  catch (error) { authResult.textContent = error instanceof Error ? error.message : "Unable to sign in."; authResult.hidden = false; }
+  catch (error) {
+    // Keep the original browser error visible in DevTools so network, CORS,
+    // and Auth failures can be distinguished without logging form values.
+    console.error("[MuradERP] Supabase sign-in failed:", error);
+    authResult.textContent = error instanceof Error ? error.message : "Unable to sign in.";
+    authResult.hidden = false;
+  }
 });
 document.querySelector("#auth-signout").addEventListener("click", async () => { await signOut(); authenticatedUserId = null; clearWorkspaceContext(); availableWorkspaces = []; authButton.textContent = "Sign in"; document.querySelector("#auth-signout").hidden = true; authResult.textContent = "Signed out."; authResult.hidden = false; resetDraft();navigate("dashboard"); });
 

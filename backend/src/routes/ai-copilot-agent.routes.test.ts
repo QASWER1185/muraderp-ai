@@ -2,6 +2,7 @@ import express from "express";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import type { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
+import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { errorHandler } from "../middleware/error-handler.js";
 
 vi.mock("../middleware/copilot-auth.js", () => ({
@@ -38,5 +39,42 @@ describe("Phase 1 agent route on the production backend baseline", () => {
       },
       undefined,
     );
+  });
+
+  it("uses the authenticated user's Gemini key for the request without changing the server agent", async () => {
+    const key = "AIzaSyTestOnlyKey012345678901234567";
+    const result = { answer: "Pipe stock is verified", conversationToken: "new-context", conversationId: "44444444-4444-4444-8444-444444444444", status: "completed" };
+    const run = vi.fn(async () => result);
+    const requestProvider = { name: "gemini", toolTurn: vi.fn() };
+    const providerFactory = vi.fn((_key: string) => requestProvider as unknown as AiProviderContract);
+    const requestAgent = { run };
+    const requestAgentFactory = vi.fn(() => requestAgent as unknown as ReadOnlyCopilotAgent);
+    const app = express();
+    app.use(express.json());
+    app.use("/api/v1/ai/copilot", createAiCopilotRouter(undefined, undefined, undefined, undefined, undefined, undefined, undefined, providerFactory, requestAgentFactory));
+    app.use(errorHandler);
+
+    const response = await request(app).post("/api/v1/ai/copilot/agent")
+      .set("X-Api-Key", key).set("X-AI-Provider", "gemini")
+      .set("X-Organization-Id", "22222222-2222-4222-8222-222222222222")
+      .set("X-Branch-Id", "33333333-3333-4333-8333-333333333333")
+      .send({ message: "Pipe stock" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual(result);
+    expect(providerFactory).toHaveBeenCalledWith(key);
+    expect(requestAgentFactory).toHaveBeenCalledWith(requestProvider);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("reports server-side key availability without disclosing configuration", async () => {
+    const app = express();
+    app.use("/api/v1/ai/copilot", createAiCopilotRouter());
+    app.use(errorHandler);
+    const response = await request(app).get("/api/v1/ai/copilot/settings");
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual({ serverConfigured: expect.any(Boolean) });
+    expect(JSON.stringify(response.body)).not.toMatch(/apiKey|provider|model/i);
+    expect(response.headers["cache-control"]).toBe("no-store");
   });
 });

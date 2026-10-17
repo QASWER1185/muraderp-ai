@@ -35,6 +35,7 @@ import {
   type CopilotReferenceResolver,
 } from "./copilot-reference.resolver.js";
 import { createAiProvider } from "../ai/providers/factory.js";
+import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { ProviderIntentResolver } from "../ai-input/provider-extraction.js";
 import {
   CopilotReviewService,
@@ -157,11 +158,11 @@ export interface CopilotRuntimeDependencies {
   servicePrincipalId?: string;
 }
 
-function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
+function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContract): CopilotRuntimeDependencies {
   const rateListRepository = new SupabaseRateListRepository();
   const estimateRepository = new SupabaseEstimateRepository();
   const pricing = new DefaultPricingService(rateListRepository);
-  const aiProvider = createAiProvider();
+  const aiProvider = requestProvider ?? createAiProvider();
   const servicePrincipalId = normalizeServicePrincipalId(env.INTERNAL_API_PRINCIPAL_ID);
   if (!servicePrincipalId) throw new Error("Configured AI Copilot service principal is required");
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
@@ -207,8 +208,8 @@ function defaultDependencies(erp: ErpService): CopilotRuntimeDependencies {
 export class CopilotRuntime {
   private readonly dependencies: CopilotRuntimeDependencies;
 
-  constructor(erp: ErpService = new SupabaseErpService(), dependencies?: CopilotRuntimeDependencies) {
-    this.dependencies = dependencies ?? defaultDependencies(erp);
+  constructor(erp: ErpService = new SupabaseErpService(), dependencies?: CopilotRuntimeDependencies, requestProvider?: AiProviderContract) {
+    this.dependencies = dependencies ?? defaultDependencies(erp, requestProvider);
   }
 
   private async assertPlanAuthorized(plan: CopilotActionPlan): Promise<void> {

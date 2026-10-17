@@ -15,6 +15,21 @@ export function configuredAiProvider():AiProviderConfiguration {
     speechModel:env.AI_SPEECH_MODEL??speechModel(env.AI_SPEECH_PROVIDER??provider,model),
     speechProvider:env.AI_SPEECH_PROVIDER,speechApiKey:env.AI_SPEECH_API_KEY??(env.AI_SPEECH_PROVIDER===provider?env.AI_API_KEY:undefined)??(env.AI_SPEECH_PROVIDER?providerKey(env.AI_SPEECH_PROVIDER):undefined),speechBaseUrl:env.AI_SPEECH_BASE_URL};
 }
+export function hasConfiguredAiProvider(): boolean {
+  const config = configuredAiProvider();
+  return Boolean(config.apiKey && config.model.trim());
+}
+export function createGeminiUserProvider(apiKey: string, fetcher: typeof fetch = fetch): AiProviderContract {
+  const key = apiKey.trim();
+  if (key.length < 20 || key.length > 512 || /[\r\n]/.test(key)) {
+    throw new ApiError(400, "AI_API_KEY_INVALID", "Enter a valid Gemini API key in Copilot settings.");
+  }
+  const serverConfig = configuredAiProvider();
+  const model = env.AI_PROVIDER === "gemini" && serverConfig.model.trim()
+    ? serverConfig.model
+    : "gemini-3.8-flash";
+  return createAiProvider({ provider: "gemini", apiKey: key, model, speechModel: model }, fetcher);
+}
 function adapter(config:AiProviderConfiguration,fetcher:typeof fetch):AiProviderContract {
   if(!config.model.trim())throw new ApiError(503,"AI_NOT_CONFIGURED","Configure AI_MODEL for the selected provider.");
   if(config.provider==="gemini")return new GeminiAdapter(config,fetcher);

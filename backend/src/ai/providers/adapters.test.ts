@@ -1,6 +1,6 @@
 import { describe,expect,it,vi } from "vitest";
 import { z } from "zod";
-import { createAiProvider } from "./factory.js";
+import { createAiProvider, createGeminiUserProvider } from "./factory.js";
 import { parseEnv } from "../../config/env.js";
 import { UnifiedCopilotAgent } from "../../ai-copilot/agent/agent.js";
 import { ProviderAgentModel } from "../../ai-copilot/agent/model.js";
@@ -64,7 +64,7 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
     const fetcher=fetchResult({error:"secret"},401);const adapter=createAiProvider(config(provider),fetcher);
     await expect(createAiProvider({...config(provider),apiKey:undefined},fetcher).toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_NOT_CONFIGURED"});
     expect(fetcher).not.toHaveBeenCalled();
-    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_PROVIDER_ERROR"});
+    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_API_KEY_REJECTED"});
     fetcher.mockRejectedValueOnce(new Error("secret"));
     await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_PROVIDER_UNAVAILABLE"});
     fetcher.mockResolvedValueOnce(new Response("not JSON"));
@@ -86,6 +86,16 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
 });
 
 describe("provider configuration and speech capabilities",()=>{
+  it("builds a request-scoped Gemini provider from a user key without touching server configuration",async()=>{
+    const fetcher=vi.fn<typeof fetch>(async()=>new Response(JSON.stringify(native("gemini",[text("gemini","verified")]))));
+    const userKey="AIzaSyTestOnlyKey012345678901234567";
+    const provider=createGeminiUserProvider(userKey,fetcher);
+    const result=await provider.toolTurn("safe",[{role:"user",content:"hello"}],[]);
+    expect(result.output[0]).toMatchObject({type:"message",content:[{type:"output_text",text:"verified"}]});
+    expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-3.8-flash:generateContent");
+    expect(fetcher.mock.calls[0]![1]!.headers).toMatchObject({"x-goog-api-key":userKey});
+    expect(createAiProvider(config("gemini")).name).toBe("gemini");
+  });
   it.each(["openai","groq","compatible","gemini","anthropic"] as const)("selects %s through configuration",provider=>{
     expect(createAiProvider(config(provider)).name).toBe(provider);
     expect(parseEnv({AI_PROVIDER:provider,AI_MODEL:"configured-model",...(provider==="compatible"?{AI_BASE_URL:"https://compatible.example/v1"}:{})}).success).toBe(true);

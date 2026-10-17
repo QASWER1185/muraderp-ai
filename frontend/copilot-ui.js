@@ -1,4 +1,5 @@
-import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft } from "./copilot-api.js";
+import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus } from "./copilot-api.js";
+import { clearCopilotApiKey, getCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
@@ -132,6 +133,11 @@ export function reviewCardMarkup(review) {
 
 export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const dialog = document.querySelector("#copilot");
+  const keyDialog = document.querySelector("#copilot-key-dialog");
+  const keyForm = document.querySelector("#copilot-key-form");
+  const keyInput = document.querySelector("#copilot-api-key");
+  const keyStatus = document.querySelector("#copilot-key-backend-status");
+  const keyResult = document.querySelector("#copilot-key-result");
   const thread = document.querySelector("#copilot-thread");
   const input = document.querySelector("#copilot-input");
   const task = document.querySelector("#copilot-action");
@@ -157,6 +163,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const quoteVersions = new Map();
 
   document.querySelector("#copilot-close").innerHTML = icon("close");
+  document.querySelector("#copilot-key-close").innerHTML = icon("close");
   document.querySelector("#copilot-attach").innerHTML = icon("paperclip");
   document.querySelector("#copilot-camera-button").innerHTML = icon("camera");
   micButton.innerHTML = icon("mic");
@@ -196,12 +203,44 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const message = error instanceof Error ? error.message : "Copilot could not complete that request.";
     retryAction = action;
     appendMessage("assistant", `<div class="message-error">${icon("alert")}<span><strong>Request not completed</strong><p>${escapeHtml(message)}</p>${action ? '<button class="button secondary compact" type="button" data-copilot-retry>Try again</button>' : ""}</span></div>`, "error");
+    if (error?.code === "AI_API_KEY_REJECTED" || error?.code === "AI_NOT_CONFIGURED") void openKeySettings();
   }
   function contextOrThrow() {
     if (!getAuthenticatedUserId()) throw new Error("Sign in before asking Copilot to access ERP data.");
     const context = getWorkspaceContext();
     if (!context) throw new Error("Choose your workspace before using Copilot.");
     return context;
+  }
+  async function refreshProviderStatus() {
+    const hasLocalKey = Boolean(getCopilotApiKey());
+    keyStatus.textContent = "Checking for a server-side AI key…";
+    try {
+      const response = await getCopilotProviderStatus();
+      const serverConfigured = response.data?.serverConfigured === true;
+      keyStatus.textContent = hasLocalKey
+        ? `A Gemini key is saved in this browser and will be used${serverConfigured ? "; it overrides the server-side key." : "."}`
+        : serverConfigured
+          ? "A server-side AI key is configured. No browser key is needed."
+          : "No server-side AI key is configured. Add a Gemini key to activate Copilot.";
+      return serverConfigured;
+    } catch {
+      keyStatus.textContent = hasLocalKey
+        ? "A Gemini key is saved here. The server-side key status could not be checked."
+        : "The server-side key status could not be checked. You can still add a Gemini key here.";
+      return null;
+    }
+  }
+  async function openKeySettings() {
+    keyInput.value = "";
+    keyResult.hidden = true;
+    if (!keyDialog.open) keyDialog.showModal();
+    await refreshProviderStatus();
+    keyInput.focus();
+  }
+  async function checkKeyOnCopilotOpen() {
+    if (getCopilotApiKey()) return;
+    const serverConfigured = await refreshProviderStatus();
+    if (serverConfigured === false && !keyDialog.open) await openKeySettings();
   }
   function collectLines() {
     const rows = [...thread.querySelectorAll("[data-review-card] [data-review-line]")];
@@ -489,7 +528,27 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     }
   });
   document.querySelector("#copilot-close").addEventListener("click", () => {const wasRecording=recorder?.state==="recording";recordingVersion++;clearTimeout(recordingTimer);if(wasRecording) recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null;micButton.classList.remove("recording");micButton.innerHTML=icon("mic");if(wasRecording) setBusy(false);dialog.close();});
-  document.querySelector("#copilot-button").addEventListener("click", () => { if (!dialog.open) dialog.showModal(); input.focus(); });
+  document.querySelector("#copilot-settings").addEventListener("click", () => void openKeySettings());
+  document.querySelector("#copilot-key-close").addEventListener("click", () => keyDialog.close());
+  document.querySelector("#copilot-key-cancel").addEventListener("click", () => keyDialog.close());
+  document.querySelector("#copilot-key-clear").addEventListener("click", () => {
+    clearCopilotApiKey(); keyInput.value = ""; keyResult.hidden = true;
+    void refreshProviderStatus();
+  });
+  keyForm.addEventListener("submit", (event) => {
+    event.preventDefault(); keyResult.hidden = true;
+    try {
+      saveCopilotApiKey(keyInput.value);
+      keyInput.value = "";
+      keyDialog.close();
+    } catch (error) {
+      keyResult.className = "form-message";
+      keyResult.textContent = error instanceof Error ? error.message : "The API key could not be saved.";
+      keyResult.hidden = false;
+    }
+  });
+  function openCopilot() { if (!dialog.open) dialog.showModal(); input.focus(); void checkKeyOnCopilotOpen(); }
+  document.querySelector("#copilot-button").addEventListener("click", openCopilot);
   welcome();
-  return { open: () => { if (!dialog.open) dialog.showModal(); input.focus(); }, reset };
+  return { open: openCopilot, reset };
 }

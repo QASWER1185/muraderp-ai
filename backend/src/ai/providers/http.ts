@@ -8,6 +8,7 @@ export async function providerJson(fetcher: typeof fetch, url: string, key: stri
   try { response=await fetcher(url,{method:"POST",redirect:"error",headers:{"Content-Type":"application/json",...headers},body:JSON.stringify(body),signal:signal??AbortSignal.timeout(60_000)}); }
   catch { throw new ApiError(502,"AI_PROVIDER_UNAVAILABLE","AI provider could not be reached. Please retry."); }
   if(response.status===429) throw new ApiError(429,"AI_PROVIDER_RATE_LIMITED","The configured AI provider rate limit was reached. Please wait before retrying.");
+  if(response.status===401 || response.status===403) throw new ApiError(401,"AI_API_KEY_REJECTED","The AI provider rejected its API key or model access. Check Copilot API key settings or contact your administrator.");
   if(!response.ok) throw new ApiError(502,"AI_PROVIDER_ERROR","AI provider could not process this request. Please retry or use manual entry.");
   return response.json().catch(()=>{throw new ApiError(502,"AI_INVALID_OUTPUT","AI provider returned an invalid response.");});
 }

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument } from "./copilot-api.js";
+import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument, getCopilotProviderStatus } from "./copilot-api.js";
+import { clearCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); clearCopilotApiKey(); });
 
 function response(body = {}) {
   return { ok: true, json: async () => body };
@@ -17,6 +18,27 @@ describe("Copilot browser API tenant context", () => {
       headers: expect.objectContaining({ "X-Organization-Id": "org-1", "X-Branch-Id": "branch-1" }),
       body: JSON.stringify({ message: "اس کا موجودہ سیل ریٹ بتاؤ، مقدار 1 میٹر", conversationToken: "signed-token" }),
     }));
+  });
+  it("sends a saved Gemini key only as request headers to the Copilot API", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ data: { answer: "Verified" } }));
+    vi.stubGlobal("fetch", fetch);
+    const values = new Map();
+    vi.stubGlobal("localStorage", { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) });
+    saveCopilotApiKey("AIzaSyExampleKeyForCopilot123456789");
+
+    await askCopilot("Pipe stock", "org-1", "branch-1");
+
+    expect(fetch.mock.calls[0][1].headers).toMatchObject({
+      "X-Api-Key": "AIzaSyExampleKeyForCopilot123456789",
+      "X-AI-Provider": "gemini",
+    });
+    expect(fetch.mock.calls[0][1].body).not.toContain("AIzaSyExampleKeyForCopilot123456789");
+  });
+  it("reads the server key availability status without requiring Copilot model configuration", async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ data: { serverConfigured: false } }));
+    vi.stubGlobal("fetch", fetch);
+    await getCopilotProviderStatus();
+    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/settings", expect.objectContaining({ method: "GET", credentials: "include" }));
   });
   it("carries branch context when creating a proposal draft", async () => {
     const fetch = vi.fn().mockResolvedValue(response({ data: { id: "draft-1" } }));

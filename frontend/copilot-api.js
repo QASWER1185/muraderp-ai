@@ -1,10 +1,22 @@
+import { getCopilotApiKey } from "./copilot-key.js";
+
 function newIdempotencyKey(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: "include", ...options, headers: { "Content-Type": "application/json", ...(options.headers ?? {}) } });
+  const apiKey = getCopilotApiKey();
+  const response = await fetch(path, { credentials: "include", ...options, headers: { "Content-Type": "application/json", ...(apiKey ? { "X-Api-Key": apiKey, "X-AI-Provider": "gemini" } : {}), ...(options.headers ?? {}) } });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error?.message ?? "Copilot request failed");
+  if (!response.ok) {
+    const error = new Error(body.error?.message ?? "Copilot request failed");
+    error.code = body.error?.code;
+    error.status = response.status;
+    throw error;
+  }
   return body;
+}
+
+export async function getCopilotProviderStatus() {
+  return api("/api/v1/ai/copilot/settings", { method: "GET" });
 }
 
 export async function createCopilotDraft(input, branchId, idempotencyKey = newIdempotencyKey("copilot-draft")) {

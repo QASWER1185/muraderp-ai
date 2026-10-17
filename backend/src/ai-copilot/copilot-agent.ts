@@ -10,6 +10,7 @@ import { type ErpService } from "../services/erp.service.js";
 import { type PricingService } from "../services/pricing.service.js";
 import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
 import { CopilotRuntime } from "./copilot.runtime.js";
+import type { ToolCallingAiProvider } from "../ai/providers/contracts.js";
 
 const id = z.number().int().positive();
 const search = z.strictObject({ query: z.string().trim().min(1).max(120) });
@@ -179,6 +180,6 @@ export class CopilotAgent {
   }
 }
 
-export function createCopilotAgent(): CopilotAgent {
-  return new CopilotAgent(createUnifiedAgent());
+export function createCopilotAgent(provider?: ToolCallingAiProvider): CopilotAgent {
+  return new CopilotAgent(createUnifiedAgent(provider));
 }

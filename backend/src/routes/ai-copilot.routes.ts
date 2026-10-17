@@ -12,6 +12,9 @@ import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
 import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
 import { writeBusinessState } from "../ai-copilot/agent/business-state.js";
+import { createGeminiUserProvider, hasConfiguredAiProvider } from "../ai/providers/factory.js";
+import type { AiProviderContract } from "../ai/providers/contracts.js";
+import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
 
 const idSchema = z.coerce.number().int().positive();
 const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
@@ -98,6 +101,13 @@ const invoiceExtractionSchema = z.strictObject({
   if ((value.source === "image" || value.source === "camera") && !value.media) context.addIssue({ code: "custom", path: ["media"], message: "Image or document media is required" });
 });
 function headerValue(request: { header(name: string): string | string[] | undefined }, name: string): string | undefined { const value = request.header(name); return Array.isArray(value) ? value[0] : value; }
+function userApiKey(request: { header(name: string): string | string[] | undefined }): string | undefined {
+  const value = headerValue(request, "X-Api-Key");
+  if (value === undefined) return undefined;
+  if (headerValue(request, "X-AI-Provider") !== "gemini") throw new ApiError(400, "AI_PROVIDER_UNSUPPORTED", "Copilot browser keys currently support Gemini.");
+  if (value.length < 20 || value.length > 512 || /[\r\n]/.test(value)) throw new ApiError(400, "AI_API_KEY_INVALID", "Enter a valid Gemini API key in Copilot settings.");
+  return value;
+}
 function toAiDraft(input: z.output<typeof draftSchema>) { return { organizationId: input.organizationId, intent: input.intent, source: input.source, ...(input.customerId ? { customerId: { value: input.customerId, confidence: input.confidence, source: input.source } } : {}), ...(input.vendorId ? { vendorId: { value: input.vendorId, confidence: input.confidence, source: input.source } } : {}), ...(input.documentNumber ? { documentNumber: { value: input.documentNumber, confidence: input.confidence, source: input.source } } : {}), lines: input.lines.map((line) => ({ productName: { value: line.productName, confidence: input.confidence, source: input.source, ...(line.brandHint ? { rawText: line.brandHint } : {}) }, ...(line.productId !== undefined ? { productId: { value: line.productId, confidence: input.confidence, source: input.source } } : {}), quantity: { value: line.quantity, confidence: input.confidence, source: input.source }, ...(line.unit ? { unit: { value: line.unit, confidence: input.confidence, source: input.source } } : {}), ...(line.unitRate !== undefined ? { unitRate: { value: line.unitRate, confidence: input.confidence, source: input.source } } : {}), ...(line.rateListId !== undefined ? { rateListId: { value: line.rateListId, confidence: input.confidence, source: input.source } } : {}), ...(line.sourceItemId !== undefined ? { sourceItemId: { value: line.sourceItemId, confidence: input.confidence, source: input.source } } : {}) })), confidence: input.confidence, requiresHumanConfirmation: true as const }; }
 
 export function createAiCopilotRouter(
@@ -108,17 +118,35 @@ export function createAiCopilotRouter(
   readOnlyAgent?: ReadOnlyCopilotAgent,
   conversationalTools?: ErpToolRegistry,
   multimodalInput?: MultimodalAgentInput,
+  requestProviderFactory: (apiKey: string) => AiProviderContract = createGeminiUserProvider,
+  requestAgentFactory: (provider: AiProviderContract) => ReadOnlyCopilotAgent = (provider): ReadOnlyCopilotAgent => createCopilotAgent(provider).core,
 ) {
   const router = Router();
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
   let activeRuntime = runtime;
   const getRuntime = () => { activeRuntime ??= new CopilotRuntime(); return activeRuntime; };
+  const runtimeFor = (request: Parameters<typeof userApiKey>[0]) => {
+    const provider = providerFor(request);
+    return provider ? new CopilotRuntime(undefined, undefined, provider) : getRuntime();
+  };
   let activeAgent = agent;
   const getAgent = () => { activeAgent ??= createCopilotAgent(); return activeAgent; };
   let activeReadOnlyAgent = readOnlyAgent;
   const getReadOnlyAgent = () => { activeReadOnlyAgent ??= getAgent().core; return activeReadOnlyAgent; };
+  const providerFor = (request: Parameters<typeof userApiKey>[0]) => {
+    const apiKey = userApiKey(request);
+    return apiKey === undefined ? undefined : requestProviderFactory(apiKey);
+  };
+  const readOnlyAgentFor = (request: Parameters<typeof userApiKey>[0], provider = providerFor(request)) =>
+    provider ? requestAgentFactory(provider) : getReadOnlyAgent();
   let activeTools = conversationalTools;
   const getConversationalTools = () => { activeTools ??= createConversationalTools(); return activeTools; };
+
+  router.get("/settings", authorize, (request, response) => {
+    if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ data: { serverConfigured: hasConfiguredAiProvider() } });
+  });
 
   router.post("/agent/input", authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
@@ -135,7 +163,9 @@ export function createAiCopilotRouter(
     // Any new request invalidates transient preparation, even if OCR needs review.
     delete state.paymentPreparation;
     if (state.draft) delete state.draft.preparedRevision;
-    const normalized = await (multimodalInput ??= new MultimodalAgentInput()).normalize(input,scope);
+    const provider = providerFor(request);
+    const inputPipeline = provider ? new MultimodalAgentInput(new ProviderBusinessInput(provider)) : (multimodalInput ??= new MultimodalAgentInput());
+    const normalized = await inputPipeline.normalize(input,scope);
     response.setHeader("Cache-Control","no-store");
     if (normalized.reviewRequired) {
       response.json({data:{answer:"The document needs review. Correct or confirm the extracted wording before continuing; no ERP action was prepared.",
@@ -143,7 +173,7 @@ export function createAiCopilotRouter(
         extraction:normalized.extraction,reviewText:normalized.message,requiresConfirmation:false,toolNames:[]}});
       return;
     }
-    const result = await getReadOnlyAgent().run({message:normalized.message,conversationToken:writeBusinessState(state),conversationId:state.conversationId},scope,request.log);
+    const result = await readOnlyAgentFor(request, provider).run({message:normalized.message,conversationToken:writeBusinessState(state),conversationId:state.conversationId},scope,request.log);
     response.json({data:{...result,extraction:normalized.extraction},requiresConfirmation:result.requiresConfirmation});
   });
 
@@ -153,7 +183,7 @@ export function createAiCopilotRouter(
     const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
     const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
     const parsed = agentRequestSchema.parse(request.body);
-    const result = await getReadOnlyAgent().run(parsed, { userId, organizationId, branchId }, request.log);
+    const result = await readOnlyAgentFor(request).run(parsed, { userId, organizationId, branchId }, request.log);
     response.setHeader("Cache-Control", "no-store");
     response.status(200).json({ data: result, requiresConfirmation: result.requiresConfirmation });
   });
@@ -166,9 +196,11 @@ export function createAiCopilotRouter(
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
     if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
     const context = { userId, organizationId: parsed.organizationId, branchId };
+    const provider = providerFor(request);
+    const conversationalAgent = provider ? createCopilotAgent(provider) : getAgent();
     const result = parsed.conversationToken || parsed.conversationId
-      ? await getAgent().respond(parsed.message, context, parsed.conversationToken, parsed.conversationId)
-      : await getAgent().respond(parsed.message, context);
+      ? await conversationalAgent.respond(parsed.message, context, parsed.conversationToken, parsed.conversationId)
+      : await conversationalAgent.respond(parsed.message, context);
     response.setHeader("Cache-Control", "no-store");
     response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review || result.requiresConfirmation) });
   });
@@ -221,7 +253,7 @@ export function createAiCopilotRouter(
     const userId = authenticatedUserId ?? parsed.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
     if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
-    const review = await getRuntime().prepareReview({
+    const review = await runtimeFor(request).prepareReview({
       organizationId: parsed.organizationId,
       userId,
       source: parsed.source,
@@ -243,7 +275,7 @@ export function createAiCopilotRouter(
     const userId = authenticatedUserId ?? parsed.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
     if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
-    const quote = await getRuntime().quoteEstimateLine({ organizationId: parsed.organizationId, userId, productId: parsed.productId, quantity: parsed.quantity, unit: parsed.unit, ...(parsed.customerId === undefined ? {} : { customerId: parsed.customerId }), ...(parsed.rateListId === undefined ? {} : { rateListId: parsed.rateListId }) }, branchId);
+    const quote = await runtimeFor(request).quoteEstimateLine({ organizationId: parsed.organizationId, userId, productId: parsed.productId, quantity: parsed.quantity, unit: parsed.unit, ...(parsed.customerId === undefined ? {} : { customerId: parsed.customerId }), ...(parsed.rateListId === undefined ? {} : { rateListId: parsed.rateListId }) }, branchId);
     response.status(200).json({ data: quote, requiresConfirmation: true });
   });
 
@@ -254,7 +286,7 @@ export function createAiCopilotRouter(
     const userId = authenticatedUserId ?? parsed.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
     if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
-    const extraction = await getRuntime().prepareInvoiceExtraction({
+    const extraction = await runtimeFor(request).prepareInvoiceExtraction({
       organizationId: parsed.organizationId, userId, source: parsed.source,
       ...(parsed.text === undefined ? {} : { text: parsed.text }),
       ...(parsed.media === undefined ? {} : { media: parsed.media }),

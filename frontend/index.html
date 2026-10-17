@@ -52,7 +52,7 @@
 
   <dialog id="copilot" class="copilot-dialog">
     <section class="copilot-panel" aria-label="AI Copilot">
-      <header class="copilot-header"><div class="copilot-mark" aria-hidden="true"></div><div><p class="eyebrow">MuradERP AI</p><h2>Copilot</h2></div><button id="copilot-close" class="icon-button" type="button" aria-label="Close Copilot"></button></header>
+      <header class="copilot-header"><div class="copilot-mark" aria-hidden="true"></div><div><p class="eyebrow">MuradERP AI</p><h2>Copilot</h2></div><div class="copilot-header-actions"><button id="copilot-settings" class="button secondary compact" type="button">API key settings</button><button id="copilot-close" class="icon-button" type="button" aria-label="Close Copilot"></button></div></header>
       <div id="copilot-thread" class="copilot-thread" aria-live="polite"></div>
       <div id="copilot-attachment" class="attachment-preview" hidden></div>
       <p id="copilot-status" class="copilot-status" role="status" hidden></p>
@@ -66,6 +66,16 @@
       </div>
       <p class="copilot-boundary">Read answers use live ERP data. Actions require your review and explicit confirmation before the authoritative ERP service executes them.</p>
     </section>
+  </dialog>
+  <dialog id="copilot-key-dialog" class="modal-dialog">
+    <form id="copilot-key-form" class="modal-card">
+      <div class="surface-heading"><div><p class="eyebrow">Copilot setup</p><h2>API key settings</h2></div><button id="copilot-key-close" class="icon-button" type="button" aria-label="Close"></button></div>
+      <p id="copilot-key-backend-status" class="muted" role="status">Checking for a server-side AI key…</p>
+      <label>Gemini API key<input id="copilot-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Enter your Gemini API key" maxlength="512" /></label>
+      <p class="copilot-key-notice">Your key is saved in this browser’s localStorage and sent over HTTPS to MuradERP’s backend for Copilot requests. Browser storage is accessible to scripts running on this site, so use a dedicated, revocable key.</p>
+      <p id="copilot-key-result" class="form-message" role="status" hidden></p>
+      <div class="dialog-actions"><button id="copilot-key-clear" class="button secondary" type="button">Remove saved key</button><button id="copilot-key-cancel" class="button secondary" type="button">Cancel</button><button class="button primary" type="submit">Save key</button></div>
+    </form>
   </dialog>
   <script type="module" src="/app.js"></script>
   <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));}</script>
