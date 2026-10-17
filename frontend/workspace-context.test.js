@@ -22,7 +22,7 @@ describe("shared workspace context", () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: available }) });
     vi.stubGlobal("fetch", fetch);
     expect(await discoverWorkspaces()).toEqual(available);
-    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces", { credentials: "include" });
+    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces", expect.objectContaining({ credentials: "include", signal: expect.any(AbortSignal) }));
     expect(preferredWorkspace(available)).toEqual({ organizationId: available[0].organizationId, branchId: available[0].branches[0].branchId });
     expect(authorizedWorkspace(available, context.organizationId, context.branchId)).toBeNull();
     expect(authorizedWorkspace(available, available[0].organizationId, context.branchId)).toBeNull();
@@ -55,6 +55,14 @@ describe("shared workspace context", () => {
   it("reports authentication errors without accepting a browser-supplied user ID", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: { code: "UNAUTHORIZED", message: "Sign in" } }) }));
     await expect(discoverWorkspaces()).rejects.toMatchObject({ status: 401, code: "UNAUTHORIZED" });
+    vi.unstubAllGlobals();
+  });
+  it("does not restore stale workspace state after the user or login session changes", async () => {
+    const store = storage();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ organizationId: context.organizationId, branches: [{ branchId: context.branchId }] }] }) }));
+    const result = await connectPreferredWorkspace(null, store, () => false);
+    expect(result.selected).toBeNull();
+    expect(getWorkspaceContext(store)).toBeNull();
     vi.unstubAllGlobals();
   });
 });

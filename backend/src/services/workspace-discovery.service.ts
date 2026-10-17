@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
 import type { Database } from "../types/database.types.js";
+import { ensureDemoWorkspaceMembership } from "./demo-workspace.service.js";
 
 type Membership = Pick<Database["public"]["Tables"]["organization_memberships"]["Row"], "organization_id" | "user_id" | "status">;
 type Organization = Pick<Database["public"]["Tables"]["organizations"]["Row"], "id" | "name">;
@@ -29,10 +30,15 @@ export class SupabaseWorkspaceDiscoveryService implements WorkspaceDiscoveryServ
 
   async discover(userId: string): Promise<DiscoveredWorkspace[]> {
     const client = this.clientFactory();
-    const { data: memberships, error: membershipError } = await client.from("organization_memberships")
-      .select("organization_id,user_id,status").eq("user_id", userId).eq("status", "active");
+    let { data: memberships, error: membershipError } = await client.from("organization_memberships")
+      .select("organization_id,user_id,status,role").eq("user_id", userId);
     if (membershipError) throw new ApiError(502, "WORKSPACE_DISCOVERY_FAILED", "Authorized organizations could not be loaded");
-    const organizationIds = [...new Set((memberships ?? []).map((row) => row.organization_id))];
+    if (await ensureDemoWorkspaceMembership(client, userId, memberships ?? [])) {
+      const refreshed = await client.from("organization_memberships").select("organization_id,user_id,status,role").eq("user_id", userId);
+      if (refreshed.error) throw new ApiError(502, "WORKSPACE_DISCOVERY_FAILED", "The new demo workspace could not be loaded. Refresh to retry.");
+      memberships = refreshed.data;
+    }
+    const organizationIds = [...new Set((memberships ?? []).filter(row => row.status === "active").map((row) => row.organization_id))];
     if (organizationIds.length === 0) return [];
 
     const { data: organizations, error: organizationError } = await client.from("organizations")

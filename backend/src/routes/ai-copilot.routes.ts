@@ -177,7 +177,7 @@ export function createAiCopilotRouter(
     response.json({data:{...result,extraction:normalized.extraction},requiresConfirmation:result.requiresConfirmation});
   });
 
-  router.post("/agent", authorize, async (request, response) => {
+  router.post(["/agent", "/"], authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot questions");
     const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));

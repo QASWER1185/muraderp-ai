@@ -39,7 +39,7 @@ export function clearWorkspaceContext(storage = globalThis.sessionStorage) {
 }
 
 export async function discoverWorkspaces() {
-  const response = await fetch("/api/v1/workspaces", { credentials: "include" });
+  const response = await boundedFetch("/api/v1/workspaces", { credentials: "include" });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(body?.error?.message ?? `Workspace discovery failed with HTTP ${response.status}`);
@@ -65,11 +65,14 @@ export function preferredWorkspace(workspaces, previous = null) {
   return null;
 }
 
-export async function connectPreferredWorkspace(previous = null, storage = globalThis.sessionStorage) {
+export async function connectPreferredWorkspace(previous = null, storage = globalThis.sessionStorage, isCurrent = () => true) {
   const workspaces = await discoverWorkspaces();
   const selected = preferredWorkspace(workspaces, previous);
+  if (!isCurrent()) return { workspaces, selected: null };
   if (selected) setWorkspaceContext(selected, storage);
   else clearWorkspaceContext(storage);
   return { workspaces, selected };
 }
+
+import { boundedFetch } from "./request.js";
 

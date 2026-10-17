@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { env } from "../config/env.js";
+import { ApiError } from "../errors/api-error.js";
 
 const COOKIE_NAME = "muraderp_session";
 const SESSION_TTL_SECONDS = 60 * 60;
@@ -37,10 +38,10 @@ export function browserSessionHandler(required = true): RequestHandler {
   };
 }
 export async function bootstrapBrowserSession(accessToken: string, response: Response): Promise<{ userId: string }> {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new Error("Supabase configuration is required for browser sessions");
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "ERP_NOT_CONFIGURED", "The ERP authentication backend is not configured. Your password has not been rejected.");
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await supabase.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Invalid or expired Supabase session");
+  if (error || !data.user) throw new ApiError(401, "UNAUTHORIZED", "Invalid or expired Supabase session");
   const userId = data.user.id; const payload: SessionPayload = { userId, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS };
   response.cookie(COOKIE_NAME, encode(payload), { httpOnly: true, secure: env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: SESSION_TTL_SECONDS * 1000 });
   return { userId };

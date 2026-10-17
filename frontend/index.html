@@ -21,7 +21,7 @@
         </div>
         <div class="topbar-actions">
           <span id="connection-status" class="network-status" aria-live="polite"></span>
-          <button id="workspace-button" class="icon-button" type="button" aria-label="Choose workspace" title="Choose workspace"></button>
+          <button id="workspace-button" class="button secondary" type="button" aria-label="Choose workspace" title="Choose workspace"></button>
           <button id="auth-button" class="button secondary" type="button">Sign in</button>
           <button id="copilot-button" class="button primary copilot-launch" type="button"></button>
         </div>
@@ -77,6 +77,7 @@
       <div class="dialog-actions"><button id="copilot-key-clear" class="button secondary" type="button">Remove saved key</button><button id="copilot-key-cancel" class="button secondary" type="button">Cancel</button><button class="button primary" type="submit">Save key</button></div>
     </form>
   </dialog>
+  <script src="/public-config.js"></script>
   <script type="module" src="/app.js"></script>
   <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));}</script>
 </body>

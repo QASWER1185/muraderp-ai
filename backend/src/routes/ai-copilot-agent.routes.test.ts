@@ -15,6 +15,16 @@ vi.mock("../middleware/copilot-auth.js", () => ({
 import { createAiCopilotRouter } from "./ai-copilot.routes.js";
 
 describe("Phase 1 agent route on the production backend baseline", () => {
+  it("supports the canonical and compatibility Copilot root endpoints with the same authentication and tenant scope", async () => {
+    const run = vi.fn(async () => ({ answer: "Verified inventory", status: "completed" }));
+    const app = express(); app.use(express.json());
+    app.use(["/api/v1/ai/copilot", "/api/copilot"], createAiCopilotRouter(undefined, undefined, undefined, undefined, { run } as unknown as ReadOnlyCopilotAgent));
+    for (const path of ["/api/v1/ai/copilot", "/api/copilot"]) {
+      const response = await request(app).post(path).set("X-Organization-Id", "22222222-2222-4222-8222-222222222222").set("X-Branch-Id", "33333333-3333-4333-8333-333333333333").send({ message: "Check cement stock" });
+      expect(response.status).toBe(200); expect(response.body.data.answer).toBe("Verified inventory");
+    }
+    expect(run).toHaveBeenCalledTimes(2);
+  });
   it("passes the signed conversation token and authenticated tenant scope to the agent", async () => {
     const result = { answer: "Verified rate", conversationToken: "new-signed-context", traceId: "trace-1", status: "completed" };
     const run = vi.fn(async () => result);

@@ -302,7 +302,9 @@ export class UnifiedCopilotAgent {
       } else {
         status = controller.signal.aborted ? "timeout" : "error";
         if (error instanceof ApiError && ["AI_NOT_CONFIGURED", "COPILOT_NOT_CONFIGURED"].includes(error.code)) {
-          answer = "The Copilot AI service is not configured. Please ask your administrator to check the server provider, model and API key. Manual ERP pages remain available.";
+          answer = error.code === "AI_NOT_CONFIGURED"
+            ? "Enter your Gemini API key in Copilot API key settings for conversational workflows. Basic stock inquiries remain available without a key."
+            : "ERP data access is not configured. Please contact your administrator. Manual ERP pages remain available.";
         } else if (error instanceof ApiError && error.code.startsWith("AI_PROVIDER_")) {
           answer = "The configured AI provider could not complete this request. Please try again or use the Customers and Stock pages. No ERP action was performed.";
         }

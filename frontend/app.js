@@ -128,7 +128,10 @@ authButton.addEventListener("click", () => authDialog.showModal());
 document.querySelector("#auth-close").addEventListener("click", () => authDialog.close());
 authForm.addEventListener("submit", async (event) => {
   event.preventDefault(); authResult.hidden = true;
-  try { const session = await signIn(value("#auth-email"), value("#auth-password")); authenticatedUserId = session.user?.id ?? null; clearWorkspaceContext(); authResult.textContent = "Signed in securely."; authResult.hidden = false; authButton.textContent = "Account"; document.querySelector("#auth-signout").hidden = false; authDialog.close(); await connectDiscoveredWorkspace(); }
+  const submit = document.querySelector("#auth-submit");
+  if (submit.disabled) return;
+  submit.disabled = true; submit.textContent = "Signing in…";
+  try { const session = await signIn(value("#auth-email"), document.querySelector("#auth-password").value); authenticatedUserId = session.user?.id ?? null; clearWorkspaceContext(); authResult.textContent = "Signed in securely."; authResult.hidden = false; authButton.textContent = "Account"; document.querySelector("#auth-signout").hidden = false; document.querySelector("#auth-password").value = ""; authDialog.close(); await connectDiscoveredWorkspace(); }
   catch (error) {
     // Keep the original browser error visible in DevTools so network, CORS,
     // and Auth failures can be distinguished without logging form values.
@@ -136,6 +139,7 @@ authForm.addEventListener("submit", async (event) => {
     authResult.textContent = error instanceof Error ? error.message : "Unable to sign in.";
     authResult.hidden = false;
   }
+  finally { submit.disabled = false; submit.textContent = "Sign in"; }
 });
 document.querySelector("#auth-signout").addEventListener("click", async () => { await signOut(); authenticatedUserId = null; clearWorkspaceContext(); availableWorkspaces = []; authButton.textContent = "Sign in"; document.querySelector("#auth-signout").hidden = true; authResult.textContent = "Signed out."; authResult.hidden = false; resetDraft();navigate("dashboard"); });
 
@@ -143,6 +147,7 @@ const workspaceDialog = document.querySelector("#workspace-dialog");
 const workspaceForm = document.querySelector("#workspace-form");
 const workspaceResult = document.querySelector("#workspace-result");
 let availableWorkspaces = [];
+let workspaceRequest = 0;
 function option(value, label) { const item = document.createElement("option"); item.value = value; item.textContent = label; return item; }
 function renderBranchOptions(preferredBranchId = "") {
   const organization = availableWorkspaces.find((item) => item.organizationId === workspaceForm.elements.organization.value);
@@ -156,14 +161,27 @@ function renderWorkspaceOptions(preferred = getWorkspaceContext()) {
   renderBranchOptions(selected?.branchId);
 }
 async function connectDiscoveredWorkspace(previous = null) {
+  const requestId = ++workspaceRequest;
+  const userId = authenticatedUserId;
+  const refresh = document.querySelector("#workspace-refresh");
+  refresh.disabled = true;
   try {
-    const { workspaces, selected } = await connectPreferredWorkspace(previous);
+    const { workspaces, selected } = await connectPreferredWorkspace(previous, globalThis.sessionStorage, () => requestId === workspaceRequest && userId === authenticatedUserId);
+    if (requestId !== workspaceRequest || userId !== authenticatedUserId) return;
     availableWorkspaces = workspaces;
     renderWorkspaceOptions(selected);
+    const organization = workspaces.find(item => item.organizationId === selected?.organizationId);
+    const workspaceButton = document.querySelector("#workspace-button");
+    workspaceButton.replaceChildren();
+    const label = document.createElement("span");
+    label.textContent = organization?.organizationName ?? "Choose workspace";
+    workspaceButton.append(label);
+    workspaceButton.title = organization?.organizationName ?? "Choose workspace";
     workspaceResult.hidden = Boolean(selected);
     if (!selected) workspaceResult.textContent = "No active organization and branch assignment is available for this account.";
     navigate(currentSection);
   } catch (error) {
+    if (requestId !== workspaceRequest || userId !== authenticatedUserId) return;
     availableWorkspaces = [];
     clearWorkspaceContext();
     workspaceResult.textContent = error?.status === 401 ? "Sign in to discover your workspaces." : error instanceof Error ? error.message : "Workspaces could not be loaded.";
@@ -171,6 +189,7 @@ async function connectDiscoveredWorkspace(previous = null) {
     if (!workspaceDialog.open) workspaceDialog.showModal();
     navigate(currentSection);
   }
+  finally { if (requestId === workspaceRequest) refresh.disabled = false; }
 }
 function openWorkspace() {
   renderWorkspaceOptions();

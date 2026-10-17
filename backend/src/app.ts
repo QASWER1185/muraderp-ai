@@ -62,7 +62,7 @@ export function createApp(options: AppOptions = {}) {
   const erpService = options.erpService ?? new SupabaseErpService();
 
   // AI media is capped and signature-validated at 8 MB; only this route accepts the larger base64 JSON envelope.
-  app.use("/api/v1/ai/copilot", express.json({ limit: "12mb" }), createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
+  app.use(["/api/v1/ai/copilot", "/api/copilot"], express.json({ limit: "12mb" }), createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
   app.use(express.json({ limit: "1mb" }));
   app.get("/", (_request, response) => response.status(200).send("MuradERP-AI Backend"));
   app.get("/api/test", (_request, response) => response.status(200).json({ success: true, message: "API Test Working" }));

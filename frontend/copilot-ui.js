@@ -221,7 +221,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         ? `A Gemini key is saved in this browser and will be used${serverConfigured ? "; it overrides the server-side key." : "."}`
         : serverConfigured
           ? "A server-side AI key is configured. No browser key is needed."
-          : "No server-side AI key is configured. Add a Gemini key to activate Copilot.";
+          : "Basic stock inquiries work without an AI key. Enter your Gemini API key to activate conversational workflows.";
       return serverConfigured;
     } catch {
       keyStatus.textContent = hasLocalKey

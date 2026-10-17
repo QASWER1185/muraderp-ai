@@ -95,7 +95,7 @@ describe("missing entities and Copilot failure recovery", () => {
     const model = { respond: vi.fn(async () => { throw new ApiError(503, "AI_NOT_CONFIGURED", "private secret"); }) };
     const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "cement stock" }, scope, logger);
     expect(result.status).toBe("error");
-    expect(result.answer).toContain("provider, model and API key");
+    expect(result.answer).toContain("Copilot API key settings");
     expect(result.answer).not.toContain("private secret");
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ errorCode: "AI_NOT_CONFIGURED" }), "Copilot reasoning failed");
   });
