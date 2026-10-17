@@ -1,0 +1,145 @@
+{
+  "decision_id": "P0-7-DUAL-ACCOUNTING-LEDGER",
+  "status": "ACCEPTANCE_CANDIDATE",
+  "authoritative_operational_source": "POSTED_DOMAIN_TRANSACTION",
+  "authoritative_accounting_model": {
+    "accounts_table": "public.accounts",
+    "journal_entries_table": "public.journal_entries",
+    "journal_lines_table": "public.journal_lines",
+    "financial_reports_must_read_only_this_model": true
+  },
+  "legacy_accounting_model": {
+    "entries_table": "public.accounting_journal_entries",
+    "lines_table": "public.accounting_journal_lines",
+    "classification": "LEGACY_NON_AUTHORITATIVE",
+    "future_writes_allowed": false,
+    "financial_reporting_allowed": false
+  },
+  "posting_boundary": {
+    "mode": "SINGLE_DATABASE_TRANSACTION",
+    "drafts_post_accounting": false,
+    "required_effects": [
+      "operational_document",
+      "operational_subledger_projection",
+      "inventory_movement_when_applicable",
+      "authoritative_double_entry_journal",
+      "idempotency_record"
+    ],
+    "failure_semantics": "ROLLBACK_ALL"
+  },
+  "double_entry": {
+    "posted_journal_must_balance": true,
+    "minimum_lines": 2,
+    "total_debits_equal_total_credits": true,
+    "total_must_be_positive": true,
+    "direct_posted_line_mutation_allowed": false
+  },
+  "source_link": {
+    "required_tuple": [
+      "organization_id",
+      "source_type",
+      "source_record_id",
+      "posting_kind"
+    ],
+    "source_record_id_storage": "CANONICAL_TEXT_KEY",
+    "primary_posting_unique_per_source": true,
+    "reversal_link_required": true
+  },
+  "idempotency": {
+    "scope": [
+      "organization_id",
+      "principal_or_operation_scope",
+      "idempotency_key"
+    ],
+    "fingerprint_mismatch": "REJECT",
+    "retry_semantics": "RETURN_EXISTING_SOURCE_AND_JOURNAL",
+    "duplicate_source_posting": "REJECT_OR_RETURN_EXISTING"
+  },
+  "subledgers": {
+    "customer_ledger_entries": "DERIVED_RECEIVABLE_SUBLEDGER",
+    "vendor_payable_ledger_entries": "DERIVED_PAYABLE_SUBLEDGER",
+    "independent_accounting_truth": false,
+    "reconcile_customer_total_to_gl_account": "1100",
+    "reconcile_vendor_total_to_gl_account": "2000"
+  },
+  "inventory": {
+    "quantity_current_state": "public.inventory",
+    "movement_audit_source": "public.stock_movements",
+    "accounting_value_authority": "AUTHORITATIVE_GL_INVENTORY_CONTROL_ACCOUNT",
+    "costing_method": "UNDECIDED_SEPARATE_DECISION",
+    "sale_return_cost_rule": "REVERSE_ORIGINAL_POSTED_COST_BASIS",
+    "purchase_return_cost_rule": "REVERSE_ORIGINAL_RECEIPT_COST_BASIS",
+    "valued_adjustment_requires_cost_policy": true
+  },
+  "corrections": {
+    "posted_journal_lines_immutable": true,
+    "silent_historical_rewrite_allowed": false,
+    "reversal_entry_required": true,
+    "correction_entry_required_when_replacement_is_needed": true,
+    "original_journal_remains_auditable": true
+  },
+  "operation_templates": {
+    "sale": {
+      "debits": ["ACCOUNTS_RECEIVABLE(total_customer_amount)", "COGS(original_cost)"],
+      "credits": ["SALES_REVENUE(product_revenue)", "INVENTORY(original_cost)", "RENT_PAYABLE(pass_through_rent_if_any)"],
+      "notes": "Accounts receivable includes pass-through rent once; do not double-debit rent receivable."
+    },
+    "purchase": {
+      "debits": ["INVENTORY(net_inventory_cost)", "INPUT_TAX_RECOVERABLE(input_tax_if_any)"],
+      "credits": ["ACCOUNTS_PAYABLE(total_payable)"]
+    },
+    "customer_payment": {
+      "debits": ["CASH_OR_BANK(amount)"],
+      "credits": ["ACCOUNTS_RECEIVABLE(amount)"]
+    },
+    "vendor_payment": {
+      "debits": ["ACCOUNTS_PAYABLE(amount)"],
+      "credits": ["CASH_OR_BANK(amount)"]
+    },
+    "sales_return": {
+      "debits": ["SALES_RETURNS(return_revenue)", "INVENTORY(original_cost)"],
+      "credits": ["ACCOUNTS_RECEIVABLE(return_revenue)", "COGS(original_cost)"]
+    },
+    "purchase_return": {
+      "debits": ["ACCOUNTS_PAYABLE(return_total)"],
+      "credits": ["INVENTORY(original_receipt_cost)", "INPUT_TAX_RECOVERABLE(reversed_input_tax_if_any)"]
+    },
+    "inventory_adjustment": {
+      "rule": "POST_QUANTITY_AND_VALUE_EFFECT_ATOMICALLY_ONLY_AFTER_COSTING_POLICY_IS_APPROVED"
+    }
+  },
+  "known_blockers": [
+    {
+      "severity": "P0",
+      "code": "DUAL_LEDGER_POSTING_DIVERGENCE",
+      "description": "Live operational posting functions write legacy accounting_journal_* while general_ledger/trial_balance read journal_*; production cutover must eliminate this split."
+    },
+    {
+      "severity": "P0",
+      "code": "LEGACY_RENT_POSTING_CAN_BE_UNBALANCED",
+      "description": "Current legacy invoice/void journal construction duplicates pass-through-rent effects and can violate debit=credit when rent is non-zero."
+    },
+    {
+      "severity": "P0",
+      "code": "AUTHORITATIVE_SOURCE_LINK_TYPE_MISMATCH",
+      "description": "journal_entries.source_id is UUID while current core operational transaction IDs are bigint; authoritative source linkage must be normalized before cutover."
+    },
+    {
+      "severity": "P1",
+      "code": "SALES_RPC_MISMATCH",
+      "description": "SupabaseSalesTransactionRepository calls record_sales_transaction, which is absent from the targeted live catalog."
+    },
+    {
+      "severity": "P1",
+      "code": "INVENTORY_COSTING_POLICY_UNDECIDED",
+      "description": "No explicit FIFO/weighted-average/specific-identification costing architecture is finalized; do not infer one from product.purchase_price fallback behavior."
+    },
+    {
+      "severity": "P1",
+      "code": "TRIAL_BALANCE_VOID_FILTER_SEMANTICS",
+      "description": "Current trial_balance join shape can include journal_lines even when the joined journal entry is not POSTED; reporting implementation must be corrected or superseded by reversal-only semantics."
+    }
+  ],
+  "migration_required_in_p0_7": false,
+  "production_database_mutation_allowed": false
+}

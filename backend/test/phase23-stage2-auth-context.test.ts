@@ -42,8 +42,8 @@ describe("Phase 23 Stage 2 — authentication, organization, branch and RBAC bou
   it("rejects cross-branch access while allowing organization-scoped access", () => {
     const context: OrganizationContext = { userId: USER_A, organizationId: ORG_A, branchId: BRANCH_A };
     expect(() => assertBranchContext(context, BRANCH_A)).not.toThrow();
-    expect(() => assertBranchContext(context, BRANCH_B)).toThrow("outside the active branch context");
-    expect(() => assertBranchContext({ ...context, branchId: null }, BRANCH_B)).not.toThrow();
+    expect(() => assertBranchContext(context, BRANCH_B)).toThrow("outside the verified branch context");
+    expect(() => assertBranchContext({ ...context, branchId: null }, BRANCH_B)).toThrow("outside the verified branch context");
   });
 
   it("keeps Copilot confirmation bound to the authenticated user context", async () => {

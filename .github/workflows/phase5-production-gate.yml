@@ -76,4 +76,5 @@ jobs:
         run: npm run build
 
       - name: Final Phase 5 gate
-        run: echo "PHASE 5 PRODUCTION GATE: PASS"
+        run: |
+          echo "PHASE 5 PRODUCTION GATE: PASS"

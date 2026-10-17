@@ -4,8 +4,8 @@ import type { RateListRepository } from "../repositories/rate-list.repository.js
 export class EstimateRateListPickerService {
   constructor(private readonly repository: RateListRepository) {}
 
-  async getSaleRateListOptions(): Promise<RateListPickerOption[]> {
-    const lists = await this.repository.listActiveSaleRateLists();
+  async getSaleRateListOptions(organizationId: string): Promise<RateListPickerOption[]> {
+    const lists = await this.repository.listActiveSaleRateLists(organizationId);
     return lists.map((list) => ({
       id: list.id,
       name: list.name,

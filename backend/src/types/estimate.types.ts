@@ -5,14 +5,18 @@ export interface EstimateLinePricingContext extends PriceResolutionContext {
 }
 
 export interface EstimateLineDraft {
+  description?: string | null;
   line_number: number;
   product_id: number;
   quantity: number;
   unit: string;
   unit_price?: number;
+  discount_amount?: number;
   pricing_source?: "RESOLVED_RATE" | "MANUAL_OVERRIDE";
   /** Explicit rate-list choice for mixed-brand estimates. */
   rate_list_id?: number | null;
+  /** Exact version selected by deterministic pricing, when available. */
+  rate_list_version_id?: number | null;
   rate_list_selection_source?: RateListSelectionSource;
   /** OCR/AI may capture the brand text; matching remains a controlled pricing decision. */
   brand_hint?: string | null;

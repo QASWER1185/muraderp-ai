@@ -127,4 +127,5 @@ jobs:
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
-        run: echo "POST-MERGE PRODUCTION GATE: ${JOB_STATUS} for ${GITHUB_SHA}"
+        run: |
+          echo "POST-MERGE PRODUCTION GATE: ${JOB_STATUS} for ${GITHUB_SHA}"

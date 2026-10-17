@@ -22,6 +22,7 @@ export interface AssistantRequest {
   organizationId: string;
   message: string;
   locale?: string;
+  branchId?: string;
 }
 
 export interface AssistantIntentResult {
@@ -42,7 +43,7 @@ export interface AssistantResponse {
 }
 
 export interface AssistantIntentResolver {
-  resolve(message: string): AssistantIntentResult;
+  resolve(message: string): AssistantIntentResult | Promise<AssistantIntentResult>;
 }
 
 export interface AssistantActionGateway {

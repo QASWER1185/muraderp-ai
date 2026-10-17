@@ -29,6 +29,7 @@ function clientFor(rows: unknown[], error: unknown = null) {
 }
 
 const context: PriceResolutionContext = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
   price_type: "SALE",
   product_id: 10,
   quantity: 20,
@@ -73,6 +74,10 @@ describe("SupabasePricingRepository", () => {
 
     expect(result?.unit_price).toBe(1400);
     expect(result?.scope_type).toBe("CUSTOMER");
+    expect(client.filters).toContainEqual({
+      method: "rate_list_versions.rate_lists.organization_id",
+      value: context.organization_id,
+    });
   });
 
   it("prefers the vendor rate when no matching customer rate exists", async () => {
@@ -89,25 +94,24 @@ describe("SupabasePricingRepository", () => {
     expect(result?.scope_type).toBe("VENDOR");
   });
 
-  it("selects the newest effective version within the winning scope", async () => {
+  it("fails closed when two lists in the winning scope compete", async () => {
     const client = clientFor([
       row("GLOBAL", 1500, 1, "2026-08-01T00:00:00Z"),
       row("GLOBAL", 1475, 1, "2026-08-13T00:00:00Z"),
     ]);
 
     const repository = new SupabasePricingRepository(() => client as never);
-    const result = await repository.findBestRateListItem({ ...context, vendor_id: null, customer_id: null });
-
-    expect(result?.unit_price).toBe(1475);
-    expect(result?.effective_from).toBe("2026-08-13T00:00:00Z");
+    await expect(repository.findBestRateListItem({ ...context, vendor_id: null, customer_id: null })).rejects.toThrow("Ambiguous pricing");
   });
 
   it("selects the highest applicable quantity tier", async () => {
-    const client = clientFor([
+    const tiers = [
       row("GLOBAL", 1500, 1, "2026-08-13T00:00:00Z"),
       row("GLOBAL", 1450, 10, "2026-08-13T00:00:00Z"),
       row("GLOBAL", 1400, 25, "2026-08-13T00:00:00Z"),
-    ]);
+    ];
+    for (const tier of tiers) { tier.rate_list_versions.id = 11; tier.rate_list_versions.rate_lists.id = 1; }
+    const client = clientFor(tiers);
 
     const repository = new SupabasePricingRepository(() => client as never);
     const result = await repository.findBestRateListItem({ ...context, quantity: 20, vendor_id: null, customer_id: null });

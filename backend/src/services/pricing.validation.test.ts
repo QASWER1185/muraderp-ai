@@ -6,6 +6,7 @@ const service = new DefaultPricingService({
 });
 
 const valid = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
   price_type: "SALE" as const,
   product_id: 10,
   quantity: 1,

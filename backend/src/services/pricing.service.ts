@@ -59,6 +59,8 @@ function requireOptionalPositiveInteger(value: number | null | undefined, field:
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export class DefaultPricingService implements PricingService {
   constructor(
     private readonly repository: PricingRepository,
@@ -66,6 +68,7 @@ export class DefaultPricingService implements PricingService {
   ) {}
 
   async resolvePrice(context: PriceResolutionContext): Promise<ResolvedPrice | null> {
+    if (!UUID_PATTERN.test(context.organization_id)) throw new Error("organization_id must be a valid UUID");
     if (!Number.isInteger(context.product_id) || context.product_id <= 0) throw new Error("product_id must be a positive integer");
     if (!Number.isFinite(context.quantity) || context.quantity <= 0) throw new Error("quantity must be greater than zero");
     if (!context.as_of || Number.isNaN(Date.parse(context.as_of))) throw new Error("as_of must be a valid date/time");
@@ -114,14 +117,14 @@ export class DefaultPricingService implements PricingService {
 }
 
 export interface RateListHintResolver {
-  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]>;
+  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]>;
 }
 
 export interface RateListAuthoringService {
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
-  listActiveSaleRateLists(): Promise<RateListRecord[]>;
+  listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]>;
   activateVersion(versionId: number): Promise<RateListVersionRecord>;
   archiveVersion(versionId: number): Promise<RateListVersionRecord>;
 }
@@ -133,6 +136,7 @@ function requireValidDate(value: string, field: string): void { if (!value || Nu
 export class DefaultRateListAuthoringService implements RateListAuthoringService {
   constructor(private readonly repository: RateListRepository, private readonly lifecycleRepository: RateListLifecycleRepository) {}
   async createRateList(input: RateListDefinition): Promise<RateListRecord> {
+    if (!UUID_PATTERN.test(input.organization_id)) throw new Error("organization_id must be a valid UUID");
     requireNonBlank(input.name, "name"); requireNonBlank(input.code, "code"); requireNonBlank(input.currency_code, "currency_code");
     if (input.scope_type === "VENDOR") requirePositiveInteger(input.vendor_id ?? 0, "vendor_id");
     if (input.scope_type === "CUSTOMER") requirePositiveInteger(input.customer_id ?? 0, "customer_id");
@@ -152,7 +156,7 @@ export class DefaultRateListAuthoringService implements RateListAuthoringService
     requireNonBlank(input.unit, "unit");
     return this.repository.createItem({ ...input, minimum_quantity: minimumQuantity, unit: input.unit.trim() });
   }
-  listActiveSaleRateLists(): Promise<RateListRecord[]> { return this.repository.listActiveSaleRateLists(); }
+  listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]> { return this.repository.listActiveSaleRateLists(organizationId); }
   async activateVersion(versionId: number): Promise<RateListVersionRecord> { requirePositiveInteger(versionId, "versionId"); const version = await this.lifecycleRepository.getVersion(versionId); if (version.status !== "DRAFT") throw new Error("only DRAFT rate-list versions can be activated"); return this.lifecycleRepository.activateVersion(versionId); }
   async archiveVersion(versionId: number): Promise<RateListVersionRecord> { requirePositiveInteger(versionId, "versionId"); const version = await this.lifecycleRepository.getVersion(versionId); if (version.status !== "ACTIVE") throw new Error("only ACTIVE rate-list versions can be archived"); return this.lifecycleRepository.archiveVersion(versionId); }
 }

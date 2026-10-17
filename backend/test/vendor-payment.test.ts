@@ -5,6 +5,11 @@ import type { VendorPaymentService } from "../src/services/vendor-payment.servic
 
 const token = "test_internal_token_1234567890abcdef";
 const principal = "test-principal";
+const transactionHeaders = {
+  "X-Organization-Id": "11111111-1111-4111-8111-111111111111",
+  "X-Branch-Id": "22222222-2222-4222-8222-222222222222",
+  "X-Actor-User-Id": "33333333-3333-4333-8333-333333333333",
+};
 
 function stub(overrides: Partial<VendorPaymentService> = {}): VendorPaymentService {
   return { ...overrides } as VendorPaymentService;
@@ -24,7 +29,7 @@ describe("vendor payments API", () => {
   it("requires an idempotency key", async () => {
     const recordPayment = vi.fn();
     const app = createApp({ vendorPaymentService: stub({ recordPayment }), internalApiToken: token, internalApiPrincipalId: principal });
-    const response = await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).send({
+    const response = await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set(transactionHeaders).send({
       vendor_id: 7, payment_date: "2026-08-15", amount: 100, payment_method: "CASH", allocations: [{ purchase_id: 10, amount: 100 }],
     });
     expect(response.status).toBe(400);
@@ -35,7 +40,7 @@ describe("vendor payments API", () => {
   it("rejects allocations that do not equal payment amount", async () => {
     const recordPayment = vi.fn();
     const app = createApp({ vendorPaymentService: stub({ recordPayment }), internalApiToken: token, internalApiPrincipalId: principal });
-    const response = await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set("Idempotency-Key", "vp-validation-1").send({
+    const response = await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set(transactionHeaders).set("Idempotency-Key", "vp-validation-1").send({
       vendor_id: 7, payment_date: "2026-08-15", amount: 100, payment_method: "CASH", allocations: [{ purchase_id: 10, amount: 99 }],
     });
     expect(response.status).toBe(400);
@@ -46,7 +51,7 @@ describe("vendor payments API", () => {
   it("passes principal, operation, idempotency key and fingerprint to the service", async () => {
     const recordPayment = vi.fn().mockResolvedValue(901);
     const app = createApp({ vendorPaymentService: stub({ recordPayment }), internalApiToken: token, internalApiPrincipalId: principal });
-    const response = await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set("Idempotency-Key", "vp-901").send({
+    const response = await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set(transactionHeaders).set("Idempotency-Key", "vp-901").send({
       vendor_id: 7, payment_date: "2026-08-15", amount: 150, payment_method: "BANK", reference: " REF-1 ", notes: " test ",
       allocations: [{ purchase_id: 10, amount: 100 }, { purchase_id: 11, amount: 50 }],
     });
@@ -57,7 +62,14 @@ describe("vendor payments API", () => {
       vendor_id: 7, payment_date: "2026-08-15", amount: 150, payment_method: "BANK", reference: "REF-1", notes: "test",
       allocations: [{ purchase_id: 10, amount: 100 }, { purchase_id: 11, amount: 50 }],
     });
-    expect(recordPayment.mock.calls[0]![1]).toMatchObject({ principalScope: principal, operation: "vendor-payment.create", idempotencyKey: "vp-901" });
+    expect(recordPayment.mock.calls[0]![1]).toMatchObject({
+      organizationId: transactionHeaders["X-Organization-Id"],
+      branchId: transactionHeaders["X-Branch-Id"],
+      actorUserId: transactionHeaders["X-Actor-User-Id"],
+      servicePrincipalId: principal,
+      operation: "vendor-payment.create",
+      idempotencyKey: "vp-901",
+    });
     expect(recordPayment.mock.calls[0]![1].requestFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -66,8 +78,8 @@ describe("vendor payments API", () => {
     const app = createApp({ vendorPaymentService: stub({ recordPayment }), internalApiToken: token, internalApiPrincipalId: principal });
     const first = { vendor_id: 7, payment_date: "2026-08-15", amount: 150, payment_method: "BANK", allocations: [{ purchase_id: 10, amount: 100 }, { purchase_id: 11, amount: 50 }] };
     const second = { ...first, allocations: [{ purchase_id: 11, amount: 50 }, { purchase_id: 10, amount: 100 }] };
-    await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set("Idempotency-Key", "fp-1").send(first);
-    await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set("Idempotency-Key", "fp-2").send(second);
+    await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set(transactionHeaders).set("Idempotency-Key", "fp-1").send(first);
+    await request(app).post("/api/v1/vendor-payments").set("Authorization", `Bearer ${token}`).set(transactionHeaders).set("Idempotency-Key", "fp-2").send(second);
     expect(recordPayment).toHaveBeenCalledTimes(2);
     expect(recordPayment.mock.calls[0]![1].requestFingerprint).toBe(recordPayment.mock.calls[1]![1].requestFingerprint);
   });

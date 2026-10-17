@@ -7,6 +7,7 @@ const AI_INPUT_INTENTS: readonly AiInputIntent[] = [
   "customer_return.create",
   "supplier_bill.create",
   "inventory.adjust",
+  "rate_list.import",
 ];
 
 export function assertValidConfidence(value: number): void {
@@ -28,12 +29,16 @@ export function validateAiInputRequest(request: AiInputRequest): void {
     throw new Error("Unsupported AI input intent");
   }
 
-  if ((request.source === "text" || request.source === "voice") && !request.text?.trim()) {
-    throw new Error("Text and voice inputs require transcribed text");
+  if (request.source === "text" && !request.text?.trim()) {
+    throw new Error("Text inputs require text");
   }
 
-  if ((request.source === "image" || request.source === "camera") && !request.mediaReference?.trim()) {
-    throw new Error("Image and camera inputs require a media reference");
+  if (request.source === "voice" && !request.text?.trim() && !request.media) {
+    throw new Error("Voice inputs require transcribed text or audio media");
+  }
+
+  if ((request.source === "image" || request.source === "camera") && !request.mediaReference?.trim() && !request.media) {
+    throw new Error("Image and camera inputs require a media reference or media");
   }
 }
 

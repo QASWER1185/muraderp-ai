@@ -5,7 +5,7 @@ import type { EstimateDocument } from "../types/estimate-document.types.js";
 const estimate: EstimateDocument = {
   id: 1,
   status: "DRAFT",
-  definition: { customer_id: 7, estimate_number: "EST-0001", issue_date: "2026-08-13", currency_code: "PKR" },
+  definition: { organization_id: "11111111-1111-4111-8111-111111111111", customer_id: 7, estimate_number: "EST-0001", issue_date: "2026-08-13", currency_code: "PKR" },
   lines: [{ line_number: 1, product_id: 25, quantity: 10, unit: "bag", unit_price: 1000, pricing_source: "RESOLVED_RATE" }],
   totals: { subtotal: 10000, discount_total: 500, grand_total: 9500, customer_payable_total: 10500, pass_through_rent: 1000 },
 };

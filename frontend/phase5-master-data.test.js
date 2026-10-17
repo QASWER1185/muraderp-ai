@@ -9,7 +9,13 @@ const manifest = JSON.parse(readFileSync(new URL("./manifest.webmanifest", impor
 describe("Phase 5 frontend production readiness", () => {
   const resources = ["Customers", "Vendors", "Products", "Warehouses"];
   it("exposes all Phase 5 master-data navigation surfaces", () => { for (const resource of resources) expect(app).toContain(`"${resource.toLowerCase()}"`); });
-  it("uses the authoritative backend boundary for ERP actions", () => { expect(html).toContain("Final financial/inventory posting remains server-authoritative"); expect(app).toContain("/api/v1/"); });
+  it("uses the authoritative backend boundary for ERP actions", () => {
+    const api = readFileSync(new URL("./copilot-api.js", import.meta.url), "utf8");
+    expect(html).toContain("Actions require your review and explicit confirmation");
+    expect(api).toContain("/api/v1/ai/copilot/drafts");
+    expect(api).toContain('credentials: "include"');
+    expect(api).not.toContain("supabase");
+  });
   it("keeps authentication behind a server session boundary", () => { const auth=readFileSync(new URL("./auth.js", import.meta.url),"utf8"); expect(auth).toContain("/api/v1/auth/session"); expect(auth).toContain("credentials: \"include\""); });
   it("has mobile responsive layout", () => { expect(css).toContain("@media(max-width:720px)"); expect(css).toContain("menu-open"); });
   it("has a valid standalone PWA manifest", () => { expect(manifest.display).toBe("standalone"); expect(manifest.start_url).toBe("/"); expect(Array.isArray(manifest.icons)).toBe(true); });

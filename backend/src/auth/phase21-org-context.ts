@@ -16,9 +16,9 @@ declare global {
 }
 
 /**
- * Phase 21 boundary adapter. Authentication/session verification is supplied by
- * the host application; this middleware only accepts an already verified
- * organization context and rejects requests that attempt to operate without it.
+ * Compatibility boundary for older Phase 21 call sites.
+ * Canonical authorization is organization-first; branch authorization must be
+ * verified separately by TenantAccessService using an explicit branch grant.
  */
 export const requireOrganizationContext: RequestHandler = (request, _response, next) => {
   const context = request.organizationContext;
@@ -41,17 +41,26 @@ export const requireOrganizationContext: RequestHandler = (request, _response, n
   next();
 };
 
+/**
+ * Equality guard only. A null/absent active branch is never wildcard authority.
+ * The context must already have been populated after an explicit branch grant
+ * check by the canonical tenant-access service.
+ */
 export function assertBranchContext(
   context: OrganizationContext,
   branchId?: string | null,
 ): void {
-  // A null active branch intentionally represents organization-scoped access.
-  // When an active branch exists, requested branch access must match it.
-  if (branchId && context.branchId && branchId !== context.branchId) {
+  if (
+    typeof branchId !== "string" ||
+    !branchId.trim() ||
+    typeof context.branchId !== "string" ||
+    !context.branchId.trim() ||
+    branchId.trim() !== context.branchId.trim()
+  ) {
     throw new ApiError(
       403,
       "BRANCH_ACCESS_DENIED",
-      "The requested branch is outside the active branch context",
+      "The requested branch is outside the verified branch context",
     );
   }
 }

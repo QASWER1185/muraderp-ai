@@ -3,6 +3,7 @@ import { DefaultPricingService } from "../src/services/pricing.service.js";
 import type { PriceResolutionContext, PricingCandidate, ResolvedPrice } from "../src/types/pricing.types.js";
 
 const validContext: PriceResolutionContext = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
   price_type: "SALE",
   product_id: 10,
   quantity: 5,
@@ -38,6 +39,7 @@ describe("DefaultPricingService", () => {
   });
 
   it.each([
+    [{ ...validContext, organization_id: "not-an-organization" }, "organization_id must be a valid UUID"],
     [{ ...validContext, product_id: 0 }, "product_id must be a positive integer"],
     [{ ...validContext, product_id: 1.5 }, "product_id must be a positive integer"],
     [{ ...validContext, quantity: 0 }, "quantity must be greater than zero"],

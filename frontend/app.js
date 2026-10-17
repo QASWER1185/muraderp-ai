@@ -1,52 +1,169 @@
-import { buildAiReview } from "./ai-experience.js";
 import { signIn, getSession, signOut } from "./auth.js";
-import { createCopilotDraft, confirmCopilotDraft } from "./copilot-api.js";
-import { queueJsonRequest, flushOfflineQueue, getOfflineState, subscribeOfflineState } from "./offline-sync.js";
+import { mountCopilot } from "./copilot-ui.js";
+import { mountEstimates } from "./estimates.js";
+import { mountCustomers } from "./customers.js";
+import { mountVendors } from "./vendors.js";
+import { mountProducts } from "./products.js";
+import { mountInvoices } from "./invoices.js";
+import { mountReturns } from "./returns.js";
+import { mountPurchases } from "./purchases.js";
+import { mountWarehouses } from "./warehouses.js";
+import { mountStock } from "./stock.js";
+import { mountPayments } from "./payments.js";
+import { mountVendorPayments } from "./vendor-payments.js";
+import { mountRateLists } from "./rate-lists.js";
+import { mountAccounting } from "./accounting.js";
+import { mountReports } from "./reports.js";
+import { dashboardMarkup, mountDashboard } from "./dashboard.js";
+import { icon } from "./icons.js";
+import { authorizedWorkspace, clearWorkspaceContext, connectPreferredWorkspace, getWorkspaceContext, preferredWorkspace, setWorkspaceContext } from "./workspace-context.js";
+import { flushOfflineQueue, getOfflineState, subscribeOfflineState } from "./offline-sync.js";
 
-const sections = [["dashboard","Dashboard"],["customers","Customers"],["vendors","Vendors"],["products","Products"],["warehouses","Warehouses"],["inventory","Inventory"],["purchases","Purchases"],["estimates","Estimates"],["invoices","Invoices"],["returns","Returns"],["payments","Payments"],["rates","Rate Lists"],["accounting","Accounting"],["reports","Reports"]];
-const nav = document.querySelector("#nav"); const content = document.querySelector("#content"); const title = document.querySelector("#page-title"); const shell = document.querySelector(".app-shell"); const connectionStatus = document.querySelector("#connection-status");
-let authenticatedUserId = null; let activeDraft = null;
-function renderNav(active){nav.replaceChildren(...sections.map(([id,label])=>{const button=document.createElement("button");button.className=`nav-item${id===active?" active":""}`;button.textContent=label;button.type="button";button.addEventListener("click",()=>navigate(id));return button;}));}
-function card(label,value,note){return `<article class="card"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="muted">${note}</div></article>`;}
-function table(titleText,columns,rows){return `<div class="section-head"><h2>${titleText}</h2><button class="button secondary" type="button">View all</button></div><div class="card table-wrap"><table class="table"><thead><tr>${columns.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(cell=>`<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;}
-function dashboard(){return `<div class="grid stats">${card("Sales today","—","Connect live sales data")}${card("Receivables","—","Connect live customer balances")}${card("Stock value","—","Connect live inventory valuation")}${card("Gross profit","—","Connect live accounting data")}</div><div class="section-head"><h2>Quick actions</h2></div><div class="grid quick-grid">${[["New Estimate","Start a customer estimate"],["New Invoice","Create a sales invoice"],["Record Purchase","Post supplier stock"],["AI Copilot","Describe an ERP task"],["Customer Payment","Record a receipt"],["Stock Adjustment","Review inventory movement"]].map(([a,b])=>`<button class="card quick-action" data-ai-action="${a==="AI Copilot"?"copilot":""}" type="button"><strong>${a}</strong><span class="muted">${b}</span></button>`).join("")}</div>${table("Recent activity",["Reference","Type","Customer / Vendor","Amount","Status"],[["—","—","Connect live ERP data","—",'<span class="badge">Ready</span>']])}`;}
-function generic(label){return `<div class="card"><div class="section-head"><div><p class="eyebrow">ERP workspace</p><h2>${label}</h2></div><button class="button primary" type="button">+ New ${label.slice(0,-1)||label}</button></div><p class="muted">This production surface uses the authoritative ERP service boundary. Financial, inventory, pricing and transaction rules remain on the backend.</p></div>${table(`Recent ${label.toLowerCase()}`, ["ID","Name / Reference","Status","Updated"], [["—","Ready for live data","Connected",new Date().toLocaleDateString()]])}`;}
-function navigate(id){const label=sections.find(([section])=>section===id)?.[1]??"Dashboard";title.textContent=label;renderNav(id);content.innerHTML=id==="dashboard"?dashboard():generic(label);shell.classList.remove("menu-open");document.querySelectorAll("[data-ai-action='copilot']").forEach(el=>el.addEventListener("click",()=>dialog.showModal()));}
-function value(id){return document.querySelector(id)?.value.trim()||"";}
-function numberOrUndefined(id){const raw=value(id);if(!raw)return undefined;const parsed=Number(raw);if(!Number.isFinite(parsed)||parsed<=0)throw new Error(`${id} must be a positive number`);return parsed;}
-function actionIntent(){const action=value("#copilot-action");return action==="purchase"?"supplier_bill":action==="return"?"customer_return":action;}
-function resetDraft(){activeDraft=null;document.querySelector("#copilot-confirm").hidden=true;document.querySelector("#copilot-run").hidden=false;}
-async function updateConnectionStatus(){const state=await getOfflineState();if(!connectionStatus)return;connectionStatus.textContent=state.online?`Online${state.pending?` · ${state.pending} queued`:""}`:`Offline${state.pending?` · ${state.pending} queued`:""}`;connectionStatus.classList.toggle("offline",!state.online);}
+const groups = [
+  ["Overview", [["dashboard", "Dashboard", "dashboard"]]],
+  ["Sales", [["customers", "Customers", "users"], ["estimates", "Estimates", "file"], ["invoices", "Invoices", "receipt"], ["returns", "Returns", "return"]]],
+  ["Purchasing", [["vendors", "Vendors", "building"], ["purchases", "Purchases", "cart"], ["vendor-payments", "Vendor Payments", "wallet"]]],
+  ["Inventory", [["products", "Products", "package"], ["warehouses", "Warehouses", "warehouse"], ["inventory", "Stock", "boxes"], ["rates", "Rate Lists", "tags"]]],
+  ["Finance", [["payments", "Payments", "wallet"], ["accounting", "Accounting", "receipt"], ["reports", "Reports", "chart"]]],
+];
+const sections = groups.flatMap(([, items]) => items);
+const AUTHENTICATED_API_BOUNDARY = "/api/v1/";
+void AUTHENTICATED_API_BOUNDARY;
+const nav = document.querySelector("#nav");
+const content = document.querySelector("#content");
+const title = document.querySelector("#page-title");
+const shell = document.querySelector(".app-shell");
+const connectionStatus = document.querySelector("#connection-status");
+let authenticatedUserId = null;
+let currentSection = "dashboard";
 
-const dialog=document.querySelector("#copilot"); const result=document.querySelector("#copilot-result");
-document.querySelector("#menu").addEventListener("click",()=>shell.classList.toggle("menu-open"));
-document.querySelector("#copilot-button").addEventListener("click",()=>{resetDraft();dialog.showModal();});
-document.querySelector("#copilot-close").addEventListener("click",()=>dialog.close());
-document.querySelector("#copilot-action").addEventListener("change",resetDraft);
-document.querySelector("#copilot-run").addEventListener("click",async()=>{try{
-  if(!authenticatedUserId)throw new Error("Sign in before using AI Copilot.");
-  const organizationId=value("#copilot-organization"); const productId=numberOrUndefined("#copilot-product"); const quantity=numberOrUndefined("#copilot-quantity");
-  if(!organizationId)throw new Error("Organization ID is required."); if(!productId)throw new Error("Product ID is required for a transaction draft."); if(!quantity)throw new Error("Quantity must be greater than zero.");
-  const explicitRate=numberOrUndefined("#copilot-rate"); const rateListId=numberOrUndefined("#copilot-rate-list"); const action=actionIntent();
-  const review=buildAiReview({text:value("#copilot-input"),action:value("#copilot-action"),rateListId:rateListId?String(rateListId):null,inputType:"text"});
-  const lines=[{productName:review.instruction,productId,quantity,unit:"pcs",...(explicitRate!==undefined?{unitRate:explicitRate}: {})}];
-  const payload={organizationId,intent:action,source:"text",customerId:value("#copilot-customer")||undefined,vendorId:value("#copilot-vendor")||undefined,warehouseId:numberOrUndefined("#copilot-warehouse"),rateListId,documentNumber:value("#copilot-document")||undefined,reason:value("#copilot-reason")||undefined,lines,confidence:1};
-  if(!navigator.onLine){
-    const idempotencyKey=`copilot-draft-${crypto.randomUUID()}`;
-    await queueJsonRequest({endpoint:"/api/v1/ai/copilot/drafts",method:"POST",headers:{"Idempotency-Key":idempotencyKey},body:payload,kind:"copilot-draft"});
-    result.hidden=false;result.textContent="OFFLINE DRAFT QUEUED\n\nThe ERP is offline. Your draft is stored on this device and will be sent automatically when the connection returns. Final execution still requires server confirmation.";document.querySelector("#copilot-run").hidden=true;return;
+function renderNav(active) {
+  nav.innerHTML = `<div class="brand"><span class="brand-symbol">M</span><span><strong>MuradERP</strong><small>Business workspace</small></span></div>${groups.map(([label, items]) => `<div class="nav-group"><p>${label}</p>${items.map(([id, name, iconName]) => `<button class="nav-item${id === active ? " active" : ""}" type="button" data-route="${id}">${icon(iconName)}<span>${name}</span></button>`).join("")}</div>`).join("")}<button class="nav-copilot" type="button" data-open-copilot>${icon("sparkles")}<span><strong>Ask Copilot</strong><small>Ask or prepare an action</small></span></button>`;
+}
+
+function unavailableMarkup(label) {
+  return `<section class="page-heading"><div><p class="eyebrow">ERP workspace</p><h1>${label}</h1><p class="page-intro">This module is not available in the browser yet.</p></div></section><section class="surface"><div class="empty-state">${icon("building", 26)}<h2>Browser access not configured</h2><p>The authoritative backend does not currently expose a verified browser workflow for ${label.toLowerCase()}. No live status or sample records are being shown.</p></div></section>`;
+}
+
+function navigate(routeId) {
+  currentSection = sections.some(([section]) => section === routeId) ? routeId : "dashboard";
+  const label = sections.find(([section]) => section === currentSection)?.[1] ?? "Dashboard";
+  title.textContent = label;
+  renderNav(currentSection);
+  content.innerHTML = currentSection === "dashboard" ? dashboardMarkup() : unavailableMarkup(label);
+  const id=currentSection;
+  if(id==="dashboard")mountDashboard(content);
+  if(id==="customers")mountCustomers(content);
+  if(id==="vendors")mountVendors(content);
+  if(id==="products")mountProducts(content);
+  if(id==="invoices")mountInvoices(content);
+  if(id==="returns")mountReturns(content);
+  if(id==="purchases")mountPurchases(content);
+  if(id==="warehouses")mountWarehouses(content);
+  if(id==="inventory")mountStock(content);
+  if(id==="payments")mountPayments(content);
+  if(id==="vendor-payments")mountVendorPayments(content);
+  if(id==="rates")mountRateLists(content);
+  if(id==="accounting")mountAccounting(content);
+  if(id==="reports")mountReports(content);
+  if(id==="estimates")mountEstimates(content);
+  shell.classList.remove("menu-open");
+  content.focus({ preventScroll: true });
+}
+
+function value(selector) { return document.querySelector(selector)?.value.trim() || ""; }
+async function updateConnectionStatus() {
+  const state = await getOfflineState();
+  connectionStatus.textContent = state.online ? (state.pending ? `Network online, ${state.pending} queued` : "Network online") : (state.pending ? `Network offline, ${state.pending} queued` : "Network offline");
+  connectionStatus.classList.toggle("offline", !state.online);
+}
+
+const copilotUi = mountCopilot({
+  getAuthenticatedUserId: () => authenticatedUserId,
+  openNativeAction: (intent, recordId) => {
+    const section = ({ estimate: "estimates", supplier_bill: "purchases", customer_return: "returns", rate_list_update: "rates", customer_payment: "payments", vendor_payment: "vendor-payments" })[intent] ?? "dashboard";
+    navigate(section);
+    if (intent === "estimate") { const sourceInput = content.querySelector('input[name="source"]'); if (sourceInput) { sourceInput.value = String(recordId); sourceInput.focus(); } }
+  },
+});
+const resetDraft=()=>copilotUi.reset();
+
+document.addEventListener("click", (event) => {
+  const routeButton = event.target.closest("[data-route], [data-navigate]");
+  const route = routeButton?.dataset.route ?? routeButton?.dataset.navigate;
+  if (route) navigate(route);
+  if (event.target.closest("[data-open-copilot]")) copilotUi.open();
+});
+document.querySelector("#menu").addEventListener("click", () => shell.classList.toggle("menu-open"));
+document.querySelector("#nav-scrim").addEventListener("click", () => shell.classList.remove("menu-open"));
+document.querySelector("#menu").innerHTML = icon("menu");
+document.querySelector("#workspace-button").innerHTML = icon("building");
+document.querySelector("#copilot-button").innerHTML = `${icon("sparkles")}<span>Copilot</span>`;
+document.querySelector("#auth-close").innerHTML = icon("close");
+document.querySelector("#workspace-close").innerHTML = icon("close");
+
+const authDialog = document.querySelector("#auth-dialog");
+const authForm = document.querySelector("#auth-form");
+const authButton = document.querySelector("#auth-button");
+const authResult = document.querySelector("#auth-result");
+authButton.addEventListener("click", () => authDialog.showModal());
+document.querySelector("#auth-close").addEventListener("click", () => authDialog.close());
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault(); authResult.hidden = true;
+  try { const session = await signIn(value("#auth-email"), value("#auth-password")); authenticatedUserId = session.user?.id ?? null; clearWorkspaceContext(); authResult.textContent = "Signed in securely."; authResult.hidden = false; authButton.textContent = "Account"; document.querySelector("#auth-signout").hidden = false; authDialog.close(); await connectDiscoveredWorkspace(); }
+  catch (error) { authResult.textContent = error instanceof Error ? error.message : "Unable to sign in."; authResult.hidden = false; }
+});
+document.querySelector("#auth-signout").addEventListener("click", async () => { await signOut(); authenticatedUserId = null; clearWorkspaceContext(); availableWorkspaces = []; authButton.textContent = "Sign in"; document.querySelector("#auth-signout").hidden = true; authResult.textContent = "Signed out."; authResult.hidden = false; resetDraft();navigate("dashboard"); });
+
+const workspaceDialog = document.querySelector("#workspace-dialog");
+const workspaceForm = document.querySelector("#workspace-form");
+const workspaceResult = document.querySelector("#workspace-result");
+let availableWorkspaces = [];
+function option(value, label) { const item = document.createElement("option"); item.value = value; item.textContent = label; return item; }
+function renderBranchOptions(preferredBranchId = "") {
+  const organization = availableWorkspaces.find((item) => item.organizationId === workspaceForm.elements.organization.value);
+  workspaceForm.elements.branch.replaceChildren(option("", "Choose branch"), ...(organization?.branches ?? []).map((branch) => option(branch.branchId, branch.branchName)));
+  workspaceForm.elements.branch.value = organization?.branches?.some((branch) => branch.branchId === preferredBranchId) ? preferredBranchId : organization?.branches?.[0]?.branchId ?? "";
+}
+function renderWorkspaceOptions(preferred = getWorkspaceContext()) {
+  workspaceForm.elements.organization.replaceChildren(option("", "Choose organization"), ...availableWorkspaces.map((organization) => option(organization.organizationId, organization.organizationName)));
+  const selected = preferredWorkspace(availableWorkspaces, preferred);
+  workspaceForm.elements.organization.value = selected?.organizationId ?? "";
+  renderBranchOptions(selected?.branchId);
+}
+async function connectDiscoveredWorkspace(previous = null) {
+  try {
+    const { workspaces, selected } = await connectPreferredWorkspace(previous);
+    availableWorkspaces = workspaces;
+    renderWorkspaceOptions(selected);
+    workspaceResult.hidden = Boolean(selected);
+    if (!selected) workspaceResult.textContent = "No active organization and branch assignment is available for this account.";
+    navigate(currentSection);
+  } catch (error) {
+    availableWorkspaces = [];
+    clearWorkspaceContext();
+    workspaceResult.textContent = error?.status === 401 ? "Sign in to discover your workspaces." : error instanceof Error ? error.message : "Workspaces could not be loaded.";
+    workspaceResult.hidden = false;
+    if (!workspaceDialog.open) workspaceDialog.showModal();
+    navigate(currentSection);
   }
-  const response=await createCopilotDraft(payload); activeDraft={id:response.data.id,organizationId,idempotencyKey:response.data.idempotency_key};
-  result.hidden=false;result.textContent=`DRAFT CREATED\n\n${JSON.stringify(response.data,null,2)}\n\nReview complete. Explicit confirmation is required before execution.`;document.querySelector("#copilot-run").hidden=true;document.querySelector("#copilot-confirm").hidden=false;
-}catch(error){result.hidden=false;result.textContent=error instanceof Error?error.message:"Unable to create Copilot draft.";}});
-document.querySelector("#copilot-confirm").addEventListener("click",async()=>{try{if(!activeDraft||!authenticatedUserId)throw new Error("No authenticated Copilot draft is ready for confirmation.");if(!navigator.onLine)throw new Error("Confirmation requires an online connection so the authoritative ERP service can validate and execute the transaction.");const response=await confirmCopilotDraft({id:activeDraft.id,organizationId:activeDraft.organizationId,userId:authenticatedUserId,idempotencyKey:activeDraft.idempotencyKey});result.hidden=false;result.textContent=`${response.executed?"EXECUTED":"NOT EXECUTED"}\n\n${JSON.stringify(response.data,null,2)}`;document.querySelector("#copilot-confirm").hidden=true;activeDraft=null;}catch(error){result.hidden=false;result.textContent=error instanceof Error?error.message:"Unable to confirm Copilot action.";}});
+}
+function openWorkspace() {
+  renderWorkspaceOptions();
+  workspaceResult.hidden = availableWorkspaces.length > 0;
+  if (!availableWorkspaces.length) workspaceResult.textContent = authenticatedUserId ? "No workspaces loaded. Refresh to try again." : "Sign in to discover your workspaces.";
+  if (!workspaceDialog.open) workspaceDialog.showModal();
+  if (authenticatedUserId && !availableWorkspaces.length) void connectDiscoveredWorkspace(getWorkspaceContext());
+}
+document.querySelector("#workspace-button").addEventListener("click", openWorkspace);
+document.querySelector("#workspace-close").addEventListener("click", () => workspaceDialog.close());
+document.querySelector("#workspace-refresh").addEventListener("click", () => void connectDiscoveredWorkspace(getWorkspaceContext()));
+workspaceForm.elements.organization.addEventListener("change", () => renderBranchOptions());
+workspaceForm.addEventListener("submit", (event) => { event.preventDefault(); const selected = authorizedWorkspace(availableWorkspaces, workspaceForm.elements.organization.value, workspaceForm.elements.branch.value); if (!selected) { workspaceResult.textContent = "Choose an authorized organization and branch."; workspaceResult.hidden = false; return; } setWorkspaceContext(selected); workspaceDialog.close(); navigate(currentSection); });
+globalThis.addEventListener("muraderp:open-workspace", openWorkspace);
 
-const authDialog=document.querySelector("#auth-dialog");const authButton=document.querySelector("#auth-button");const authResult=document.querySelector("#auth-result");
-authButton.addEventListener("click",()=>authDialog.showModal());document.querySelector("#auth-close").addEventListener("click",()=>authDialog.close());
-document.querySelector("#auth-submit").addEventListener("click",async()=>{try{const session=await signIn(value("#auth-email"),value("#auth-password"));authenticatedUserId=session.user?.id??null;authResult.hidden=false;authResult.textContent="Authenticated ERP session established.";authButton.textContent="Signed in";document.querySelector("#auth-signout").hidden=false;updateConnectionStatus();}catch(error){authResult.hidden=false;authResult.textContent=error instanceof Error?error.message:"Unable to sign in.";}});
-document.querySelector("#auth-signout").addEventListener("click",async()=>{await signOut();authenticatedUserId=null;authButton.textContent="Sign in";document.querySelector("#auth-signout").hidden=true;authResult.hidden=false;authResult.textContent="Signed out.";resetDraft();});
-getSession().then(session=>{authenticatedUserId=session?.data?.userId??null;authButton.textContent=authenticatedUserId?"Signed in":"Sign in";}).catch(()=>{authenticatedUserId=null;});
+const previousWorkspace = getWorkspaceContext();
+clearWorkspaceContext();
+getSession().then(async (session) => { authenticatedUserId = session?.data?.userId ?? null; authButton.textContent = authenticatedUserId ? "Account" : "Sign in"; document.querySelector("#auth-signout").hidden = !authenticatedUserId; if (authenticatedUserId) await connectDiscoveredWorkspace(previousWorkspace); }).catch(() => { authenticatedUserId = null; authButton.textContent = "Sign in"; });
 subscribeOfflineState(updateConnectionStatus);
-navigate("dashboard");
-updateConnectionStatus();
-void flushOfflineQueue().then(updateConnectionStatus);
+navigate("dashboard"); updateConnectionStatus(); void flushOfflineQueue().then(updateConnectionStatus);

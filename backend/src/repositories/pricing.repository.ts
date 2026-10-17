@@ -43,6 +43,7 @@ export class SupabasePricingRepository implements PricingRepository {
           )
         )
       `)
+      .eq("rate_list_versions.rate_lists.organization_id", context.organization_id)
       .eq("product_id", context.product_id)
       .lte("minimum_quantity", context.quantity)
       .eq("rate_list_versions.status", "ACTIVE")
@@ -60,9 +61,10 @@ export class SupabasePricingRepository implements PricingRepository {
 
     const { data, error } = await query
       .order("minimum_quantity", { ascending: false })
-      .limit(50);
+      .limit(1000);
 
     if (error) throw error;
+    if ((data?.length ?? 0) >= 1000) throw new Error("Ambiguous pricing: candidate limit reached; select an explicit rate list");
 
     const candidates = (data ?? []) as Array<{
       id: number;
@@ -94,6 +96,15 @@ export class SupabasePricingRepository implements PricingRepository {
       if (list.scope_type === "VENDOR") return list.vendor_id === context.vendor_id;
       return true;
     });
+
+    // Match the authoritative rate-list repository: dates and quantity tiers
+    // select within a list, never silently choose between competing lists.
+    if (context.rate_list_id == null && applicable.length) {
+      const priority = { CUSTOMER: 3, VENDOR: 2, GLOBAL: 1 };
+      const winning = Math.max(...applicable.map((item) => priority[item.rate_list_versions.rate_lists.scope_type]));
+      const lists = new Set(applicable.filter((item) => priority[item.rate_list_versions.rate_lists.scope_type] === winning).map((item) => item.rate_list_versions.rate_lists.id));
+      if (lists.size > 1) throw new Error("Ambiguous pricing: multiple active rate lists match the winning scope");
+    }
 
     applicable.sort((a, b) => {
       const scopeRank = (scope: string) =>

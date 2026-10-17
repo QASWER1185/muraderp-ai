@@ -23,9 +23,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package.json
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
-        run: npm install --include=dev --no-audit --no-fund --package-lock=false
+        run: npm ci --include=dev --prefer-offline --no-audit --no-fund --maxsockets=4 --fetch-retries=5
       - name: Verify Vitest installation
         run: node -e "const p=require('./node_modules/vitest/package.json'); console.log('Vitest',p.version); if (!p.version) process.exit(1)"
       - name: Test AI experience

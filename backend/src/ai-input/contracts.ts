@@ -6,7 +6,8 @@ export type AiInputIntent =
   | "invoice"
   | "customer_return"
   | "supplier_bill"
-  | "inventory_adjustment";
+  | "inventory_adjustment"
+  | "rate_list_update";
 
 export interface AiDraftField<T = unknown> {
   value: T;
@@ -21,6 +22,8 @@ export interface AiDraftLine {
   quantity?: AiDraftField<number>;
   unit?: AiDraftField<string>;
   unitRate?: AiDraftField<number>;
+  /** Optional explicit list per line; required for mixed-brand pricing. */
+  rateListId?: AiDraftField<string | number>;
   sourceItemId?: AiDraftField<number>;
 }
 

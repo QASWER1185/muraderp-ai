@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SupabaseRateListRepository } from "./rate-list.repository.js";
 import type { PriceResolutionContext } from "../types/pricing.types.js";
 
@@ -15,6 +15,23 @@ class FakeQuery {
 }
 
 describe("SupabaseRateListRepository price resolution", () => {
+  it("uses the atomic draft-version import RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { version: { id: 7, status: "DRAFT" }, items: [] }, error: null });
+    const repository = new SupabaseRateListRepository(() => ({ rpc }) as never);
+
+    await expect(repository.createDraftVersion({
+      organization_id: "11111111-1111-4111-8111-111111111111",
+      rate_list_id: 2,
+      version_number: 3,
+      effective_from: "2026-09-15T00:00:00Z",
+      items: [{ product_id: 10, minimum_quantity: 1, unit_price: 120, unit: "pcs" }],
+    })).resolves.toMatchObject({ version: { status: "DRAFT" } });
+    expect(rpc).toHaveBeenCalledWith("create_rate_list_draft_version", expect.objectContaining({
+      p_organization_id: "11111111-1111-4111-8111-111111111111",
+      p_rate_list_id: 2,
+      p_version_number: 3,
+    }));
+  });
   it("prefers customer scope, then quantity tier, then effective date", async () => {
     const client = {
       from(table: string) {
@@ -43,6 +60,7 @@ describe("SupabaseRateListRepository price resolution", () => {
 
     const repository = new SupabaseRateListRepository(() => client as never);
     const context: PriceResolutionContext = {
+      organization_id: "11111111-1111-4111-8111-111111111111",
       price_type: "SALE",
       product_id: 10,
       quantity: 10,
@@ -70,7 +88,7 @@ describe("SupabaseRateListRepository price resolution", () => {
       },
     };
     const repository = new SupabaseRateListRepository(() => client as never);
-    await expect(repository.findBestRateListItem({ price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z", customer_id: 7, rate_list_id: 2 })).resolves.toMatchObject({ rate_list_id: 2, unit_price: 1400 });
+    await expect(repository.findBestRateListItem({ organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z", customer_id: 7, rate_list_id: 2 })).resolves.toMatchObject({ rate_list_id: 2, unit_price: 1400 });
   });
 
   it("returns null when the effective window is not active", async () => {
@@ -82,6 +100,6 @@ describe("SupabaseRateListRepository price resolution", () => {
       },
     };
     const repository = new SupabaseRateListRepository(() => client as never);
-    await expect(repository.findBestRateListItem({ price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z" })).resolves.toBeNull();
+    await expect(repository.findBestRateListItem({ organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", product_id: 10, quantity: 1, as_of: "2026-08-14T10:00:00Z" })).resolves.toBeNull();
   });
 });

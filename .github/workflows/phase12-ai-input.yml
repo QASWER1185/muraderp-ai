@@ -61,4 +61,5 @@ jobs:
           node --check frontend/sw.js
           node -e "JSON.parse(require('fs').readFileSync('frontend/manifest.webmanifest','utf8')); console.log('manifest JSON valid')"
           grep -q 'serviceWorker' frontend/index.html
-          grep -qi 'offline' frontend/index.html
+          grep -q 'subscribeOfflineState' frontend/app.js
+          grep -q 'getOfflineState' frontend/app.js

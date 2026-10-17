@@ -1,7 +1,10 @@
 import type { AiInputIntent, AiInputSource } from "../ai-input/contracts.js";
+import type { CustomerInput, VendorInput } from "../services/erp.service.js";
+import type { CustomerPaymentInput } from "../services/customer-payment.service.js";
+import type { VendorPaymentInput } from "../services/vendor-payment.service.js";
 import type { EstimatePricingSelection } from "../types/estimate-pricing-selection.types.js";
 
-export type CopilotTarget = AiInputIntent;
+export type CopilotTarget = AiInputIntent | "customer_create" | "vendor_create" | "rate_list_update" | "customer_payment" | "vendor_payment";
 export type CopilotInputSource = AiInputSource;
 
 export type CopilotRateSource =
@@ -20,10 +23,15 @@ export interface CopilotLineCandidate {
   rateSource: CopilotRateSource;
   pricingSelection?: EstimatePricingSelection;
   sourceItemId?: number;
+  /** Server-derived conversational estimate approval; never model/client prices. */
+  discountPercent?: number;
+  approvedUnitPrice?: number;
+  approvedCurrencyCode?: string;
 }
 
 export interface CopilotActionPlan {
   organizationId: string;
+  branchId?: string;
   userId: string;
   source: CopilotInputSource;
   target: CopilotTarget;
@@ -34,12 +42,22 @@ export interface CopilotActionPlan {
   documentDate?: string;
   currencyCode?: string;
   reason?: string;
+  customerData?: CustomerInput;
+  vendorData?: VendorInput;
+  rateListUpdate?: {
+    rateListId: number;
+    versionNumber: number;
+    effectiveFrom: string;
+  };
+  customerPaymentData?: CustomerPaymentInput;
+  vendorPaymentData?: VendorPaymentInput;
   lines: CopilotLineCandidate[];
   requiresConfirmation: true;
 }
 
 export interface CopilotPlannerInput {
   organizationId: string;
+  branchId?: string;
   userId: string;
   source: CopilotInputSource;
   target: CopilotTarget;
@@ -58,6 +76,7 @@ export interface CopilotPlannerInput {
     unit?: string;
     explicitUnitRate?: number;
     rateListId?: number;
+    rateListSelectionSource?: "INHERITED" | "LINE_OVERRIDE";
     sourceItemId?: number;
   }>;
 }

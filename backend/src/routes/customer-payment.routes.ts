@@ -1,8 +1,11 @@
-import { createHash } from "node:crypto";
 import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
+import {
+  authoritativeRequestFingerprint,
+  requireAuthoritativeTransactionIdentity,
+} from "./authoritative-transaction-context.js";
 import {
   SupabaseCustomerPaymentService,
   type CustomerPaymentInput,
@@ -10,12 +13,10 @@ import {
 } from "../services/customer-payment.service.js";
 
 const idSchema = z.coerce.number().int().positive();
+const OPERATION = "customer-payment.create" as const;
 const paymentMethodSchema = z.enum(["CASH", "BANK_TRANSFER", "CARD", "CHEQUE", "OTHER"]);
-const allocationSchema = z.strictObject({
-  invoice_id: idSchema,
-  amount: z.number().finite().positive(),
-});
-const paymentSchema = z.strictObject({
+const allocationSchema = z.strictObject({ invoice_id: idSchema, amount: z.number().finite().positive() });
+export const paymentSchema = z.strictObject({
   customer_id: idSchema,
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.number().finite().positive(),
@@ -27,15 +28,11 @@ const paymentSchema = z.strictObject({
 }).superRefine((value, context) => {
   const allocationTotal = value.allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
   if (Math.abs(allocationTotal - value.amount) > 0.000001) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["allocations"],
-      message: "Payment amount must equal the total invoice allocations",
-    });
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allocations"], message: "Payment amount must equal the total invoice allocations" });
   }
 });
 
-function normalizedPaymentForFingerprint(input: CustomerPaymentInput): CustomerPaymentInput {
+export function normalizedPaymentForFingerprint(input: CustomerPaymentInput): CustomerPaymentInput {
   return {
     ...input,
     currency_code: input.currency_code.trim().toUpperCase(),
@@ -43,28 +40,20 @@ function normalizedPaymentForFingerprint(input: CustomerPaymentInput): CustomerP
     notes: input.notes?.trim(),
     allocations: [...input.allocations]
       .sort((left, right) => left.invoice_id - right.invoice_id)
-      .map((allocation) => ({
-        invoice_id: allocation.invoice_id,
-        amount: allocation.amount,
-      })),
+      .map((allocation) => ({ invoice_id: allocation.invoice_id, amount: allocation.amount })),
   };
-}
-
-function paymentFingerprint(input: CustomerPaymentInput): string {
-  return createHash("sha256")
-    .update(JSON.stringify(normalizedPaymentForFingerprint(input)), "utf8")
-    .digest("hex");
 }
 
 export function createCustomerPaymentRouter(
   internalApiToken: string | undefined,
-  internalApiPrincipalId: string,
+  servicePrincipalId: string | undefined,
   service: CustomerPaymentService = new SupabaseCustomerPaymentService(),
 ): Router {
   const router = Router();
-  const authorize: RequestHandler = createInternalApiAuth(internalApiToken);
+  const authorize: RequestHandler = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/", authorize, async (request, response) => {
+    const identity = requireAuthoritativeTransactionIdentity(request);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) {
       throw new ApiError(400, "VALIDATION_ERROR", "A valid Idempotency-Key header is required");
@@ -73,14 +62,13 @@ export function createCustomerPaymentRouter(
     const parsedInput = paymentSchema.parse(request.body) as CustomerPaymentInput;
     const normalizedInput = normalizedPaymentForFingerprint(parsedInput);
     const result = await service.recordPayment(normalizedInput, {
-      principalScope: internalApiPrincipalId,
-      operation: "customer-payment.create",
+      ...identity,
+      operation: OPERATION,
       idempotencyKey,
-      requestFingerprint: paymentFingerprint(parsedInput),
+      requestFingerprint: authoritativeRequestFingerprint(identity, OPERATION, normalizedInput),
     });
 
     response.status(201).json({ data: result });
   });
-
   return router;
 }

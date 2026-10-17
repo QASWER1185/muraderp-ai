@@ -64,6 +64,6 @@ export async function getOfflineState() {
   };
 }
 
-window.addEventListener("online", () => void flushOfflineQueue());
-window.addEventListener("online", notify);
-window.addEventListener("offline", notify);
+globalThis.addEventListener?.("online", () => void flushOfflineQueue());
+globalThis.addEventListener?.("online", notify);
+globalThis.addEventListener?.("offline", notify);

@@ -8,7 +8,7 @@ import type {
 import type { PricingService } from "./pricing.service.js";
 
 export class DefaultEstimatePricingService implements EstimatePricingService {
-  constructor(private readonly pricingService: PricingService) {}
+  constructor(private readonly pricingService: Pick<PricingService, "resolvePrice"> & Partial<Pick<PricingService, "resolveCandidate">>) {}
 
   async priceLine(
     line: EstimateLineDraft,
@@ -27,7 +27,13 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
       throw new Error("unit is required");
     }
 
-    if (line.unit_price !== undefined) {
+    if (line.brand_hint?.trim() && line.rate_list_id == null) {
+      throw new Error("brand_hint requires an explicit line-level rate_list_id");
+    }
+
+    // Re-validating a deterministically priced line must not turn its saved
+    // resolved rate into a manual override (the Copilot path validates twice).
+    if (line.unit_price !== undefined && line.pricing_source !== "RESOLVED_RATE") {
       if (!Number.isFinite(line.unit_price) || line.unit_price < 0) {
         throw new Error("unit_price must be zero or greater");
       }
@@ -63,6 +69,7 @@ export class DefaultEstimatePricingService implements EstimatePricingService {
       unit_price: resolved.unit_price,
       pricing_source: "RESOLVED_RATE",
       rate_list_id: resolved.rate_list_id,
+      rate_list_version_id: resolved.rate_list_version_id,
       rate_list_selection_source: selectionSource,
       resolved_price: resolved,
     };

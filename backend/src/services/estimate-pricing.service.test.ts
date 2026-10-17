@@ -31,6 +31,7 @@ const baseLine = {
 };
 
 const context = {
+  organization_id: "11111111-1111-4111-8111-111111111111",
   price_type: "SALE" as const,
   as_of: "2026-08-13T10:00:00Z",
   vendor_id: 5,

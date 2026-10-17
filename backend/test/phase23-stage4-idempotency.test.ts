@@ -30,7 +30,10 @@ const items = [
 ];
 
 const idempotency = {
-  principalScope: "stage4-principal",
+  organizationId: "11111111-1111-4111-8111-111111111111",
+  branchId: "22222222-2222-4222-8222-222222222222",
+  actorUserId: "33333333-3333-4333-8333-333333333333",
+  servicePrincipalId: "stage4-principal",
   operation: "purchase.create" as const,
   idempotencyKey: "stage4-key",
   requestFingerprint: "a".repeat(64),
@@ -62,8 +65,11 @@ describe("Phase 23 Stage 4 — idempotency service contract", () => {
     expect(result).toEqual({ purchase, items });
     expect(rpc).toHaveBeenCalledOnce();
     expect(rpc).toHaveBeenCalledWith("record_purchase", expect.objectContaining({
-      p_idempotency_principal: idempotency.principalScope,
-      p_idempotency_operation: idempotency.operation,
+      p_organization_id: idempotency.organizationId,
+      p_branch_id: idempotency.branchId,
+      p_actor_user_id: idempotency.actorUserId,
+      p_service_principal: idempotency.servicePrincipalId,
+      p_operation_scope: idempotency.operation,
       p_idempotency_key: idempotency.idempotencyKey,
       p_request_fingerprint: idempotency.requestFingerprint,
     }));

@@ -4,10 +4,10 @@ import type { PriceResolutionContext, PricingCandidate, ResolvedPrice } from "..
 import type { RateListRecord } from "../repositories/rate-list.repository.js";
 
 const resolved: ResolvedPrice = { rate_list_id: 7, rate_list_version_id: 8, rate_list_item_id: 9, product_id: 25, unit_price: 185, unit: "pcs", currency_code: "PKR", minimum_quantity: 1, scope_type: "GLOBAL", effective_from: "2026-08-15T00:00:00Z" };
-const base: Omit<PriceResolutionContext, "product_id" | "quantity" | "rate_list_id"> = { price_type: "SALE", as_of: "2026-08-15T12:00:00Z" };
+const base: Omit<PriceResolutionContext, "product_id" | "quantity" | "rate_list_id"> = { organization_id: "11111111-1111-4111-8111-111111111111", price_type: "SALE", as_of: "2026-08-15T12:00:00Z" };
 
 function repo(value: ResolvedPrice | null): PricingRepository { return { findBestRateListItem: vi.fn(async () => value) }; }
-function list(id: number, name: string): RateListRecord { return { id, name, code: name.toUpperCase().replaceAll(" ", "-"), price_type: "SALE", scope_type: "GLOBAL", vendor_id: null, customer_id: null, currency_code: "PKR", is_active: true, created_at: "2026-08-15T00:00:00Z", updated_at: "2026-08-15T00:00:00Z" }; }
+function list(id: number, name: string): RateListRecord { return { id, organization_id: "11111111-1111-4111-8111-111111111111", name, code: name.toUpperCase().replaceAll(" ", "-"), price_type: "SALE", scope_type: "GLOBAL", vendor_id: null, customer_id: null, currency_code: "PKR", is_active: true, created_at: "2026-08-15T00:00:00Z", updated_at: "2026-08-15T00:00:00Z" }; }
 
 describe("Phase 17 pricing candidate resolution", () => {
   it("uses the user-selected rate list automatically", async () => {

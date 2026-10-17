@@ -1,17 +1,17 @@
-import { createHash } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { createInternalApiAuth } from "../middleware/internal-api-auth.js";
 import { SupabaseSalesReturnService, type SalesReturnInput, type SalesReturnService } from "../services/sales-return.service.js";
+import {
+  authoritativeRequestFingerprint,
+  requireAuthoritativeTransactionIdentity,
+} from "./authoritative-transaction-context.js";
 
 const id = z.coerce.number().int().positive();
-const itemSchema = z.strictObject({
-  invoice_item_id: id,
-  warehouse_id: id,
-  quantity: z.number().finite().positive(),
-});
-const requestSchema = z.strictObject({
+const OPERATION = "sales-return.create" as const;
+const itemSchema = z.strictObject({ invoice_item_id: id, warehouse_id: id, quantity: z.number().finite().positive() });
+export const salesReturnRequestSchema = z.strictObject({
   credit_note_number: z.string().trim().min(1).max(100),
   invoice_id: id,
   customer_id: id,
@@ -22,42 +22,39 @@ const requestSchema = z.strictObject({
   items: z.array(itemSchema).min(1).max(100),
 });
 
-function fingerprint(input: SalesReturnInput): string {
-  const normalized = {
+export function normalizedSalesReturnForFingerprint(input: SalesReturnInput): SalesReturnInput {
+  return {
     ...input,
     currency_code: input.currency_code.trim().toUpperCase(),
     reason: input.reason.trim(),
     notes: input.notes?.trim(),
     items: [...input.items].sort((a, b) => a.invoice_item_id - b.invoice_item_id),
   };
-  return createHash("sha256").update(JSON.stringify(normalized), "utf8").digest("hex");
 }
 
 export function createSalesReturnRouter(
   internalApiToken: string | undefined,
-  principalId: string | undefined,
+  servicePrincipalId: string | undefined,
   service: SalesReturnService = new SupabaseSalesReturnService(),
 ): Router {
   const router = Router();
-  const authorize = createInternalApiAuth(internalApiToken);
+  const authorize = createInternalApiAuth(internalApiToken, servicePrincipalId);
 
   router.post("/", authorize, async (request, response) => {
-    if (!principalId) {
-      throw new ApiError(503, "ERP_NOT_CONFIGURED", "Sales return principal is not configured");
-    }
+    const identity = requireAuthoritativeTransactionIdentity(request);
     const idempotencyKey = request.header("Idempotency-Key")?.trim();
     if (!idempotencyKey || idempotencyKey.length > 255) {
       throw new ApiError(400, "IDEMPOTENCY_KEY_REQUIRED", "A valid Idempotency-Key header is required");
     }
-    const input = requestSchema.parse(request.body) as SalesReturnInput;
+    const input = salesReturnRequestSchema.parse(request.body) as SalesReturnInput;
+    const normalizedInput = normalizedSalesReturnForFingerprint(input);
     const result = await service.recordSalesReturn(input, {
-      principalScope: principalId,
-      operation: "sales-return.create",
+      ...identity,
+      operation: OPERATION,
       idempotencyKey,
-      requestFingerprint: fingerprint(input),
+      requestFingerprint: authoritativeRequestFingerprint(identity, OPERATION, normalizedInput),
     });
     response.status(201).json({ success: true, data: result });
   });
-
   return router;
 }

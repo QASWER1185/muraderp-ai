@@ -1,0 +1,489 @@
+# MuradERP-AI Master State
+
+Canonical entry point
+
+Last evidence audit and release verification: 2026-09-09 (Asia/Karachi)
+
+Authoritative Copilot and AI product decision update: 2026-09-11 (Asia/Karachi)
+
+Authoritative status: **AUDIT CLOSED — RELEASE CANDIDATE VERIFIED**
+
+Verified release candidate: `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`
+
+Release-baseline parent: `e8aad251c67c2e54bc06e760fcb3fc0b948c5e9d`
+
+Audited by: Codex, repository/workspace discovery, controlled baseline creation, and exact-commit verification
+
+## Future session entry rule
+
+Every future ChatGPT/Codex session must begin by reading, in order:
+
+1. this file;
+2. [`MURADERP-AI-PRODUCT-SCOPE.md`](MURADERP-AI-PRODUCT-SCOPE.md);
+3. [`PRODUCTION-CLOSURE-STATUS.md`](PRODUCTION-CLOSURE-STATUS.md);
+4. [`ARCHITECTURE-DECISIONS.md`](ARCHITECTURE-DECISIONS.md);
+5. only the relevant detailed ADR, audit, phase, or handoff documents needed for the task.
+
+Then inspect the current Git branch, HEAD, and status before changing anything. Do not rely on the Git snapshot below after the repository changes.
+
+Do not start another comprehensive audit. Areas recorded VERIFIED at the release-candidate commit are CLOSED/FROZEN unless a concrete regression, security finding, relevant code/schema change, or changed requirement invalidates their evidence. The next phase is **PRODUCTION CLOSURE**.
+
+## Source-of-truth order
+
+When evidence conflicts, use this order:
+
+1. Current executable source, active migrations, database constraints/RPCs, and tests.
+2. Current Git branch/HEAD/status and exact-commit CI/deployment evidence.
+3. Accepted ADRs and explicit product-owner instructions.
+4. Current canonical documents in this set.
+5. Historical phase plans, handoffs, audits, acceptance notes, and README statements.
+
+Historical documents are evidence of prior decisions and verification at their recorded revisions; they are not permission to mark the current worktree or production environment complete.
+
+## Authoritative Copilot and AI product decisions (2026-09-11)
+
+These decisions are product-owner direction for all future Copilot work. They supplement the evidence-based implementation status below and supersede any older roadmap wording that conflicts with them.
+
+### Central Copilot boundary
+
+Online AI interaction is centralized in one AI Copilot interface. It accepts text, voice, file upload, and image/camera input; it may perform OCR/vision extraction, classify intent, match products and rates, explain results, and prepare proposals. Native ERP screens remain the normal business interface and are not duplicated inside every module.
+
+The governing flow is:
+
+```text
+User input
+  -> AI understanding/extraction
+  -> Product/customer/vendor/rate matching
+  -> Editable proposal/draft
+  -> User review
+  -> Explicit confirmation
+  -> Existing authoritative ERP service
+  -> Database
+```
+
+Copilot is not a second ERP and is never direct database authority. AI output is untrusted proposal data. Validation, authorization, execution, posting, atomicity, and persistence remain in existing ERP services and authoritative transactions.
+
+### Approved transaction scope
+
+- Copilot Estimate creation is approved. After creation, the user must be offered the native Estimate screen for review, editing, and finalization.
+- Copilot must **not** create Invoices. The approved workflow is `Estimate -> native review/edit/finalize -> native Convert to Invoice`.
+- Copilot may prepare Customer creation, Vendor creation, Purchase Entry, Return, Inventory/Stock proposals, Rate List updates, and approved financial preparations, each through the corresponding existing authoritative service and appropriate confirmation level.
+- Inventory mutation remains fail-closed until a costed/accounting-safe authoritative adjustment service is available.
+- Customer/vendor payments, journal entries, and other financial actions may enter Copilot only when an approved authoritative ERP service exists.
+
+### Copilot final completion status — 2026-09-11
+
+**COPILOT FINAL COMPLETION = DONE. COPILOT DEVELOPMENT = FROZEN.**
+
+The approved Copilot scope is implemented through the single central interface: text, voice, image/camera/PDF input; OCR/document and multi-line extraction; product, customer, vendor, and Rate List matching; editable review; Estimate, Customer, Vendor, Purchase, Return, versioned Rate List, and Customer/Vendor payment proposals; explicit confirmation; authoritative ERP-service execution; organization/branch/RBAC and ownership enforcement; idempotent audited actions; controlled offline reviewed-draft synchronization; and native ERP module handoff.
+
+Invoice handling is extraction-only inside Copilot. Invoice creation remains exclusively `Estimate -> native review/edit/finalize -> native Convert to Invoice`. Inventory remains proposal-only and fails closed because no costed, accounting-safe authoritative inventory-adjustment service exists. The revoked legacy inventory RPC is not reused. WhatsApp remains outside Copilot.
+
+The forward-only atomic Rate List draft-import migration is part of the approved deployment set. It creates a tenant-checked `DRAFT` version and is service-role only; activation remains a separate native lifecycle action. Its controlled application belongs to the production-deployment phase and must not be duplicated or blindly reapplied.
+
+### Pricing and company context
+
+Dynamic/versioned Rate Lists, deterministic price resolution, product matching, rate matching, effective dates, quantity tiers, and company/business context remain authoritative ERP concerns. AI may identify and suggest context, but may not invent or directly write prices.
+
+The existing native Estimate Rate Change / Company Change and clone/reprice workflow is preserved. Copilot may provide an additional quick Estimate-generation path using another company/rate context, but it must not replace, duplicate, remove, or redesign the native functionality.
+
+### WhatsApp boundary
+
+WhatsApp is a separate ERP communication/share capability, not a Copilot input channel. The approved workflow is:
+
+```text
+WhatsApp document/message
+  -> user manually saves/downloads it
+  -> user uploads it into Copilot
+  -> Copilot processes it
+```
+
+The final approved implementation is deliberately simple: an authorized ERP document screen prepares a WhatsApp message for the saved customer/vendor phone, opens the universal WhatsApp share URL, and leaves the final Send under user control. WhatsApp Business/Cloud API, QR automation, chatbot/AI behavior, inbound processing, provider delivery infrastructure, and direct WhatsApp-to-Copilot ingestion are outside the approved product scope.
+
+### Simple WhatsApp completion status — 2026-09-11
+
+**WHATSAPP = COMPLETE. WHATSAPP DEVELOPMENT = FROZEN.**
+
+The existing Estimate printable/share model now provides the production-facing share path supported by the current document architecture: the native Estimate screen exposes a WhatsApp button, the backend resolves the Estimate customer's saved phone, validates `sales.read` plus organization/branch ownership, prepares the existing Estimate message/PDF identity, and returns a universal `wa.me` link. The user performs the final Send in WhatsApp. No automated delivery claim or provider infrastructure is introduced. Other document types remain outside this simple closeout because they do not yet have equivalent native printable/share screens in the current implementation.
+
+### Voice, offline, safety, and preservation rules
+
+- Voice follows `speech/transcription -> intent -> validation -> proposal -> review/confirmation -> ERP service` and supports English, Urdu, and Roman Urdu directionally.
+- Offline mode may queue reviewed drafts for controlled, idempotent, authorized server synchronization; it never makes AI-generated data authoritative locally.
+- Do not create duplicate AI interfaces in individual ERP modules.
+- Reuse and complete existing ERP services, pricing, Estimate, authorization, organization/branch, idempotency, accounting, inventory, and Copilot foundations. Do not rebuild closed work.
+- Future development must identify only genuinely unfinished approved capabilities, implement them on the existing architecture, run focused tests, and then report the actual result.
+
+## Status vocabulary
+
+- **AGREED**: approved product/architecture requirement.
+- **IMPLEMENTED**: code or schema exists.
+- **VERIFIED**: named evidence passed for the described revision/worktree.
+- **PRODUCTION READY**: the accepted release scope is verified on a clean exact commit, deployed under controlled configuration, operationally observed, and recoverable.
+
+These words are never interchangeable.
+
+## Project identity and vision
+
+MuradERP-AI is an original, AI-native ERP for building-material, electrical, sanitary, hardware, cement, steel, plumbing, bricks, and related trading businesses. It should make complex sales, purchasing, inventory, receivables/payables, accounting, and reporting usable by non-technical owners.
+
+QuickBooks is a familiar workflow reference where helpful. MuradERP-AI is not a direct QuickBooks clone and is intended to add safe AI-native input, matching, pricing, review, and orchestration appropriate to the target businesses.
+
+The founder/product owner is recorded in `README.md` as **Qaswer Hussain**.
+
+## Authoritative product vision and architectural intent
+
+This section preserves the intended final product described in the Master Engineering Handoff. It records **AGREED product direction and requirements**, not proof that every capability is implemented or production ready. Completion status must come from the verified implementation, test, deployment, and recovery evidence recorded elsewhere in this Master State and in [`PRODUCTION-CLOSURE-STATUS.md`](PRODUCTION-CLOSURE-STATUS.md).
+
+### Intended final product
+
+MuradERP-AI is being built as a production-grade, AI-native ERP and accounting platform for building-material, electrical, sanitary, hardware, cement, steel, plumbing, and related trading businesses. QuickBooks may inform familiar accounting and workflow patterns, but MuradERP-AI is an original product rather than a QuickBooks clone. Its intended advantage is the controlled use of AI for business input, interpretation, matching, pricing, review, and orchestration while retaining reliable transactional accounting and inventory foundations.
+
+The required core ERP scope includes:
+
+- Customers, Vendors, Products, Brands, Warehouses, and Inventory.
+- Purchases, Sales, Estimates, Invoices, Payments, and Returns.
+- Customer Ledger and profit/accounting workflows.
+- Stock movements and other source-linked inventory and accounting effects required by those workflows.
+
+### Required AI-native capabilities
+
+The intended product must support:
+
+- text-based AI business data entry;
+- voice-based business data entry;
+- camera/image extraction for invoices and estimates;
+- supplier rate-list scanning and conversion into structured ERP data;
+- OCR/vision extraction;
+- product and rate matching;
+- AI-assisted generation of structured ERP data;
+- AI Copilot workflows; and
+- future AI/ML business intelligence.
+
+These are end-product requirements. Provider-neutral contracts, draft services, tests, or partial UI elements do not by themselves establish that the production capability is complete.
+
+### Required pricing and rate-list capabilities
+
+Pricing must support dynamic Rate Lists, versioned pricing, company/supplier-specific pricing, and deterministic price resolution. The product must also support controlled one-click adaptation or conversion of a bill, Rate List, or pricing context from one company, brand, supplier, or business context to another. A proposed conversion must be resolved through deterministic business rules and presented for human/business-rule validation before any consequential mutation.
+
+This direction extends the verified mixed-brand Rate List and Estimate foundation. It must not create a parallel pricing engine or weaken pricing provenance, authorization, preview, confirmation, atomicity, tenant isolation, or idempotency.
+
+### AI authority and controlled mutation
+
+AI must never become direct database authority. AI may read, understand, extract, suggest, match, organize, and explain. Final consequential ERP mutations must pass through validated business services and controlled database transactions with the required user confirmation and authorization.
+
+The governing architectural principles are reliability, auditability, atomicity, security, deterministic business rules, and human control of consequential actions. AI is an intelligent input and orchestration layer, not an uncontrolled transaction engine.
+
+The required camera and OCR flow is:
+
+```text
+Camera/Image
+  -> OCR/Vision
+  -> Extraction
+  -> Product/Rate Matching
+  -> Human Review/Validation
+  -> Business Service
+  -> Database
+```
+
+The required voice flow is:
+
+```text
+Voice
+  -> Speech/Intent
+  -> Validation
+  -> Business Service
+  -> Confirmation
+  -> Database
+```
+
+### Product state separation
+
+Future agents must preserve three distinct states:
+
+1. **Product Vision / Intended Final Product** records what MuradERP-AI is required to become.
+2. **Verified / Completed Engineering Work** records only capabilities supported by named evidence at a specific revision.
+3. **Remaining Production Closure Work** records requirements that are incomplete, blocked, or not yet proven in production.
+
+Never promote a vision requirement to IMPLEMENTED, VERIFIED, or PRODUCTION READY solely because it appears in the Master Engineering Handoff or another historical document.
+
+## Non-negotiable requirements
+
+- Manual ERP entry remains first-class; AI is optional.
+- AI/OCR/voice/LLM output is untrusted proposal data and never direct database authority.
+- Protected financial/inventory actions require deterministic validation, authorization, and explicit confirmation.
+- Products remain canonical; brand/company/supplier pricing belongs to dynamic rate-list/document-line context.
+- Missing, ambiguous, incompatible, cross-tenant, or unresolved pricing fails closed.
+- One Estimate may contain mixed brands/rate lists. Clone/reprice never mutates the source and always previews before creation.
+- Estimate/Quotation is non-posting; Invoice creation is the atomic sales posting boundary.
+- Stock, receivable/payable, and accounting effects are atomic, auditable, source-linked, and idempotent.
+- `accounts`/`journal_entries`/`journal_lines` are the authoritative ledger. Legacy `accounting_journal_*` is non-authoritative.
+- Organization, branch, actor, permission, and service-principal context is explicit and enforced server-side/database-side.
+- Secrets remain server-side; browser code cannot receive privileged Supabase/provider credentials or arbitrary SQL access.
+- Offline mode captures/replays drafts only; the server remains financial/inventory truth.
+- Database evolution is forward-only; historical migrations are never edited or blindly reapplied.
+- Existing authoritative services are extended/reused; no parallel pricing, accounting, inventory, purchase, sales, or AI transaction engine.
+
+Full scope classification is in [`MURADERP-AI-PRODUCT-SCOPE.md`](MURADERP-AI-PRODUCT-SCOPE.md).
+
+## Current Git/workspace state
+
+Workspace-stabilization snapshot (2026-09-09, Asia/Karachi):
+
+- Branch: `p0-8-authoritative-accounting-posting-20260829`
+- HEAD: `e81ac8aee85937d816cfaade6929b3eeeb046489`
+- HEAD date/subject: `2026-08-30T10:21:28+05:00` - `fix(accounting): authorize invoice posting by sales permission`
+- Upstream shown locally: `origin/p0-8-authoritative-accounting-posting-20260829`
+- Local branch/upstream divergence: **0 ahead, 0 behind**. This is a local comparison only; no network fetch was performed.
+- Index/staging area: **empty**.
+- Dirty worktree: **76 modified, 35 deleted, 91 untracked; 202 entries total**. The normalized `git status --porcelain=v1 --untracked-files=all` path/status inventory has SHA-256 `75c9fd6856ba1dde33f87d98e5e9dd3764cf1cf2437fa330e1e431240f0d9d83` (UTF-8, LF, terminal LF).
+
+| Workspace category | Modified | Deleted | Untracked | Total | Baseline disposition |
+|---|---:|---:|---:|---:|---|
+| A. Intentional product/application work | 38 | 0 | 6 | 44 | Preserve and include after review. |
+| B. Tests/verification tooling | 28 | 0 | 13 | 41 | Preserve and include with the corresponding behavior. |
+| C. Database/migrations/provenance | 10 | 35 | 67 | 112 | Preserve as one coordinated migration-provenance/canonicalization set; 104 entries are material deltas and 8 are normalization-equivalent status entries. |
+| D. Canonical documentation | 0 | 0 | 4 | 4 | Preserve and include in the baseline. |
+| E. Generated/build artifacts | 0 | 0 | 0 | 0 | Ignored `dist/` and dependency directories exist locally but are not part of the 202-entry inventory. |
+| F. Temporary/local tooling | 0 | 0 | 1 | 1 | `.supabase-cli-home/telemetry.json` is generated local CLI state with device/session metadata; preserve for now but exclude from the baseline and add the directory to ignore rules before staging. |
+| G. Unknown/unclassified | 0 | 0 | 0 | 0 | None found. |
+
+The 201 release-source status entries comprise 193 material deltas plus 8 paths that Git status reports modified even though the clean-filtered content diff is empty: `supabase/migration-provenance/phase21-disposition.json`; migrations `20260809141445`, `20260813071425`, `20260824170000`, `20260828182231`, `20260829062845`, `20260829065058`, and `20260829173824`. Treat these eight as line-ending/index-normalization risk to reconcile without overwriting the working files; they are not independent application changes.
+
+All 35 deleted historical migration paths have content-identical counterparts under `supabase/migration-history/precanonical/sql/`. The archive contains 36 SQL files because it also preserves the pre-change form of active migration `20260815163914`. The current executable chain contains 36 SQL migrations and passes the provenance validator. Do not restore the archived migrations to the active path or delete either half of this canonicalization set.
+
+The important material workstreams beyond HEAD are: migration provenance/canonicalization; P0 authorization, actor/branch context, accounting and non-sales transaction convergence; Products security; Estimate mixed-brand pricing and clone/reprice; Copilot reference/runtime safety; corresponding backend/frontend/SQL tests; frontend integration; and this four-document canonical state set. No unrelated product feature or unexplained binary file was found in the dirty inventory.
+
+This stabilization task changes canonical documentation only. It does not commit, stage, reset, clean, delete, revert, switch branch, rewrite history, or modify product behavior.
+
+Controlled release-baseline staging snapshot (2026-09-09, Asia/Karachi):
+
+- `.gitignore` now excludes `.supabase-cli-home/`; the existing telemetry file remains on disk and is ignored.
+- The eight normalization-only paths were reconciled with an index-stat refresh after their raw worktree blob, clean-filtered blob, and index blob IDs were proven identical. Their file SHA-256 values did not change, they produce no staged diff, and no content was overwritten.
+- The index contains **194 staged paths** when rename detection is disabled: 69 modified, 35 deleted, and 90 added. This is the 193 material MuradERP-AI paths plus the authorized `.gitignore` update.
+- Normalized staged name/status manifest SHA-256: `38e5d2013da1b4713f553b24ce1ea3367f7a1a3dc4bc9dbde27e8fcafa1f2351` (UTF-8, LF, terminal LF; rename detection disabled).
+- Staged diff summary: **12,271 insertions and 3,736 deletions**. Git may present the 35 historical migration moves as renames when rename detection is enabled; the no-renames accounting above is authoritative for path completeness.
+- The working tree matches the index for every tracked path; there are zero non-ignored untracked files. No commit or push has occurred.
+- The staged migration-provenance set is atomic: 28 active migrations added, one active migration modified, 35 old active paths removed, 36 precanonical SQL files archived, plus the archive README/manifest, canonical-chain manifest, and provenance validator. The resulting index has 36 active migrations and 36 archived SQL files.
+
+Current verified release-candidate state:
+
+- Branch: `p0-8-authoritative-accounting-posting-20260829`.
+- HEAD: `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` — `fix(security): align P0-6 principal validator with context boundary`.
+- Parent/baseline commit: `e8aad251c67c2e54bc06e760fcb3fc0b948c5e9d` — `chore(release): establish MuradERP-AI baseline`.
+- Worktree: **CLEAN** after exact-commit verification.
+- Remote push: **NOT PERFORMED**. The local branch is two commits ahead of its configured upstream reference.
+- The P0-6 release-candidate correction changes only `scripts/validate-p0-6-service-principal-foundation.mjs`; no application runtime code, migration, or SQL regression file changed in that correction.
+
+## Current implementation state
+
+### Verified at release candidate `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`
+
+The exact-commit verification reports:
+
+- Backend: **83 Vitest files / 400 tests PASS**; TypeScript typecheck PASS; production build PASS.
+- Frontend: **6 Vitest files / 18 tests PASS**; typecheck/syntax PASS; production build PASS.
+- P0-6 validator PASS; P0-6 focused tests **5/5 PASS**.
+- Stage 11 release readiness PASS.
+- Production dependency audit at high threshold PASS.
+- Private-key scan and concrete-credential scan PASS.
+- `git diff --check` PASS.
+- Migration provenance PASS; P0-7 accounting-decision validator PASS; P0-8 authoritative-posting validator PASS.
+- A clean local replay applied all **36 active migrations**; the migration ledger latest version is `20260907120000`.
+- On the required fresh replay, non-sales convergence, Estimate conversion, Products final-gate, and P0-8 authoritative-accounting SQL regressions all PASS.
+
+Current locally verified backend boundaries include:
+
+- environment validation, error handling, structured/redacted logging, and health/readiness diagnostics;
+- browser session bootstrap/logout plus internal/service-principal authentication boundaries;
+- organization membership, branch access, RBAC, ownership, and browser-role restrictions;
+- organization-scoped Customer, Vendor, Brand, Product, Warehouse, Inventory, and Purchase APIs;
+- versioned Rate Lists and deterministic price resolution;
+- non-posting Estimate/Quotation services, atomic Estimate creation, mixed-brand line pricing, and clone/reprice preview-confirm execution;
+- atomic Invoice/sales posting through the authoritative journal;
+- atomic Purchase/AP, Customer Payment/AR, Sales Return, and Vendor Payment/AP paths;
+- stock balance/movement read boundaries and transaction-created stock movements;
+- authoritative Chart of Accounts, balanced immutable journal, General Ledger, and Trial Balance foundations;
+- Copilot draft/confirm audit and authoritative Estimate/Purchase/Return execution with deterministic reference and authorization checks. Any experimental direct-Invoice path is not approved product scope and must not be treated as the Copilot workflow.
+
+The verified Rate List and Estimate foundation is CLOSED/FROZEN. It supports deterministic line-level pricing, mixed-brand pricing, controlled target-rate-list repricing, preserve-line-brand-context, clone/reprice preview, pricing provenance, pricing revalidation, atomic persistence, tenant/branch authorization, and idempotency. Conversions such as Popular → Dura → Company C → Company D are supported when the corresponding target Rate Lists exist. Production Closure must extend this foundation, not rebuild or fork it.
+
+Detailed per-area status, evidence, gaps, and closure conditions are in [`PRODUCTION-CLOSURE-STATUS.md`](PRODUCTION-CLOSURE-STATUS.md).
+
+### Implemented but not fully verified as an end-user/production capability
+
+- The first Production Closure vertical slice implements the manual Customer product workflow: a browser-session-safe gateway, explicit organization/branch permission checks, organization-scoped persistence, live list/create/edit UI, loading/empty/error/permission states, and responsive/PWA integration. Focused backend tests (**3 files / 29 tests**), focused frontend tests (**3 files / 15 tests**), both typechecks, and both production builds pass in the implementation worktree. Authenticated real-browser E2E and deployed evidence remain open, so this is not yet a production-ready claim.
+- The second Production Closure vertical slice implements the manual Vendor product workflow through the same established security architecture while retaining Vendor-specific contracts: browser-session-safe/internal caller authentication, explicit organization/branch checks, `vendors.read`/`vendors.write`, organization-scoped Vendor persistence, live list/create/edit UI, loading/empty/error/authentication/permission states, server-error display without resetting entered form data, sign-out clearing the rendered workspace, and responsive/PWA integration. Focused backend tests (**4 files / 35 tests**) and frontend tests (**5 files / 24 tests**) pass; both typechecks and both production builds pass in the implementation worktree. Authenticated real-browser E2E and deployed evidence remain open.
+- Vendor slice files: `backend/src/app.ts`, `backend/src/routes/vendor.routes.ts`, `backend/src/routes/erp.routes.ts`, `backend/src/routes/erp.master-data.test.ts`, `backend/src/services/erp.service.ts`, `backend/src/types/database.types.ts`, `backend/test/vendor-browser.routes.test.ts`, `backend/test/erp.test.ts`, `frontend/app.js`, `frontend/build-check.mjs`, `frontend/vendor-api.js`, `frontend/vendor-api.test.js`, `frontend/vendors.js`, `frontend/vendors.test.js`, `frontend/styles.css`, `frontend/sw.js`, this Master State, and `PRODUCTION-CLOSURE-STATUS.md`. The focused commit subject is `feat(vendors): add authenticated production workflow`; its exact immutable SHA is the Git commit containing this atomic implementation/documentation record.
+- Inventory intelligence query/adjustment-draft contracts; Copilot authoritative inventory adjustment remains deliberately unavailable.
+- Reporting/dashboard service contracts; no reporting router is mounted and the UI has no live drill-down.
+- AI input/document-intelligence contracts, validation, review lifecycle, and tests; current generic pipeline includes in-memory/no-op infrastructure and no production OCR/speech provider.
+- Natural-language assistant contracts/resolver/service; no production assistant route/provider UI is mounted.
+- Copilot UI/API for structured IDs and one-line draft input; not the full conversational voice/image/matching experience accepted in Phase 22.
+- The current working-tree Copilot slice adds review-oriented voice/image/file extraction and matching UX. It remains uncommitted and not production-verified; its experimental direct-Invoice execution must be removed from the approved product direction, while the Estimate/Purchase/Return paths may be completed and hardened.
+- Offline service worker and durable draft outbox; contract/static tests pass, but current real-browser offline/reconnect E2E evidence is absent.
+- Estimate rendering/printing/share and WhatsApp delivery-intent model; no provider-backed WhatsApp delivery or demonstrated PDF storage/delivery lifecycle.
+- CI, configuration, secret, observability, and release-readiness controls are exact-commit verified locally; remote CI, deployment, and operational evidence remain Production Closure work because the release candidate has not been pushed or deployed.
+
+### Remaining or blocked
+
+- Complete the remaining manual frontend workflows for Brands, Products, Warehouses, Inventory, Purchases, Estimates, Invoices, Returns, Payments, Rate Lists, accounting, and reporting. Customers and Vendors now have live implementations; most other navigation pages still render `generic()` placeholders.
+- Production OCR/vision, speech-to-text, and LLM adapters plus secure source-media/audit storage and extraction review UX.
+- Full WhatsApp transport, delivery audit/retry, and any inbound integration policy.
+- Bank-feed/reconciliation schema reconciliation: service/repository code exists, but the active 36-migration chain does not create its referenced bank/reconciliation tables.
+- Costed/accounting-safe Inventory Adjustment execution through manual/Copilot UI.
+- Purchase-return and invoice reversal/void authoritative workflows where required. Current invoice void is fail-closed after ledger cutover.
+- Customer credits/refunds/deposits/unapplied receipts, which were explicitly deferred by the payment decision.
+- Explicit inventory-costing decision beyond the current persisted product-cost foundation before complete production valuation claims.
+- Phase 23 Stage 9: actual isolated backup/snapshot restore and post-restore verification.
+- Remote CI confirmation, controlled deployment, and deployed smoke/rollback evidence for the verified release candidate.
+- Professional Estimate and Invoice document implementation: business branding/logo, customer details, document number/date, item table, quantity, rate, applicable discount/tax, subtotal, grand total, notes/terms, authorization/signature, A4/print layout, PDF output, and WhatsApp-ready PDF.
+
+## Current production-readiness state
+
+**AUDIT CLOSED — RELEASE CANDIDATE VERIFIED. The whole product is NOT YET PRODUCTION READY; proceed to PRODUCTION CLOSURE.**
+
+This does not invalidate verified module behavior. It means the whole-product release claim is not supported because:
+
+1. recovery Stage 9 is still open;
+2. the active bank schema conflicts with the Phase 16 repository/closure record;
+3. most ERP screens other than the newly implemented Customer and Vendor workflows remain placeholders;
+4. production OCR/voice/LLM/WhatsApp transports are absent;
+5. no concrete deployment target/manifest or deployed release-candidate smoke evidence was found.
+
+No reliable completion percentage is reported. Product requirements are not frozen into a weighted checklist, and backend verification, end-user completeness, deployment, and operational recovery have materially different states. Do not derive percentages from phase numbers, test counts, or historical "100%" labels.
+
+## Historical phase and handoff recovery
+
+The following document groups were recovered and remain useful, subject to the evidence hierarchy above:
+
+- Foundation/current overview: `README.md`, `docs/PRODUCT_VISION.md`, `docs/MURADERP_AI_ARCHITECTURE_BLUEPRINT.md`.
+- Pricing/Estimate/Sales decisions: ADR-003 and ADR-007 through ADR-010, ADR-022, and `ADR-ESTIMATE-INVOICE-POSTING-MODEL.md`.
+- Finance/security/reporting decisions: ADR-011 through ADR-015A and P0-7.
+- AI/inventory/document/bank decisions: ADR-016 through ADR-024.
+- Product/AI/closure decisions: ADR-025 through ADR-027.
+- Phase handoffs: Phase 18, 19, 20, 21, and 22 implementation handoffs.
+- Earlier status/acceptance records: Phases 1, 2, 8-17 and their audit/closure documents.
+- Phase 23: final closure plan, execution tracker, and Stage 3-13 evidence documents.
+- P0 recovery/security evidence: P0-1/P0-1R migration provenance, P0-2 Phase 21 disposition, P0-3 data ownership, P0-5 branch/membership, P0-6 service principal, P0-7 ledger decision, and P0-8/non-sales convergence source/tests.
+- Frontend-specific handoffs: `frontend/phase22-*`, `frontend/PHASE22-NOTE.md`, and `frontend/README.md`.
+
+### Historically recorded closures
+
+Historical documents record accepted/closed foundations for accounting, vendor payables, authorization, offline/AI input, inventory intelligence, document intelligence, deterministic pricing, transaction automation, and most Phase 23 stages. These records remain evidence for their exact historical commits.
+
+They do **not** automatically close the current worktree or broader product journey. In particular:
+
+- Phase 19 explicitly closed the transaction-automation **foundation**, not every downstream executor.
+- Phase 21/22 definitions of done require complete ERP and text/voice/image UI journeys that current source does not provide.
+- Phase 23 Stage 9 is explicitly deferred/pending.
+- Phase 23 Stage 13's own file remains at "post-merge verification," not PASS/FINAL/CLOSED.
+
+## Important historical decisions
+
+The concise authoritative index is [`ARCHITECTURE-DECISIONS.md`](ARCHITECTURE-DECISIONS.md). Particularly important:
+
+- modular monolith;
+- deterministic dynamic Rate Lists;
+- unified non-posting Estimate/Quotation;
+- Invoice as atomic sales posting;
+- authoritative `journal_*` ledger and legacy `accounting_journal_*` classification;
+- multi-organization/branch/RBAC defense in depth;
+- provider-neutral AI and mandatory confirmation;
+- privacy-first dashboard;
+- offline draft capture only;
+- forward-only migrations and evidence-driven closure.
+
+## Contradictions and uncertainties
+
+1. `README.md` is materially stale: it says auth, organization isolation, estimates, invoices, AI, and offline sync are unverified, while current source/tests implement several of those foundations.
+2. Phase 21/22/27 prose implies a complete production UI/AI experience, but current frontend source has placeholder module pages and no voice/image provider UX.
+3. Phase 16 closure says bank persistence was applied, but the active clean migration chain has no bank/reconciliation tables required by the repository.
+4. P0-7 still says "acceptance candidate" although later active migrations implement its authoritative `journal_*` direction.
+5. Two ADR files use number 024.
+6. Stage 9's document reports a 22-migration baseline; current active chain contains 36 migrations.
+7. Stage 13 records a merge but still requires post-merge verification; no later canonical Stage 13 PASS record was found.
+8. Historical CI evidence applies only to its recorded commits; the current authoritative local release evidence is the exact-commit verification at `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`.
+9. Supabase Realtime image `public.ecr.aws/supabase/realtime:v2.129.3` crashes with SIGILL/exit 132 on this host because its Intel i5 M520 CPU does not expose the required AVX/AVX2 instructions. This occurs during the Realtime BEAM seed before MuradERP migrations begin. Temporarily disabling Realtime locally allowed `supabase db reset --local --no-seed` to replay all 36 migrations; Realtime configuration was restored afterward. This is a local environment limitation, not an application or migration defect. Never commit a Realtime-disabled production configuration.
+
+## Known risks
+
+- A future agent may trust optimistic phase labels and unintentionally skip current UI/schema/operational gaps.
+- Restoring archived historical migrations to the active chain would undo the verified migration-provenance baseline.
+- Legacy and authoritative journal tables coexist; a new legacy writer would recreate accounting divergence.
+- Provider/integration claims can be overstated because adapter contracts and unit tests exist without production transports.
+- Static frontend tests verify source markers more than real user journeys.
+- Production schema may differ from the active canonical chain until pending migrations are deliberately applied and compared.
+- The absence of isolated restore proof means recoverability is unknown.
+
+## Anti-repeat rule
+
+The audit is CLOSED. Do not re-audit or rebuild a VERIFIED area from scratch unless one of these is true:
+
+- relevant code changed;
+- relevant schema/migration changed;
+- a regression or failing gate appeared;
+- production verification invalidated the evidence;
+- new scope changes the acceptance contract.
+
+When re-verification is needed, start from the exact evidence and closure condition recorded in `PRODUCTION-CLOSURE-STATUS.md`.
+
+## Evidence references
+
+- Product intent: [`PRODUCT_VISION.md`](PRODUCT_VISION.md)
+- Enterprise architecture: [`MURADERP_AI_ARCHITECTURE_BLUEPRINT.md`](MURADERP_AI_ARCHITECTURE_BLUEPRINT.md)
+- Architecture index: [`ARCHITECTURE-DECISIONS.md`](ARCHITECTURE-DECISIONS.md)
+- Active migrations: [`../supabase/migrations`](../supabase/migrations)
+- Migration provenance: [`../supabase/migration-provenance`](../supabase/migration-provenance)
+- Database tests: [`../supabase/tests`](../supabase/tests)
+- Backend tests: [`../backend/src`](../backend/src) and [`../backend/test`](../backend/test)
+- Frontend implementation/tests: [`../frontend`](../frontend)
+- CI workflows: [`../.github/workflows`](../.github/workflows)
+- Phase 23 tracker: [`PHASE-23-EXECUTION-TRACKER.md`](PHASE-23-EXECUTION-TRACKER.md)
+- Backup/restore status: [`PHASE-23-STAGE-9-BACKUP-RESTORE-READINESS.md`](PHASE-23-STAGE-9-BACKUP-RESTORE-READINESS.md)
+
+## Current recommended next action
+
+Begin **PRODUCTION CLOSURE** from verified release candidate `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f`. Do not reopen the closed audit or rebuild the verified pricing/Estimate foundation. Production Closure execution must address only genuinely incomplete production requirements:
+
+1. AI Copilot production experience;
+2. text → ERP data;
+3. voice → ERP data;
+4. image/OCR → ERP data;
+5. file attachment → ERP data;
+6. AI-assisted Estimate creation;
+7. native Estimate review/edit/finalize and native Estimate-to-Invoice conversion;
+8. AI-assisted Rate List entry/import;
+9. mandatory confirmation before consequential ERP actions;
+10. Dynamic Rate Lists and deterministic pricing product workflows built on the verified foundation;
+11. brand/company target Rate List conversion workflows;
+12. professional Estimate and Invoice documents, A4/print/PDF output, and WhatsApp-ready PDFs;
+13. provider-backed WhatsApp PDF sending with delivery audit/retry;
+14. remaining core ERP production workflows;
+15. inventory and reporting where genuinely incomplete;
+16. offline/recovery requirements;
+17. bank-schema reconciliation and other recorded integrity blockers;
+18. backup/restore proof;
+19. deployment configuration and remote exact-commit CI;
+20. final deployed smoke and rollback checks.
+
+Do not claim these capabilities complete until their implementation and production evidence satisfy the closure conditions in `PRODUCTION-CLOSURE-STATUS.md`.
+
+## CURRENT RESUME POINT
+
+**Complete:** **AUDIT CLOSED. RELEASE CANDIDATE VERIFIED.** Commit `b60eaa9ba69eedc5dda6e268f87d11fa7eb0f46f` passed the recorded backend, frontend, security, migration, and fresh-replay SQL gates. The first two Production Closure slices implement the manual Customer and Vendor workflows with focused tests, typechecks, and builds passing. Nothing has been pushed.
+
+**Currently being worked on:** Production Closure implementation, one vertical product slice at a time. The Customer and Vendor slices are implemented and locally verified; authenticated browser E2E and deployment evidence remain open for both.
+
+**Next exact task:** Continue **PRODUCTION CLOSURE** with the next core ERP vertical slice: the manual Product workflow, integrating existing Brand data where the current product contract requires it. Do not re-audit verified work or reopen the completed Customer or Vendor implementations without a concrete failure.
+
+**Must NOT be changed:** Do not rewrite or bypass the verified release-candidate baseline; do not restore archived historical migrations into the active chain; do not create parallel pricing/accounting/inventory/Copilot engines; do not weaken organization/branch/RBAC/idempotency/confirmation boundaries; do not mark provider contracts or placeholder UI as production complete.
+
+**Read first next session:**
+
+1. `docs/MURADERP-AI-MASTER-STATE.md`
+2. `docs/MURADERP-AI-PRODUCT-SCOPE.md`
+3. `docs/PRODUCTION-CLOSURE-STATUS.md`
+4. `docs/ARCHITECTURE-DECISIONS.md`
+5. the relevant P0/ADR/handoff documents only as needed
+6. current `git status`, branch, and HEAD before any change

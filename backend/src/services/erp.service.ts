@@ -1,6 +1,7 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdminClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
+import type { AuthoritativeTransactionContext } from "../types/authoritative-transaction.types.js";
 import type { Database, Json } from "../types/database.types.js";
 
 type Tables = Database["public"]["Tables"];
@@ -33,6 +34,10 @@ export interface PageRequest {
   limit: number;
 }
 
+export interface ProductPageRequest extends PageRequest {
+  search?: string | undefined;
+}
+
 export interface PageResult<T extends { id: number }> {
   data: T[];
   next_cursor: number | null;
@@ -60,12 +65,7 @@ export interface RecordPurchaseInput {
   notes?: string | undefined;
 }
 
-export interface PurchaseIdempotencyContext {
-  principalScope: string;
-  operation: "purchase.create";
-  idempotencyKey: string;
-  requestFingerprint: string;
-}
+export type PurchaseIdempotencyContext = AuthoritativeTransactionContext<"purchase.create">;
 
 export interface PurchaseDetail {
   purchase: Purchase;
@@ -73,40 +73,40 @@ export interface PurchaseDetail {
 }
 
 export interface ErpService {
-  listBrands(page: PageRequest): Promise<PageResult<Brand>>;
-  getBrand(id: number): Promise<Brand | null>;
-  createBrand(input: BrandInput): Promise<Brand>;
-  updateBrand(id: number, input: Patch<BrandInput>): Promise<Brand | null>;
-  deleteBrand(id: number): Promise<boolean>;
+  listBrands(page: PageRequest, organizationId: string): Promise<PageResult<Brand>>;
+  getBrand(id: number, organizationId: string): Promise<Brand | null>;
+  createBrand(input: BrandInput, organizationId: string): Promise<Brand>;
+  updateBrand(id: number, input: Patch<BrandInput>, organizationId: string): Promise<Brand | null>;
+  deleteBrand(id: number, organizationId: string): Promise<boolean>;
 
-  listCustomers(page: PageRequest): Promise<PageResult<Customer>>;
-  getCustomer(id: number): Promise<Customer | null>;
-  createCustomer(input: CustomerInput): Promise<Customer>;
-  updateCustomer(id: number, input: Patch<CustomerInput>): Promise<Customer | null>;
-  deleteCustomer(id: number): Promise<boolean>;
+  listCustomers(page: PageRequest, organizationId: string): Promise<PageResult<Customer>>;
+  getCustomer(id: number, organizationId: string): Promise<Customer | null>;
+  createCustomer(input: CustomerInput, organizationId: string): Promise<Customer>;
+  updateCustomer(id: number, input: Patch<CustomerInput>, organizationId: string): Promise<Customer | null>;
+  deleteCustomer(id: number, organizationId: string): Promise<boolean>;
 
-  listVendors(page: PageRequest): Promise<PageResult<Vendor>>;
-  getVendor(id: number): Promise<Vendor | null>;
-  createVendor(input: VendorInput): Promise<Vendor>;
-  updateVendor(id: number, input: Patch<VendorInput>): Promise<Vendor | null>;
-  deleteVendor(id: number): Promise<boolean>;
+  listVendors(page: PageRequest, organizationId: string): Promise<PageResult<Vendor>>;
+  getVendor(id: number, organizationId: string): Promise<Vendor | null>;
+  createVendor(input: VendorInput, organizationId: string): Promise<Vendor>;
+  updateVendor(id: number, input: Patch<VendorInput>, organizationId: string): Promise<Vendor | null>;
+  deleteVendor(id: number, organizationId: string): Promise<boolean>;
 
-  listProducts(page: PageRequest): Promise<PageResult<Product>>;
-  getProduct(id: number): Promise<Product | null>;
-  createProduct(input: ProductInput): Promise<Product>;
-  updateProduct(id: number, input: Patch<ProductInput>): Promise<Product | null>;
-  deleteProduct(id: number): Promise<boolean>;
+  listProducts(page: ProductPageRequest, organizationId: string): Promise<PageResult<Product>>;
+  getProduct(id: number, organizationId: string): Promise<Product | null>;
+  createProduct(input: ProductInput, organizationId: string): Promise<Product>;
+  updateProduct(id: number, input: Patch<ProductInput>, organizationId: string): Promise<Product | null>;
+  deleteProduct(id: number, organizationId: string): Promise<boolean>;
 
-  listWarehouses(page: PageRequest): Promise<PageResult<Warehouse>>;
-  getWarehouse(id: number): Promise<Warehouse | null>;
-  createWarehouse(input: WarehouseInput): Promise<Warehouse>;
-  updateWarehouse(id: number, input: Patch<WarehouseInput>): Promise<Warehouse | null>;
-  deleteWarehouse(id: number): Promise<boolean>;
+  listWarehouses(page: PageRequest, organizationId: string): Promise<PageResult<Warehouse>>;
+  getWarehouse(id: number, organizationId: string): Promise<Warehouse | null>;
+  createWarehouse(input: WarehouseInput, organizationId: string): Promise<Warehouse>;
+  updateWarehouse(id: number, input: Patch<WarehouseInput>, organizationId: string): Promise<Warehouse | null>;
+  deleteWarehouse(id: number, organizationId: string): Promise<boolean>;
 
-  listInventory(page: InventoryRequest): Promise<PageResult<Inventory>>;
-  listStockMovements(page: InventoryRequest): Promise<PageResult<StockMovement>>;
-  listPurchases(page: PageRequest): Promise<PageResult<Purchase>>;
-  getPurchase(id: number): Promise<PurchaseDetail | null>;
+  listInventory(page: InventoryRequest, organizationId: string): Promise<PageResult<Inventory>>;
+  listStockMovements(page: InventoryRequest, organizationId: string, branchId: string): Promise<PageResult<StockMovement>>;
+  listPurchases(page: PageRequest, organizationId: string, branchId: string): Promise<PageResult<Purchase>>;
+  getPurchase(id: number, organizationId: string, branchId: string): Promise<PurchaseDetail | null>;
   recordPurchase(input: RecordPurchaseInput, idempotency: PurchaseIdempotencyContext): Promise<PurchaseDetail>;
 }
 
@@ -136,7 +136,7 @@ function databaseError(error: PostgrestError, operation: string): ApiError {
     case "22023":
       return new ApiError(400, "BUSINESS_RULE_VIOLATION", "The request violates a business rule");
     case "42501":
-      return new ApiError(503, "DATABASE_ACCESS_DENIED", "Database access is not configured correctly");
+      return new ApiError(403, "AUTHORIZATION_DENIED", error.message || "The purchase is not authorized for this organization or branch");
     default:
       return new ApiError(502, "DATABASE_OPERATION_FAILED", `${operation} could not be completed`);
   }
@@ -151,30 +151,31 @@ export class SupabaseErpService implements ErpService {
     return this.clientFactory();
   }
 
-  async listBrands(page: PageRequest): Promise<PageResult<Brand>> {
-    let query = this.client.from("brands").select("*").order("id").limit(page.limit + 1);
+  async listBrands(page: PageRequest, organizationId: string): Promise<PageResult<Brand>> {
+    let query = this.client.from("brands").select("*").eq("organization_id", organizationId).order("id").limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Brands");
     return pageResult(data, page.limit);
   }
 
-  async getBrand(id: number): Promise<Brand | null> {
-    const { data, error } = await this.client.from("brands").select("*").eq("id", id).maybeSingle();
+  async getBrand(id: number, organizationId: string): Promise<Brand | null> {
+    const { data, error } = await this.client.from("brands").select("*").eq("organization_id", organizationId).eq("id", id).maybeSingle();
     if (error) throw databaseError(error, "Brand");
     return data;
   }
 
-  async createBrand(input: BrandInput): Promise<Brand> {
-    const { data, error } = await this.client.from("brands").insert(input).select("*").single();
+  async createBrand(input: BrandInput, organizationId: string): Promise<Brand> {
+    const { data, error } = await this.client.from("brands").insert({ ...input, organization_id: organizationId }).select("*").single();
     if (error) throw databaseError(error, "Brand creation");
     return data;
   }
 
-  async updateBrand(id: number, input: Patch<BrandInput>): Promise<Brand | null> {
+  async updateBrand(id: number, input: Patch<BrandInput>, organizationId: string): Promise<Brand | null> {
     const { data, error } = await this.client
       .from("brands")
       .update(input as Tables["brands"]["Update"])
+      .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -182,36 +183,37 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async deleteBrand(id: number): Promise<boolean> {
-    const { data, error } = await this.client.from("brands").delete().eq("id", id).select("id").maybeSingle();
+  async deleteBrand(id: number, organizationId: string): Promise<boolean> {
+    const { data, error } = await this.client.from("brands").delete().eq("organization_id", organizationId).eq("id", id).select("id").maybeSingle();
     if (error) throw databaseError(error, "Brand deletion");
     return data !== null;
   }
 
-  async listCustomers(page: PageRequest): Promise<PageResult<Customer>> {
-    let query = this.client.from("customers").select("*").order("id").limit(page.limit + 1);
+  async listCustomers(page: PageRequest, organizationId: string): Promise<PageResult<Customer>> {
+    let query = this.client.from("customers").select("*").eq("organization_id", organizationId).order("id").limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Customers");
     return pageResult(data, page.limit);
   }
 
-  async getCustomer(id: number): Promise<Customer | null> {
-    const { data, error } = await this.client.from("customers").select("*").eq("id", id).maybeSingle();
+  async getCustomer(id: number, organizationId: string): Promise<Customer | null> {
+    const { data, error } = await this.client.from("customers").select("*").eq("organization_id", organizationId).eq("id", id).maybeSingle();
     if (error) throw databaseError(error, "Customer");
     return data;
   }
 
-  async createCustomer(input: CustomerInput): Promise<Customer> {
-    const { data, error } = await this.client.from("customers").insert(input).select("*").single();
+  async createCustomer(input: CustomerInput, organizationId: string): Promise<Customer> {
+    const { data, error } = await this.client.from("customers").insert({ ...input, organization_id: organizationId }).select("*").single();
     if (error) throw databaseError(error, "Customer creation");
     return data;
   }
 
-  async updateCustomer(id: number, input: Patch<CustomerInput>): Promise<Customer | null> {
+  async updateCustomer(id: number, input: Patch<CustomerInput>, organizationId: string): Promise<Customer | null> {
     const { data, error } = await this.client
       .from("customers")
       .update(input as Tables["customers"]["Update"])
+      .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -219,36 +221,37 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async deleteCustomer(id: number): Promise<boolean> {
-    const { data, error } = await this.client.from("customers").delete().eq("id", id).select("id").maybeSingle();
+  async deleteCustomer(id: number, organizationId: string): Promise<boolean> {
+    const { data, error } = await this.client.from("customers").delete().eq("organization_id", organizationId).eq("id", id).select("id").maybeSingle();
     if (error) throw databaseError(error, "Customer deletion");
     return data !== null;
   }
 
-  async listVendors(page: PageRequest): Promise<PageResult<Vendor>> {
-    let query = this.client.from("vendors").select("*").order("id").limit(page.limit + 1);
+  async listVendors(page: PageRequest, organizationId: string): Promise<PageResult<Vendor>> {
+    let query = this.client.from("vendors").select("*").eq("organization_id", organizationId).order("id").limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Vendors");
     return pageResult(data, page.limit);
   }
 
-  async getVendor(id: number): Promise<Vendor | null> {
-    const { data, error } = await this.client.from("vendors").select("*").eq("id", id).maybeSingle();
+  async getVendor(id: number, organizationId: string): Promise<Vendor | null> {
+    const { data, error } = await this.client.from("vendors").select("*").eq("organization_id", organizationId).eq("id", id).maybeSingle();
     if (error) throw databaseError(error, "Vendor");
     return data;
   }
 
-  async createVendor(input: VendorInput): Promise<Vendor> {
-    const { data, error } = await this.client.from("vendors").insert(input).select("*").single();
+  async createVendor(input: VendorInput, organizationId: string): Promise<Vendor> {
+    const { data, error } = await this.client.from("vendors").insert({ ...input, organization_id: organizationId }).select("*").single();
     if (error) throw databaseError(error, "Vendor creation");
     return data;
   }
 
-  async updateVendor(id: number, input: Patch<VendorInput>): Promise<Vendor | null> {
+  async updateVendor(id: number, input: Patch<VendorInput>, organizationId: string): Promise<Vendor | null> {
     const { data, error } = await this.client
       .from("vendors")
       .update(input as Tables["vendors"]["Update"])
+      .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -256,28 +259,41 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async deleteVendor(id: number): Promise<boolean> {
-    const { data, error } = await this.client.from("vendors").delete().eq("id", id).select("id").maybeSingle();
+  async deleteVendor(id: number, organizationId: string): Promise<boolean> {
+    const { data, error } = await this.client.from("vendors").delete().eq("organization_id", organizationId).eq("id", id).select("id").maybeSingle();
     if (error) throw databaseError(error, "Vendor deletion");
     return data !== null;
   }
 
-  async listProducts(page: PageRequest): Promise<PageResult<Product>> {
-    let query = this.client.from("products").select("*").order("id").limit(page.limit + 1);
+  async listProducts(page: ProductPageRequest, organizationId: string): Promise<PageResult<Product>> {
+    let query = this.client
+      .from("products")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .order("id")
+      .limit(page.limit + 1);
+    const search = page.search?.normalize("NFKC").trim().replace(/[^\p{L}\p{N}\s._/-]/gu, " ").replace(/\s+/g, " ").trim();
+    if (search) query = query.or(`name.ilike."%${search}%",sku.ilike."%${search}%"`);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Products");
     return pageResult(data, page.limit);
   }
 
-  async getProduct(id: number): Promise<Product | null> {
-    const { data, error } = await this.client.from("products").select("*").eq("id", id).maybeSingle();
+  async getProduct(id: number, organizationId: string): Promise<Product | null> {
+    const { data, error } = await this.client
+      .from("products")
+      .select("*")
+      .eq("organization_id", organizationId)
+      .eq("id", id)
+      .maybeSingle();
     if (error) throw databaseError(error, "Product");
     return data;
   }
 
-  async createProduct(input: ProductInput): Promise<Product> {
+  async createProduct(input: ProductInput, organizationId: string): Promise<Product> {
     const product: Tables["products"]["Insert"] = {
+      organization_id: organizationId,
       name: input.name,
       sku: input.sku,
       category: input.category,
@@ -291,10 +307,11 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async updateProduct(id: number, input: Patch<ProductInput>): Promise<Product | null> {
+  async updateProduct(id: number, input: Patch<ProductInput>, organizationId: string): Promise<Product | null> {
     const { data, error } = await this.client
       .from("products")
       .update(input as Tables["products"]["Update"])
+      .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -302,28 +319,35 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async deleteProduct(id: number): Promise<boolean> {
-    const { data, error } = await this.client.from("products").delete().eq("id", id).select("id").maybeSingle();
+  async deleteProduct(id: number, organizationId: string): Promise<boolean> {
+    const { data, error } = await this.client
+      .from("products")
+      .delete()
+      .eq("organization_id", organizationId)
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
     if (error) throw databaseError(error, "Product deletion");
     return data !== null;
   }
 
-  async listWarehouses(page: PageRequest): Promise<PageResult<Warehouse>> {
-    let query = this.client.from("warehouses").select("*").order("id").limit(page.limit + 1);
+  async listWarehouses(page: PageRequest, organizationId: string): Promise<PageResult<Warehouse>> {
+    let query = this.client.from("warehouses").select("*").eq("organization_id", organizationId).order("id").limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Warehouses");
     return pageResult(data, page.limit);
   }
 
-  async getWarehouse(id: number): Promise<Warehouse | null> {
-    const { data, error } = await this.client.from("warehouses").select("*").eq("id", id).maybeSingle();
+  async getWarehouse(id: number, organizationId: string): Promise<Warehouse | null> {
+    const { data, error } = await this.client.from("warehouses").select("*").eq("organization_id", organizationId).eq("id", id).maybeSingle();
     if (error) throw databaseError(error, "Warehouse");
     return data;
   }
 
-  async createWarehouse(input: WarehouseInput): Promise<Warehouse> {
+  async createWarehouse(input: WarehouseInput, organizationId: string): Promise<Warehouse> {
     const warehouse: Tables["warehouses"]["Insert"] = {
+      organization_id: organizationId,
       name: input.name,
       ...(input.location === undefined ? {} : { location: input.location }),
     };
@@ -336,10 +360,11 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async updateWarehouse(id: number, input: Patch<WarehouseInput>): Promise<Warehouse | null> {
+  async updateWarehouse(id: number, input: Patch<WarehouseInput>, organizationId: string): Promise<Warehouse | null> {
     const { data, error } = await this.client
       .from("warehouses")
       .update(input as Tables["warehouses"]["Update"])
+      .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")
       .maybeSingle();
@@ -347,14 +372,14 @@ export class SupabaseErpService implements ErpService {
     return data;
   }
 
-  async deleteWarehouse(id: number): Promise<boolean> {
-    const { data, error } = await this.client.from("warehouses").delete().eq("id", id).select("id").maybeSingle();
+  async deleteWarehouse(id: number, organizationId: string): Promise<boolean> {
+    const { data, error } = await this.client.from("warehouses").delete().eq("organization_id", organizationId).eq("id", id).select("id").maybeSingle();
     if (error) throw databaseError(error, "Warehouse deletion");
     return data !== null;
   }
 
-  async listInventory(page: InventoryRequest): Promise<PageResult<Inventory>> {
-    let query = this.client.from("inventory").select("*").order("id").limit(page.limit + 1);
+  async listInventory(page: InventoryRequest, organizationId: string): Promise<PageResult<Inventory>> {
+    let query = this.client.from("inventory").select("*").eq("organization_id", organizationId).order("id").limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.gt("id", page.cursor);
     if (page.product_id !== undefined) query = query.eq("product_id", page.product_id);
     if (page.warehouse_id !== undefined) query = query.eq("warehouse_id", page.warehouse_id);
@@ -363,10 +388,12 @@ export class SupabaseErpService implements ErpService {
     return pageResult(data, page.limit);
   }
 
-  async listStockMovements(page: InventoryRequest): Promise<PageResult<StockMovement>> {
+  async listStockMovements(page: InventoryRequest, organizationId: string, branchId: string): Promise<PageResult<StockMovement>> {
     let query = this.client
       .from("stock_movements")
       .select("*")
+      .eq("organization_id", organizationId)
+      .eq("branch_id", branchId)
       .order("id", { ascending: false })
       .limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.lt("id", page.cursor);
@@ -377,10 +404,12 @@ export class SupabaseErpService implements ErpService {
     return pageResult(data, page.limit);
   }
 
-  async listPurchases(page: PageRequest): Promise<PageResult<Purchase>> {
+  async listPurchases(page: PageRequest, organizationId: string, branchId: string): Promise<PageResult<Purchase>> {
     let query = this.client
       .from("purchases")
       .select("*")
+      .eq("organization_id", organizationId)
+      .eq("branch_id", branchId)
       .order("id", { ascending: false })
       .limit(page.limit + 1);
     if (page.cursor !== undefined) query = query.lt("id", page.cursor);
@@ -389,10 +418,10 @@ export class SupabaseErpService implements ErpService {
     return pageResult(data, page.limit);
   }
 
-  async getPurchase(id: number): Promise<PurchaseDetail | null> {
+  async getPurchase(id: number, organizationId: string, branchId: string): Promise<PurchaseDetail | null> {
     const [purchaseResult, itemsResult] = await Promise.all([
-      this.client.from("purchases").select("*").eq("id", id).maybeSingle(),
-      this.client.from("purchase_items").select("*").eq("purchase_id", id).order("id"),
+      this.client.from("purchases").select("*").eq("organization_id", organizationId).eq("branch_id", branchId).eq("id", id).maybeSingle(),
+      this.client.from("purchase_items").select("*").eq("organization_id", organizationId).eq("branch_id", branchId).eq("purchase_id", id).order("id"),
     ]);
 
     if (purchaseResult.error) throw databaseError(purchaseResult.error, "Purchase");
@@ -410,8 +439,11 @@ export class SupabaseErpService implements ErpService {
       p_vendor_id: input.vendor_id,
       p_warehouse_id: input.warehouse_id,
       p_items: input.items as unknown as Json,
-      p_idempotency_principal: idempotency.principalScope,
-      p_idempotency_operation: idempotency.operation,
+      p_organization_id: idempotency.organizationId,
+      p_branch_id: idempotency.branchId,
+      p_actor_user_id: idempotency.actorUserId,
+      p_service_principal: idempotency.servicePrincipalId,
+      p_operation_scope: idempotency.operation,
       p_idempotency_key: idempotency.idempotencyKey,
       p_request_fingerprint: idempotency.requestFingerprint,
       ...(input.purchase_date === undefined ? {} : { p_purchase_date: input.purchase_date }),

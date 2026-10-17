@@ -6,19 +6,20 @@ import type { InventoryBalance, InventoryListFilter, InventoryMovement, Movement
 type InventoryClient = SupabaseClient<Database>;
 
 export interface InventoryRepository {
-  listBalances(filter?: InventoryListFilter): Promise<InventoryBalance[]>;
-  getBalance(productId: number, warehouseId: number): Promise<InventoryBalance | null>;
-  listMovements(filter?: MovementListFilter): Promise<InventoryMovement[]>;
+  listBalances(organizationId: string, filter?: InventoryListFilter): Promise<InventoryBalance[]>;
+  getBalance(organizationId: string, productId: number, warehouseId: number): Promise<InventoryBalance | null>;
+  listMovements(organizationId: string, branchId: string, filter?: MovementListFilter): Promise<InventoryMovement[]>;
 }
 
 export class SupabaseInventoryRepository implements InventoryRepository {
   constructor(private readonly clientFactory: () => InventoryClient = getSupabaseAdminClient) {}
 
-  async listBalances(filter: InventoryListFilter = {}): Promise<InventoryBalance[]> {
+  async listBalances(organizationId: string, filter: InventoryListFilter = {}): Promise<InventoryBalance[]> {
     const client = this.clientFactory();
     let query = client
       .from("inventory")
       .select("id, product_id, warehouse_id, quantity, created_at, updated_at")
+      .eq("organization_id", organizationId)
       .order("product_id", { ascending: true });
 
     if (filter.product_id !== undefined) query = query.eq("product_id", filter.product_id);
@@ -29,11 +30,12 @@ export class SupabaseInventoryRepository implements InventoryRepository {
     return (data ?? []) as InventoryBalance[];
   }
 
-  async getBalance(productId: number, warehouseId: number): Promise<InventoryBalance | null> {
+  async getBalance(organizationId: string, productId: number, warehouseId: number): Promise<InventoryBalance | null> {
     const client = this.clientFactory();
     const { data, error } = await client
       .from("inventory")
       .select("id, product_id, warehouse_id, quantity, created_at, updated_at")
+      .eq("organization_id", organizationId)
       .eq("product_id", productId)
       .eq("warehouse_id", warehouseId)
       .maybeSingle();
@@ -42,11 +44,13 @@ export class SupabaseInventoryRepository implements InventoryRepository {
     return (data as InventoryBalance | null) ?? null;
   }
 
-  async listMovements(filter: MovementListFilter = {}): Promise<InventoryMovement[]> {
+  async listMovements(organizationId: string, branchId: string, filter: MovementListFilter = {}): Promise<InventoryMovement[]> {
     const client = this.clientFactory();
     let query = client
       .from("stock_movements")
       .select("id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_id, unit_cost, notes, created_at")
+      .eq("organization_id", organizationId)
+      .eq("branch_id", branchId)
       .order("created_at", { ascending: false });
 
     if (filter.product_id !== undefined) query = query.eq("product_id", filter.product_id);
