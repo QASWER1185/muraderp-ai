@@ -6,6 +6,13 @@ import type { BusinessFact } from "./business-tools.js";
 import { businessFixture, scope, pipe, dura, third, customerPayment, vendorPayment, customer, vendor } from "./business.test-fixtures.js";
 
 describe("Part 3 authoritative business tools", () => {
+  it.each(["query_inventory", "calculate_margin"])("rejects an unverified model product ID in %s", async name => {
+    const f=businessFixture();delete f.state.productContext;
+    await expect(f.tools.execute(name,{product_id:pipe.id},scope,f.state)).rejects.toMatchObject({code:"BUSINESS_CONTEXT_REQUIRED"});
+    expect(f.services.erp.getProduct).not.toHaveBeenCalled();
+    expect(f.services.pricing.resolvePrice).not.toHaveBeenCalled();
+    expect(f.business.erp.listInventory).not.toHaveBeenCalled();
+  });
   it("reads full ledger balances independently of bounded transaction history and retains source/journal references", async () => {
     const f = businessFixture();
     const result = await f.tools.execute("query_customer_ledger", { limit: 1, before_id: 10 }, scope, f.state) as BusinessFact;

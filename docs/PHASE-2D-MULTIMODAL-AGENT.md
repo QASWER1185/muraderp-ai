@@ -57,10 +57,17 @@ Unified Stateful Agent alone validates and invokes its registered tools.
 remain supported. Model names are `AI_MODEL`, `AI_VISION_MODEL`, and
 `AI_SPEECH_MODEL`. Gemini, Anthropic and compatible providers require explicit
 `AI_MODEL`; model availability and modality support are account-dependent.
-Gemini uses native generateContent JSON schema, inline media/audio, and function
-calling. Anthropic uses native Messages image/document and tool schemas.
+Gemini uses native generateContent, inline media/audio, and function calling.
+Structured extraction returns one isolated `erp_proposal` function argument,
+validated against the original strict Zod schema; the proposal is never executed.
+This avoids the live provider rejection of the full document JSON-output schema.
+Anthropic uses native Messages image/document and tool schemas.
 Native tool IDs and opaque reasoning/thought signatures survive the adapter
 round trip; they do not become signed business state.
+`AI_API_KEY` takes priority over named provider credentials. When selecting Gemini,
+bind both it and `GEMINI_API_KEY` to the Gemini secret or omit the generic key;
+never inherit a Groq generic credential into a Gemini revision. A no-traffic
+candidate can retain Groq speech through explicit `AI_SPEECH_PROVIDER=groq`.
 OpenAI uses Responses with storage disabled. Compatible endpoints must implement
 the Responses protocol and supported extraction/transcription endpoints;
 `AI_BASE_URL` must be server-configured HTTPS without credentials, query or fragment.

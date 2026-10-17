@@ -28,6 +28,15 @@ export function resolveCandidates<T extends RankedEntity>(rows: T[], limit: numb
     requiresClarification: !resolved, hasMore: rows.length > limit };
 }
 
+/** Remove only common rate-question wording; keep catalog size and unit tokens intact. */
+export function normalizeProductSearchQuery(query: string): string {
+  return query.trim().replace(/[?؟.]+$/u, "")
+    .replace(/\belboow\b/giu, "elbow")
+    .replace(/\s+(?:(?:ka|ki)\s+)?(?:kia|kya)\s+rate\s+(?:hy|hai)$/iu, "")
+    .replace(/\s+(?:(?:ka|ki)\s+)?rate\s+(?:(?:kia|kya)\s+)?(?:hy|hai)$/iu, "")
+    .trim();
+}
+
 export interface EntitySearchService {
   searchProducts(query: string, limit: number, scope: SearchScope): Promise<EntityResolution<ProductCandidate>>;
   searchCustomers(query: string, limit: number, scope: SearchScope): Promise<EntityResolution<CustomerCandidate>>;
@@ -40,9 +49,11 @@ export class SupabaseEntitySearchService implements EntitySearchService {
   private async search(name: "search_products_fuzzy" | "search_customers_fuzzy", query: string, limit: number, scope: SearchScope) {
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401,"TENANT_CONTEXT_REQUIRED","Authenticated tenant context required");
     if (!query.trim() || query.length > 120 || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new ApiError(400,"INVALID_ENTITY_SEARCH","Invalid search query or result limit");
+    const searchQuery = name === "search_products_fuzzy" ? normalizeProductSearchQuery(query) : query;
+    if (!searchQuery) throw new ApiError(400,"INVALID_ENTITY_SEARCH","Invalid search query or result limit");
     const { data, error } = await this.clientFactory().rpc(name, {
       p_user_id: scope.userId, p_organization_id: scope.organizationId, p_branch_id: scope.branchId,
-      p_query: query, p_limit: Math.max(2, limit),
+      p_query: searchQuery, p_limit: Math.max(2, limit),
     }) as unknown as { data: Array<Record<string, unknown>> | null; error: { code: string } | null };
     if (error) {
       if (error.code === "42501") throw new ApiError(403,"ENTITY_SEARCH_ACCESS_DENIED","Entity search access denied");

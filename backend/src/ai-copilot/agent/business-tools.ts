@@ -105,7 +105,8 @@ export class BusinessIntelligenceTools {
     } else {
       if (state.productUnresolved || state.productContext?.ambiguous) clarification("Please clarify the product before requesting business data.");
       selected ??= state.productContext?.candidates.length === 1 ? state.productContext.candidates[0]?.id : undefined;
-      if (selected && state.productContext?.candidates.length === 1 && selected !== state.productContext.candidates[0]?.id) clarification("The product ID does not match the verified conversation. Resolve the new product first.");
+      const verified = state.productContext?.candidates.length === 1 ? state.productContext.candidates[0]?.id : undefined;
+      if (!verified || selected !== verified) clarification("Resolve the product through ERP search or select a verified candidate before using its ID.");
     }
     if (!selected) clarification("Which product do you mean? Please provide its name or SKU.");
     const record = await this.base.erp.getProduct(selected, scope.organizationId);
@@ -285,7 +286,7 @@ export class BusinessIntelligenceTools {
         if (!candidate.comparison) clarification("Which products should I compare? Please give two or more product names with brand and size.");
         for (const ref of candidate.comparison) {
           // Stored comparison references are signed, but revalidate current ownership.
-          const isolated = { ...candidate, productContext: undefined, productUnresolved: false };
+          const isolated = { ...candidate, productContext: { candidates: [ref], ambiguous: false }, productUnresolved: false };
           references.push(await this.resolveProduct({ product_id: ref.id }, scope, isolated, signal));
         }
       }

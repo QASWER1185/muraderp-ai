@@ -15,7 +15,7 @@ export const CONVERSATIONAL_INSTRUCTIONS = BASE_INSTRUCTIONS + " For a combined 
 export class ProviderAgentModel implements AgentModel {
   constructor(private readonly provider: ToolCallingAiProvider = createAiProvider()) {}
   async respond(input: unknown[], tools: unknown[], signal: AbortSignal, options?: { toolChoice?: "auto" | "required" }): Promise<ModelStep> {
-    const { output } = await this.provider.toolTurn(CONVERSATIONAL_INSTRUCTIONS, input, tools, { toolChoice: options?.toolChoice ?? "auto", signal });
+    const { output } = await this.provider.toolTurn(CONVERSATIONAL_INSTRUCTIONS + " For an explicit NEW CUSTOMER ADD/CREATE request, collect name, phone as a string preserving leading zeros, and city/address. Ask for missing details; never invent them. When registered, prepare_customer_create prepares a review only. Customer creation requires a separate explicit human confirmation. Do not confuse a product rate question with customer creation.", input, tools, { toolChoice: options?.toolChoice ?? "auto", signal });
     const text = output.filter((item: ModelOutput) => item.type === "message").flatMap((item: ModelOutput) => item.content ?? []).filter((part: { type: string }) => part.type === "output_text").map((part: { text?: string }) => part.text ?? "").join("").trim();
     return { output, text };
   }

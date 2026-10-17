@@ -115,12 +115,18 @@ export class UnifiedCopilotAgent {
     };
     let answer = FALLBACK;
     let status = "limit";
+    const customerRequest = /\b(?:new|naya)\s+customer\b|\bcustomer\s+(?:add|create)\b|نیا\s+کسٹمر|کسٹمر\s+ایڈ/i.test(request.message)
+      && this.tools.definitions().some(tool => tool && typeof tool === "object" && "name" in tool && tool.name === "prepare_customer_create");
     try {
       for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
         if (controller.signal.aborted) { status = "timeout"; break; }
         const step = await withinDeadline(this.model.respond(input, this.tools.definitions(), controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
+          if (verifiedResults === 0 && customerRequest) {
+            answer = "Please provide the new customer's name, phone number and city/address. Review and explicit confirmation are required before creation.";
+            status = "clarification"; break;
+          }
           if (businessFacts.length) {
             answer = businessAnswer(businessFacts, request.message);
             if (draftView) answer += "\n\n" + draftAnswer(draftView, request.message);
@@ -328,6 +334,7 @@ export class UnifiedCopilotAgent {
     if(status==="clarification" && !request.selection && request.message.length<=4000) state.pendingRequest=request.message;
     if(status==="completed" && !state.clarification) delete state.pendingRequest;
     return { answer, conversationToken: writeBusinessState(state), conversationId: state.conversationId, traceId, status, toolNames,
+      ...(status === "clarification" && customerRequest && !review ? { preparation: { intent: "customer_create", requiredFields: ["name", "phone", "city"] } } : {}),
       ...(draftView ? { draft: draftView } : {}), ...(review ? { review } : {}),
       ...(businessFacts.length ? { businessFacts } : {}), ...(state.paymentPreparation ? { paymentPreparation: state.paymentPreparation } : {}),
       ...(state.clarification ? {clarification:state.clarification}:{}),

@@ -37,14 +37,14 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
     else expect(firstBody.tool_choice).toEqual({type:"any",disable_parallel_tool_use:true});
   });
   it("uses the configured text/vision models and validates structured output locally",async()=>{
-    const result=provider==="gemini"?[text(provider,'{"value":"observed"}')]:[tool(provider,"erp_proposal",{value:"observed"})];
+    const result=[tool(provider,"erp_proposal",provider==="gemini"?{proposal:{value:"observed"}}:{value:"observed"})];
     const fetcher=fetchResult(native(provider,result));const adapter=createAiProvider(config(provider),fetcher);
     expect(await adapter.generate(schema,"extract",[{type:"input_text",text:"observation"}])).toEqual({value:"observed"});
     expect(await adapter.generate(schema,"extract",[{type:"input_image",image_url:"data:image/png;base64,YQ=="}])).toEqual({value:"observed"});
     const requestModels=fetcher.mock.calls.map(([url,options])=>provider==="gemini"?String(url):JSON.parse(String(options!.body)).model);
     expect(requestModels[0]).toContain("text-model");expect(requestModels[1]).toContain("vision-model");
     expect(JSON.stringify(fetcher.mock.calls[1]![1]!.body)).toContain("image/png");
-    fetcher.mockResolvedValueOnce(new Response(JSON.stringify(native(provider,provider==="gemini"?[text(provider,'{"value":"x","inventedPrice":9999}')]:[tool(provider,"erp_proposal",{value:"x",inventedPrice:9999})]))));
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify(native(provider,[tool(provider,"erp_proposal",provider==="gemini"?{proposal:{value:"x",inventedPrice:9999}}:{value:"x",inventedPrice:9999})]))));
     await expect(adapter.generate(schema,"extract",[{type:"input_text",text:"x"}])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
   });
   it("fails closed on refusal, incomplete generation, remote media and malformed tool calls",async()=>{
@@ -86,6 +86,29 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
 });
 
 describe("provider configuration and speech capabilities",()=>{
+  it("uses one isolated Gemini extraction proposal and retains strict nested validation",async()=>{
+    const document=z.strictObject({lines:z.array(z.strictObject({quantity:z.number().positive().nullable()})).max(1)});
+    const fetcher=fetchResult(native("gemini",[tool("gemini","erp_proposal",{proposal:{lines:[{quantity:null}]}})]));
+    const adapter=createAiProvider(config("gemini"),fetcher);
+    expect(await adapter.generate(document,"extract observations",[{type:"input_text",text:"Quantity unknown"}])).toEqual({lines:[{quantity:null}]});
+    const body=JSON.parse(String(fetcher.mock.calls[0]![1]!.body));
+    expect(body.toolConfig.functionCallingConfig).toEqual({mode:"ANY",allowedFunctionNames:["erp_proposal"]});
+    expect(body.tools[0].functionDeclarations).toHaveLength(1);
+    expect(body.tools[0].functionDeclarations[0].parametersJsonSchema.properties.proposal.properties.lines.maxItems).toBe(1);
+    expect(body.generationConfig).not.toHaveProperty("responseJsonSchema");
+    for(const args of [{proposal:{lines:[{quantity:0}]}},{proposal:{lines:[{quantity:1},{quantity:2}]}},{proposal:{lines:[{quantity:1}],erpId:99}},{proposal:{lines:[]},extra:true}]){
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify(native("gemini",[tool("gemini","erp_proposal",args)]))));
+      await expect(adapter.generate(document,"extract",[{type:"input_text",text:"test"}])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
+    }
+    for(const parts of [[tool("gemini","write_payment",{proposal:{lines:[]}})],[text("gemini",'{"lines":[]}')],[tool("gemini","erp_proposal",{proposal:{lines:[]}}),tool("gemini","erp_proposal",{proposal:{lines:[]}})]]){
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify(native("gemini",parts))));
+      await expect(adapter.generate(document,"extract",[{type:"input_text",text:"test"}])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
+    }
+  });
+  it("preserves the Gemini structured provider contract for non-object result schemas",async()=>{
+    const fetcher=fetchResult(native("gemini",[tool("gemini","erp_proposal",{proposal:[1,2]})]));
+    expect(await createAiProvider(config("gemini"),fetcher).generate(z.array(z.number().positive()),"extract",[{type:"input_text",text:"one and two"}])).toEqual([1,2]);
+  });
   it("builds a request-scoped Gemini provider from a user key without touching server configuration",async()=>{
     const fetcher=vi.fn<typeof fetch>(async()=>new Response(JSON.stringify(native("gemini",[text("gemini","verified")]))));
     const userKey="AIzaSyTestOnlyKey012345678901234567";

@@ -14,11 +14,12 @@ import { ProviderAgentModel } from "./model.js";
 import { SupabaseCopilotBusinessRepository } from "../../repositories/copilot-business.repository.js";
 import { SupabaseCustomerPaymentBrowserRepository } from "../../repositories/customer-payment-browser.repository.js";
 import { SupabaseVendorPaymentBrowserRepository } from "../../repositories/vendor-payment-browser.repository.js";
-import type { ToolCallingAiProvider } from "../../ai/providers/contracts.js";
+import type { AiProviderContract, ToolCallingAiProvider } from "../../ai/providers/contracts.js";
+import { CopilotRuntime } from "../copilot.runtime.js";
 import { hasConfiguredAiProvider } from "../../ai/providers/factory.js";
 import { BasicInventoryModel } from "./basic-inventory-model.js";
 
-export function createConversationalTools(): ErpToolRegistry {
+export function createConversationalTools(provider?: ToolCallingAiProvider): ErpToolRegistry {
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
   const authorization = new SupabaseAuthorizationGateway(createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY));
   const rateLists = new SupabaseRateListRepository();
@@ -27,9 +28,13 @@ export function createConversationalTools(): ErpToolRegistry {
     tenant: new TenantAccessService(authorization), erp,
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
     search: new SupabaseEntitySearchService(), pricing: new DefaultPricingService(rateLists), rateLists,
+    runtime: { createMasterDataDraft: (...args) => {
+      const fullProvider = provider && "generate" in provider && "transcribe" in provider ? provider as AiProviderContract : undefined;
+      return new CopilotRuntime(undefined, undefined, fullProvider).createMasterDataDraft(...args);
+    } },
   }, true, { erp, repository: new SupabaseCopilotBusinessRepository(), customers: new SupabaseCustomerPaymentBrowserRepository(), vendors: new SupabaseVendorPaymentBrowserRepository() });
 }
 export function createUnifiedAgent(provider?: ToolCallingAiProvider): UnifiedCopilotAgent {
   const advanced = provider || hasConfiguredAiProvider() ? new ProviderAgentModel(provider) : undefined;
-  return new UnifiedCopilotAgent(new BasicInventoryModel(advanced), createConversationalTools());
+  return new UnifiedCopilotAgent(new BasicInventoryModel(advanced), createConversationalTools(provider));
 }

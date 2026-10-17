@@ -50,8 +50,15 @@ export class GeminiAdapter implements AiProviderContract {
       throw new ApiError(422,"AI_INPUT_UNSUPPORTED","Unsupported extraction input.");
     });
     const model=content.some(value=>["input_image","input_file"].includes((value as any).type))?this.config.visionModel??this.config.model:this.config.model;
-    const result=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],generationConfig:{maxOutputTokens:8000,responseMimeType:"application/json",responseJsonSchema:z.toJSONSchema(schema)}});
-    try{return schema.parse(JSON.parse(result.filter(part=>typeof part.text==="string"&&!part.thought).map(part=>part.text).join("")));}catch{throw invalidOutput();}
+    // Extraction is a proposal, never an ERP tool execution. Native function
+    // arguments support the full document shape that JSON-output mode rejects.
+    const proposal=z.strictObject({proposal:schema});
+    const result=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],
+      tools:[{functionDeclarations:[{name:"erp_proposal",description:"Return extraction observations only. No ERP action is executed.",parametersJsonSchema:z.toJSONSchema(proposal)}]}],
+      toolConfig:{functionCallingConfig:{mode:"ANY",allowedFunctionNames:["erp_proposal"]}},generationConfig:{maxOutputTokens:8000}});
+    const calls=result.filter(part=>part.functionCall);
+    if(calls.length!==1 || calls[0].functionCall.name!=="erp_proposal")throw invalidOutput();
+    try{return proposal.parse(calls[0].functionCall.args).proposal;}catch{throw invalidOutput();}
   }
   async transcribe(input:NonNullable<AiInputRequest["media"]>){
     const media=decodeMedia(input);if(!media.mimeType.startsWith("audio/"))throw new ApiError(422,"INVALID_MEDIA","Voice input requires an audio file.");

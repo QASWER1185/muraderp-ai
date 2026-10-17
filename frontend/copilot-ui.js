@@ -7,6 +7,17 @@ import { icon } from "./icons.js";
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
 const MEDIA_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","audio/webm","audio/mp4","audio/mpeg","audio/wav","audio/ogg"]);
+export function customerDraftState(review, context, userId) {
+  if (review?.intent !== "customer_create" || review.requiresConfirmation !== true ||
+      [review.draftId, review.idempotencyKey, review.name, review.phone, review.city].some(value => typeof value !== "string" || !value.trim())) throw new Error("Customer draft is incomplete. No customer has been created.");
+  return { id: review.draftId, idempotencyKey: review.idempotencyKey, intent: review.intent, organizationId: context.organizationId, branchId: context.branchId, userId };
+}
+export function customerDraftReviewMarkup(review) {
+  return `<article class="review-card confirmation-card"><span class="status-pill review">Confirmation required</span><h3>New customer</h3><p>Name: ${escapeHtml(review.name)}</p><p>Phone: ${escapeHtml(review.phone)}</p><p>City/address: ${escapeHtml(review.city)}</p><p>No customer has been created. Check these details before confirming.</p><div class="review-actions"><button class="button secondary" type="button" data-draft-cancel>Cancel</button><button class="button danger" type="button" data-confirm-draft>Confirm customer creation</button></div></article>`;
+}
+export function customerPreparationMarkup() {
+  return '<article class="review-card" data-customer-preparation><span class="status-pill review">Details required</span><h3>Prepare new customer</h3><div class="review-fields"><label>Name<input name="name" type="text" maxlength="200" required /></label><label>Phone<input name="phone" type="tel" maxlength="50" required /></label><label>City/address<input name="city" type="text" maxlength="120" required /></label></div><p>Customer creation requires a separate explicit confirmation.</p><button class="button primary" type="button" data-prepare-customer>Prepare customer review</button></article>';
+}
 export function validateAttachment(file) {
   const mimeType=String(file.type).split(";")[0].trim().toLowerCase();
   if(!MEDIA_TYPES.has(mimeType)) throw new Error("Use a JPEG, PNG, WebP, PDF, or supported audio file.");
@@ -152,6 +163,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let attachmentUrl = null;
   let review = null;
   let activeDraft = null;
+  let customerPreparationScope = null;
   let preparedConversation = null;
   let operationBusy = false;
   let recorder = null;
@@ -330,8 +342,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
         const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
-        activeDraft = null; preparedConversation = null;
-        thread.querySelectorAll("[data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
+        activeDraft = null; preparedConversation = null; customerPreparationScope = null;
+        thread.querySelectorAll("[data-customer-preparation], [data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
         const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,media:payload.media,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
         if(version!==operationVersion) return;
         const current=getWorkspaceContext();
@@ -340,6 +352,14 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant", `<p>${escapeHtml(response.data.answer).split("\n\n").join("</p><p>")}</p>`);
+        if (response.data.status !== "rate_limited" && response.data.preparation?.intent === "customer_create") {
+          customerPreparationScope = { ...context, userId };
+          appendMessage("assistant", customerPreparationMarkup());
+        }
+        if (response.data.status !== "rate_limited" && response.data.review?.intent === "customer_create") {
+          activeDraft = customerDraftState(response.data.review, context, userId);
+          appendMessage("assistant", customerDraftReviewMarkup(response.data.review));
+        }
         if(response.data.extraction) appendMessage("assistant",extractionMarkup(response.data.extraction,response.data.reviewText));
         if(response.data.clarification) appendMessage("assistant",ambiguityMarkup(response.data.clarification));
         if(response.data.toolNames?.length) appendMessage("assistant",`<details><summary>ERP tools completed</summary><p>${response.data.toolNames.map(escapeHtml).join(" · ")}</p></details>`);
@@ -410,10 +430,23 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     } finally { setBusy(false); }
   }
 
+  async function prepareCustomer(card) {
+    if (operationBusy) return;
+    const context = contextOrThrow();
+    if (!card || !customerPreparationScope) throw new Error("No customer preparation is waiting for details.");
+    if (customerPreparationScope.userId !== getAuthenticatedUserId() || customerPreparationScope.organizationId !== context.organizationId || customerPreparationScope.branchId !== context.branchId) throw new Error("Return to the original user and workspace before preparing this customer.");
+    const details = Object.fromEntries(["name", "phone", "city"].map(name => [name, card.querySelector('[name="' + name + '"]')?.value?.trim() ?? ""]));
+    if (Object.values(details).some(value => !value)) throw new Error("Name, phone number, and city are required to prepare a customer review.");
+    input.value = "Prepare a new customer for review: " + JSON.stringify(details);
+    task.value = "auto";
+    await analyze();
+  }
+
   async function confirmDraft() {
     if (operationBusy) return;
     if (!activeDraft) throw new Error("No draft is waiting for confirmation.");
     const context = getWorkspaceContext();
+    if (activeDraft.userId && activeDraft.userId !== getAuthenticatedUserId()) throw new Error("Return to the original user and workspace before confirming this customer.");
     if (context.organizationId !== activeDraft.organizationId || context.branchId !== activeDraft.branchId) throw new Error("Return to the draft's workspace and branch before confirming.");
     if (!navigator.onLine) throw new Error("Go online before confirming an ERP action.");
     setBusy(true, "Confirming with the authoritative ERP service");
@@ -485,7 +518,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function run(action) { try { retryAction = null; await action(); } catch (error) { setBusy(false); showError(error, action); } }
-  function reset() { operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
+  function reset() { operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; customerPreparationScope = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
 
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 150)}px`; });
   input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(analyze); } });
@@ -510,6 +543,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (event.target.closest("[data-prepare-draft]")) void run(prepareDraft);
     if (event.target.closest("[data-prepare-conversation-draft]")) void run(prepareStatefulDraft);
     if (event.target.closest("[data-prepare-conversation-payment]")) void run(prepareStatefulDraft);
+    if (event.target.closest("[data-prepare-customer]")) void run(() => prepareCustomer(event.target.closest("[data-customer-preparation]")));
     if (event.target.closest("[data-draft-cancel]")) { activeDraft = null; event.target.closest(".confirmation-card")?.remove(); appendMessage("assistant", "<p>Draft cancelled. Nothing was posted.</p>"); }
     if (event.target.closest("[data-confirm-draft]")) void run(confirmDraft);
     if (event.target.closest("[data-copilot-retry]") && retryAction) void run(retryAction);

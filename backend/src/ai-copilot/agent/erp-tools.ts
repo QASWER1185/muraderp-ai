@@ -11,6 +11,8 @@ import type { BusinessState } from "./business-state.js";
 import { ConversationalDraftService, DRAFT_TOOL_DEFINITIONS } from "./draft-tools.js";
 import { touchDraft } from "./business-state.js";
 import { BusinessIntelligenceTools, BUSINESS_TOOL_DEFINITIONS, type BusinessServices } from "./business-tools.js";
+import type { CopilotRuntime } from "../copilot.runtime.js";
+import { randomUUID } from "node:crypto";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -20,6 +22,7 @@ export type ToolServices = {
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
+  runtime?: Pick<CopilotRuntime, "createMasterDataDraft">;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -28,7 +31,7 @@ export type ErpTool<T extends z.ZodType = z.ZodType> = {
   permission: PermissionCode;
   authentication: "required";
   scope: "organization_and_branch";
-  classification: "read";
+  classification: "read" | "prepare";
   execute: (input: z.output<T>, scope: AgentScope, services: ToolServices, signal?: AbortSignal) => Promise<unknown>;
 };
 
@@ -38,9 +41,18 @@ const limit = z.number().int().min(1).max(20).default(10);
 const lookup = z.strictObject({ query, limit });
 const productId = z.strictObject({ product_id: id });
 const priceInput = z.strictObject({ product_id: id, rate_list_id: id.optional(), customer_id: id.optional(), quantity: z.number().finite().positive().default(1) });
+const customerCreateSchema = z.strictObject({ name: z.string().trim().min(1).max(200), phone: z.string().trim().min(1).max(50), city: z.string().trim().min(1).max(120) });
 const match = (value: string, term: string) => value.toLocaleLowerCase().includes(term.toLocaleLowerCase());
 
 function defineTool<T extends z.ZodType>(tool: ErpTool<T>): ErpTool<T> { return tool; }
+
+const CUSTOMER_CREATE_TOOL = defineTool({ name: "prepare_customer_create", description: "Prepare a NEW customer for review after collecting name, phone as a string preserving leading zeros, and city/address. Never invent missing fields. This creates only an approval draft; the user must explicitly confirm before any customer is created.", schema: customerCreateSchema, permission: "customers.write", authentication: "required", scope: "organization_and_branch", classification: "prepare", execute: async (input, scope, { runtime }, signal) => {
+    if (!runtime) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Customer draft preparation is unavailable.");
+    signal?.throwIfAborted();
+    const idempotencyKey = `copilot-customer-${randomUUID()}`;
+    const draft = await runtime.createMasterDataDraft({ ...scope, source: "text", intent: "customer_create", ...input }, idempotencyKey);
+    return { review: { intent: "customer_create", draftId: draft.id, idempotencyKey, ...input, requiresConfirmation: true } };
+  } });
 
 export const ERP_TOOLS = [
   defineTool({ name: "search_products", description: "Search ERP products with typo-tolerant database matching by name, SKU, brand, category, dimensions, PN rating or unit. Returns ranked candidates and resolution. Use bestCandidate only when resolved; otherwise ask for clarification.", schema: lookup, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { search }) => {
@@ -89,6 +101,7 @@ export class ErpToolRegistry {
   readonly drafts: ConversationalDraftService;
   readonly business?: BusinessIntelligenceTools;
   constructor(private readonly services: ToolServices, private readonly conversationalDrafts = false, businessServices?: BusinessServices) {
+    if (services.runtime) this.tools.set(CUSTOMER_CREATE_TOOL.name, CUSTOMER_CREATE_TOOL);
     this.drafts = new ConversationalDraftService(services, (input, scope, signal) => this.execute("lookup_current_sale_rate", input, scope, undefined, undefined, signal));
     if (businessServices) this.business = new BusinessIntelligenceTools(services, businessServices);
   }
@@ -119,7 +132,7 @@ export class ErpToolRegistry {
     delete state.clarification;delete state.paymentPreparation;
   }
   definitions() {
-    const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
+    const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name) && (tool.name !== "prepare_customer_create" || this.services.runtime)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
     return [...reads, ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {

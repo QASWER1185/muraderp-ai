@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SupabaseEntitySearchService, resolveCandidates } from "./entity-search.service.js";
+import { SupabaseEntitySearchService, resolveCandidates, normalizeProductSearchQuery } from "./entity-search.service.js";
 const scope={userId:'u',organizationId:'o',branchId:'b'};
 const row={id:1,name:'ELBOW FEMALE 25x1/2',sku:'EF25',unit:'PCS',category:'Fittings',brand_name:'Popular',confidence:.95,match_kind:'fuzzy'};
 function setup(data: unknown = [row],error: unknown = null) {
@@ -7,6 +7,25 @@ function setup(data: unknown = [row],error: unknown = null) {
   return {rpc,from,search:new SupabaseEntitySearchService(()=>({rpc,from}) as any)};
 }
 describe('database entity search service',()=>{
+  it.each([
+    ['ELBOW KA KIA RATE HY', 'ELBOW'],
+    ['ELBOOW 25*1/2 KA RATE KIA HY', 'elbow 25*1/2'],
+    ['PIPE 25MM RATE KIA HY', 'PIPE 25MM'],
+    ['POPULAR PIPE PN-20 25 MM MTR ka rate hai?', 'POPULAR PIPE PN-20 25 MM MTR'],
+    ['ELBOOW 25x1/2 PCS ki kya rate hai؟', 'elbow 25x1/2 PCS'],
+    ['ELBOW 25*1/2', 'ELBOW 25*1/2'],
+  ])('keeps the catalog query and dimensions from %s', async (input, expected) => {
+    const {search,rpc}=setup();
+    expect(normalizeProductSearchQuery(input)).toBe(expected);
+    await search.searchProducts(input,10,scope);
+    expect(rpc.mock.calls[0]?.[1]).toMatchObject({p_query:expected});
+  });
+  it('does not turn equally ranked size variants into a chosen product',async()=>{
+    const {search}=setup([row,{...row,id:2,name:'ELBOW 25x3/4',confidence:.94}]);
+    expect(await search.searchProducts('ELBOOW 25*1/2 KA RATE KIA HY',10,scope))
+      .toMatchObject({resolution:'ambiguous',bestCandidate:null,requiresClarification:true});
+  });
+
   it('makes one bounded RPC with trusted scope and maps only safe fields',async()=>{
     const {rpc,from,search}=setup([{...row,purchase_price:999,organization_id:'hidden'}]);
     const result=await search.searchProducts('EBOW FEM 25*1/2',1,scope);
