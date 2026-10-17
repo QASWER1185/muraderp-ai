@@ -52,7 +52,7 @@ jobs:
       - name: Frontend checks, unit tests, and production bundle
         run: |
           npm run typecheck --prefix frontend
-          npm test --prefix frontend -- --maxWorkers=2 --minWorkers=1 --pool=threads
+          npm test --prefix frontend -- --maxWorkers=2 --pool=threads
           npm run build --prefix frontend
 
   database:
