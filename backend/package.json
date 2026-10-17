@@ -13,6 +13,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:database": "node test-database-regressions.mjs",
     "test:watch": "vitest",
     "release:readiness": "node ../scripts/release-readiness.mjs",
     "check": "npm run typecheck && npm test && npm run build"
