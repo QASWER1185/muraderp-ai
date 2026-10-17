@@ -49,6 +49,9 @@ const envSchema = z
       if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
         context.addIssue({ code: "custom", path: ["AI_BASE_URL"], message: "AI_BASE_URL must be an HTTPS URL without credentials, query, or fragment" });
       }
+      if (configuration.AI_PROVIDER === "compatible" && url.hostname === "generativelanguage.googleapis.com") {
+        context.addIssue({ code: "custom", path: ["AI_PROVIDER"], message: "Use AI_PROVIDER=gemini for Gemini; its compatibility endpoint does not implement the Responses API" });
+      }
     }
     if (configuration.AI_SPEECH_PROVIDER === "compatible" && !configuration.AI_SPEECH_BASE_URL) {
       context.addIssue({code:"custom",path:["AI_SPEECH_BASE_URL"],message:"Compatible speech providers require AI_SPEECH_BASE_URL"});

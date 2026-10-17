@@ -50,6 +50,7 @@ export function businessFixture() {
       searchVendors: vi.fn(async () => resolveCandidates([{ ...vendor, confidence: 1, match_kind: "exact_name" }], 5)),
     },
     erp: {
+      listCustomers: vi.fn(async (_page, org) => ({ data: org === scope.organizationId ? [customer] as any : [], next_cursor: null })),
       getVendor: vi.fn(async (id, org) => id === vendor.id && org === scope.organizationId ? vendor as any : null),
       getWarehouse: vi.fn(async (id, org) => id === 1 && org === scope.organizationId ? { id, name: "Main" } as any : null),
       listInventory: vi.fn(async (page, org) => ({ data: org === scope.organizationId ? [{ id: 1, organization_id: org, product_id: page.product_id, warehouse_id: 1, quantity: page.product_id === dura.id ? 30 : 100 }] as any : [], next_cursor: null })),

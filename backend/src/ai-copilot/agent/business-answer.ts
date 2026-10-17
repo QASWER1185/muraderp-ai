@@ -42,6 +42,13 @@ export function businessAnswer(facts: BusinessFact[], message: string): string {
     } else if (fact.kind === "sale_rate") {
       const rate = fact.rate as { unit_price: number; currency_code: string; unit: string } | null;
       rendered.push(label("Current sale rate: ", "فروخت کا موجودہ ریٹ: ") + (rate ? `${rate.currency_code} ${number(rate.unit_price)}/${rate.unit}` : number(null)));
+    } else if (fact.kind === "entity_not_found") {
+      if (fact.entity === "customer") {
+        const customers = fact.currentCustomers as string[] | undefined;
+        rendered.push(`Customer '${fact.query}' was not found in this organization.` +
+          (customers ? customers.length ? ` Current customers${fact.hasMore ? " (first 5)" : ""}: ${customers.join("; ")}.` : " No customers are registered in this organization." : " The current customer list is unavailable.") +
+          " No ledger balance has been assumed.");
+      } else rendered.push(`Product '${fact.query}' was not found in this organization. Stock is unavailable; no quantity has been assumed.`);
     } else if (fact.kind === "unavailable") rendered.push(String(fact.message));
   }
   return rendered.join("\n\n");

@@ -141,6 +141,10 @@ export class ErpToolRegistry {
     signal?.throwIfAborted();
     const input = tool.schema.safeParse(raw);
     if (!input.success) throw new ApiError(400, "INVALID_COPILOT_TOOL_INPUT", "Copilot tool arguments are invalid");
-    return tool.execute(input.data, scope, this.services, signal);
+    const result = await tool.execute(input.data, scope, this.services, signal);
+    if (name === "lookup_customers" && this.business && result && typeof result === "object" && "resolution" in result && result.resolution === "no_match") {
+      return { ...result, ...await this.business.customerSuggestions(scope, signal) };
+    }
+    return result;
   }
 }

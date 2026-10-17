@@ -30,26 +30,42 @@ const sections = groups.flatMap(([, items]) => items);
 const AUTHENTICATED_API_BOUNDARY = "/api/v1/";
 void AUTHENTICATED_API_BOUNDARY;
 const nav = document.querySelector("#nav");
-const content = document.querySelector("#content");
+let content = document.querySelector("#content");
 const title = document.querySelector("#page-title");
 const shell = document.querySelector(".app-shell");
 const connectionStatus = document.querySelector("#connection-status");
 let authenticatedUserId = null;
-let currentSection = "dashboard";
+const routeFromLocation = () => globalThis.location.hash.replace(/^#\/?/, "") || "dashboard";
+let currentSection = routeFromLocation();
 
 function renderNav(active) {
   nav.innerHTML = `<div class="brand"><span class="brand-symbol">M</span><span><strong>MuradERP</strong><small>Business workspace</small></span></div>${groups.map(([label, items]) => `<div class="nav-group"><p>${label}</p>${items.map(([id, name, iconName]) => `<button class="nav-item${id === active ? " active" : ""}" type="button" data-route="${id}">${icon(iconName)}<span>${name}</span></button>`).join("")}</div>`).join("")}<button class="nav-copilot" type="button" data-open-copilot>${icon("sparkles")}<span><strong>Ask Copilot</strong><small>Ask or prepare an action</small></span></button>`;
+  // Bind the controls themselves: navigation must not depend on a click
+  // reaching document (including keyboard/assistive activation).
+  nav.querySelectorAll("[data-route]").forEach((button) => {
+    button.setAttribute("aria-current", button.dataset.route === active ? "page" : "false");
+    button.addEventListener("click", () => navigate(button.dataset.route));
+  });
 }
 
 function unavailableMarkup(label) {
   return `<section class="page-heading"><div><p class="eyebrow">ERP workspace</p><h1>${label}</h1><p class="page-intro">This module is not available in the browser yet.</p></div></section><section class="surface"><div class="empty-state">${icon("building", 26)}<h2>Browser access not configured</h2><p>The authoritative backend does not currently expose a verified browser workflow for ${label.toLowerCase()}. No live status or sample records are being shown.</p></div></section>`;
 }
 
-function navigate(routeId) {
+function navigate(routeId, updateHistory = true) {
   currentSection = sections.some(([section]) => section === routeId) ? routeId : "dashboard";
+  const hash = `#/${currentSection}`;
+  if (updateHistory && globalThis.location.hash !== hash) {
+    globalThis.history[globalThis.location.hash ? "pushState" : "replaceState"](null, "", hash);
+  }
   const label = sections.find(([section]) => section === currentSection)?.[1] ?? "Dashboard";
   title.textContent = label;
   renderNav(currentSection);
+  // Page modules bind listeners and retain async render targets. Give each
+  // mount its own container so an old page cannot handle or overwrite it.
+  const nextContent = content.cloneNode(false);
+  content.replaceWith(nextContent);
+  content = nextContent;
   content.innerHTML = currentSection === "dashboard" ? dashboardMarkup() : unavailableMarkup(label);
   const id=currentSection;
   if(id==="dashboard")mountDashboard(content);
@@ -89,11 +105,13 @@ const copilotUi = mountCopilot({
 const resetDraft=()=>copilotUi.reset();
 
 document.addEventListener("click", (event) => {
-  const routeButton = event.target.closest("[data-route], [data-navigate]");
-  const route = routeButton?.dataset.route ?? routeButton?.dataset.navigate;
+  const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+  const route = target?.closest("[data-navigate]")?.dataset.navigate;
   if (route) navigate(route);
-  if (event.target.closest("[data-open-copilot]")) copilotUi.open();
+  if (target?.closest("[data-open-copilot]")) copilotUi.open();
 });
+globalThis.addEventListener("popstate", () => navigate(routeFromLocation(), false));
+globalThis.addEventListener("hashchange", () => navigate(routeFromLocation(), false));
 document.querySelector("#menu").addEventListener("click", () => shell.classList.toggle("menu-open"));
 document.querySelector("#nav-scrim").addEventListener("click", () => shell.classList.remove("menu-open"));
 document.querySelector("#menu").innerHTML = icon("menu");
@@ -166,4 +184,4 @@ const previousWorkspace = getWorkspaceContext();
 clearWorkspaceContext();
 getSession().then(async (session) => { authenticatedUserId = session?.data?.userId ?? null; authButton.textContent = authenticatedUserId ? "Account" : "Sign in"; document.querySelector("#auth-signout").hidden = !authenticatedUserId; if (authenticatedUserId) await connectDiscoveredWorkspace(previousWorkspace); }).catch(() => { authenticatedUserId = null; authButton.textContent = "Sign in"; });
 subscribeOfflineState(updateConnectionStatus);
-navigate("dashboard"); updateConnectionStatus(); void flushOfflineQueue().then(updateConnectionStatus);
+navigate(currentSection); updateConnectionStatus(); void flushOfflineQueue().then(updateConnectionStatus);

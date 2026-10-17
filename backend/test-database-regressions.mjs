@@ -13,6 +13,7 @@ const tests = [
   'p0_8_authoritative_accounting_posting.sql',
   'products_final_gate.sql',
   'estimate_conversion.sql',
+  'copilot_dev_seed.sql',
 ];
 try {
   await db.exec(await read('scripts/database-test-bootstrap.sql'));
@@ -26,6 +27,11 @@ try {
   let passed = 0;
   for (const name of tests) {
     try {
+      if (name === 'copilot_dev_seed.sql') {
+        // Exercise the real local reset seed twice to verify replay safety.
+        await db.exec(await read('supabase/seed.sql'));
+        await db.exec(await read('supabase/seed.sql'));
+      }
       // psql's ON_ERROR_STOP directive has no SQL equivalent; db.exec throws.
       await db.exec((await read(`supabase/tests/${name}`)).replace(/^\\set ON_ERROR_STOP on\r?$/gm, ''));
       console.log(`PASS ${name}`);

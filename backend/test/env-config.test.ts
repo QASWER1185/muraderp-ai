@@ -32,6 +32,11 @@ describe("production configuration guardrails", () => {
     expect(parseEnv({ ...base, AI_MODEL: "chosen-model", AI_BASE_URL: "http://example.com/v1" }).success).toBe(false);
     expect(parseEnv({ ...base, AI_MODEL: "chosen-model", AI_BASE_URL: "https://example.com/v1" }).success).toBe(true);
   });
+  it("requires Gemini's native adapter instead of sending Responses requests to its compatibility endpoint", () => {
+    const base = { ...validProductionEnv, AI_MODEL: "configured-gemini-model", AI_BASE_URL: "https://generativelanguage.googleapis.com/v1beta/openai/" };
+    expect(parseEnv({ ...base, AI_PROVIDER: "compatible" }).success).toBe(false);
+    expect(parseEnv({ ...base, AI_PROVIDER: "gemini" }).success).toBe(true);
+  });
 
   it("rejects partial ERP production configuration", () => {
     expect(parseEnv({ ...validProductionEnv, INTERNAL_API_TOKEN: undefined }).success).toBe(false);

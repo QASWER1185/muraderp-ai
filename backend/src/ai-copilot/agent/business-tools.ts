@@ -14,6 +14,10 @@ import { customerPaymentSchema, vendorPaymentSchema, paymentStateSchema, type Pa
 
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const query = z.string().trim().min(1).max(120);
+export const entityNotFoundSchema = z.strictObject({
+  entity: z.enum(["customer", "product"]), query,
+  currentCustomers: z.array(z.string().max(160)).max(5).optional(), hasMore: z.boolean().optional(),
+});
 const limit = z.number().int().min(1).max(20).default(10);
 const cursor = id.optional();
 const product = { product_id: id.optional(), query: query.optional() };
@@ -41,7 +45,7 @@ const descriptions: Record<keyof typeof schemas, string> = {
 };
 export const BUSINESS_TOOL_DEFINITIONS = Object.entries(schemas).map(([name, schema]) => ({ type: "function" as const, name, description: descriptions[name as keyof typeof schemas], strict: false, parameters: z.toJSONSchema(schema) }));
 export type BusinessServices = {
-  erp: Pick<ErpService, "getVendor" | "getWarehouse" | "listInventory" | "listStockMovements">;
+  erp: Pick<ErpService, "getVendor" | "getWarehouse" | "listInventory" | "listStockMovements" | "listCustomers">;
   repository: CopilotBusinessRepository;
   customers: Pick<CustomerPaymentBrowserRepository, "listReceivables">;
   vendors: Pick<VendorPaymentBrowserRepository, "listPayables">;
@@ -56,6 +60,18 @@ const unitKey = (value: string) => value.trim().toUpperCase();
 export class BusinessIntelligenceTools {
   constructor(private readonly base: ToolServices, private readonly services: BusinessServices) {}
   handles(name: string): name is keyof typeof schemas { return Object.hasOwn(schemas, name); }
+  async customerSuggestions(scope: AgentScope, signal?: AbortSignal) {
+    await this.authorize(scope, ["customers.read"], signal);
+    try {
+      const page = await this.services.erp.listCustomers({ limit: 5 }, scope.organizationId);
+      signal?.throwIfAborted();
+      return { currentCustomers: page.data.map(row => row.name.slice(0, 160)), hasMore: page.next_cursor !== null };
+    } catch (error) {
+      if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
+      signal?.throwIfAborted();
+      return {};
+    }
+  }
   async selectVendor(id:number,scope:AgentScope,state:BusinessState) {
     this.assertStateScope(state,scope);await this.authorize(scope,["vendors.read"]);
     const vendor=await this.services.erp.getVendor(id,scope.organizationId);
@@ -77,6 +93,9 @@ export class BusinessIntelligenceTools {
       if (selected !== undefined) clarification("Use a product query or a verified ID, not both.");
       const resolution = await this.base.search.searchProducts(input.query, 5, scope);
       signal?.throwIfAborted();
+      if (resolution.resolution === "no_match") {
+        throw new ApiError(404, "COPILOT_ENTITY_NOT_FOUND", "Product not found in this organization.", { entity: "product", query: input.query });
+      }
       if (resolution.resolution !== "resolved" || !resolution.bestCandidate) {
         delete state.productContext; state.productUnresolved = true;
         clarification("Please identify the product by name, SKU, brand or size" + (resolution.items.length ? ": " + resolution.items.map(p => `${p.name} (ID ${p.id})`).join("; ") : "; no matching ERP product is available."),
@@ -229,6 +248,12 @@ export class BusinessIntelligenceTools {
         if (input.customer_id !== undefined) clarification("Use a customer query or verified ID, not both.");
         const resolution = await this.base.search.searchCustomers(input.query, 5, scope);
         signal?.throwIfAborted();
+        if (resolution.resolution === "no_match") {
+          // Names only, bounded to the same authorized organization. A failed
+          // suggestions read must not turn an ordinary no-match into an error.
+          const suggestions = await this.customerSuggestions(scope, signal);
+          throw new ApiError(404, "COPILOT_ENTITY_NOT_FOUND", "Customer not found in this organization.", { entity: "customer", query: input.query, ...suggestions });
+        }
         if (resolution.resolution !== "resolved" || !resolution.bestCandidate) clarification("Please clarify the customer by name or location: " + resolution.items.map(row => row.name + " (ID " + row.id + ")").join("; "),
           resolution.items.length ? {kind:"customer",candidates:resolution.items.slice(0,5).map(row=>({id:row.id,name:row.name.slice(0,160),city:row.city.slice(0,120)}))} : undefined);
         candidate.customer = { id: resolution.bestCandidate.id, name: resolution.bestCandidate.name.slice(0,160) }; candidate.customerAmbiguous = false;

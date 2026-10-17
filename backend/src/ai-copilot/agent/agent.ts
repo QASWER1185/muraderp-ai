@@ -7,7 +7,7 @@ import { draftAnswer, type DraftView } from "./draft-tools.js";
 import type { AgentModel, FunctionCall } from "./model.js";
 import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
 import { businessAnswer } from "./business-answer.js";
-import { BUSINESS_TOOL_DEFINITIONS, type BusinessFact } from "./business-tools.js";
+import { BUSINESS_TOOL_DEFINITIONS, entityNotFoundSchema, type BusinessFact } from "./business-tools.js";
 
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
@@ -198,6 +198,16 @@ export class UnifiedCopilotAgent {
             if (result && typeof result === "object" && "requiresConfirmation" in result && "lines" in result && "totals" in result) draftView = result as DraftView;
             if (call.name === "search_products" || call.name === "lookup_customers") {
               const resolution = result as EntityResolution<RankedEntity>;
+              if (resolution.resolution === "no_match" && this.tools.definitions().some(tool => tool && typeof tool === "object" && "name" in tool && tool.name === "query_inventory")) {
+                const missing = entityNotFoundSchema.safeParse({ entity: call.name === "search_products" ? "product" : "customer",
+                  query: (args as { query?: string }).query,
+                  ...(call.name === "lookup_customers" && result && typeof result === "object" ? {
+                    ...("currentCustomers" in result ? { currentCustomers: result.currentCustomers } : {}),
+                    ...("hasMore" in result ? { hasMore: result.hasMore } : {}),
+                  } : {}),
+                });
+                if (missing.success) businessFacts.push({ kind: "entity_not_found", ...missing.data });
+              }
               const unresolved = resolution.requiresClarification ? resolution : undefined;
               if(unresolved && resolution.items.length) state.clarification={kind:call.name==="search_products"?"product":"customer",candidates:resolution.items.slice(0,5).map(row=>{
                 const candidate=row as RankedEntity & {sku?:string;unit?:string;city?:string};
@@ -252,15 +262,28 @@ export class UnifiedCopilotAgent {
               if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
               answer = error.message; status = "clarification"; break;
             }
+            if (error instanceof ApiError && error.code === "COPILOT_ENTITY_NOT_FOUND") {
+              const missing = entityNotFoundSchema.safeParse(error.details);
+              if (missing.success) {
+                const fact = { kind: "entity_not_found", ...missing.data };
+                businessFacts.push(fact);
+                verifiedResults++;
+                toolNames.push(call.name);
+                input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify(fact) });
+                logger?.info({ traceId, iteration, tool: call.name, outcome: "not_found" }, "Copilot entity lookup completed");
+                continue;
+              }
+            }
             if (BUSINESS_TOOLS.has(call.name)) businessFacts.push({ kind: "unavailable", message: `${call.name}: authoritative result unavailable or arguments invalid. Please clarify or retry.` });
             input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ error: "Tool result unavailable or arguments invalid" }) });
-            logger?.warn({ traceId, iteration, tool: call.name, outcome: "error" }, "Copilot tool failed");
+            logger?.warn({ traceId, iteration, tool: call.name, outcome: "error", errorCode: error instanceof ApiError ? error.code : "UNEXPECTED_TOOL_ERROR" }, "Copilot tool failed");
           }
         }
         if (review || status === "malformed" || status === "duplicate" || status === "clarification" || status === "timeout") break;
       }
     } catch (error) {
       if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
+      logger?.warn({ traceId, errorCode: error instanceof ApiError ? error.code : "UNEXPECTED_PROVIDER_ERROR" }, "Copilot reasoning failed");
       if (error instanceof ApiError && error.status === 429) {
         status = "rate_limited";
         answer = "The configured AI provider rate limit was reached. Your conversation choices are preserved. Please wait before retrying.";
@@ -276,8 +299,18 @@ export class UnifiedCopilotAgent {
             if (refreshError instanceof ApiError && [401, 403].includes(refreshError.status)) throw refreshError;
           }
         }
-      } else status = controller.signal.aborted ? "timeout" : "error";
+      } else {
+        status = controller.signal.aborted ? "timeout" : "error";
+        if (error instanceof ApiError && ["AI_NOT_CONFIGURED", "COPILOT_NOT_CONFIGURED"].includes(error.code)) {
+          answer = "The Copilot AI service is not configured. Please ask your administrator to check the server provider, model and API key. Manual ERP pages remain available.";
+        } else if (error instanceof ApiError && error.code.startsWith("AI_PROVIDER_")) {
+          answer = "The configured AI provider could not complete this request. Please try again or use the Customers and Stock pages. No ERP action was performed.";
+        }
+      }
     } finally { clearTimeout(timer); }
+    if (businessFacts.length && status !== "completed") {
+      answer = businessAnswer(businessFacts, request.message) + "\n\n" + (status === "clarification" ? answer : "These are the verified results available so far. Please retry any remaining part of the request.");
+    }
     logger?.info({ traceId, status, calls }, "Copilot agent finished");
     state.productContext = productContext;
     state.customerAmbiguous = customerAmbiguous;
