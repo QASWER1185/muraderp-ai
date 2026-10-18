@@ -14,6 +14,12 @@ const validProductionEnv = {
 };
 
 describe("production configuration guardrails", () => {
+  it("allows local browser sessions without a service token, but keeps production strict", () => {
+    const local = { NODE_ENV: "development", SUPABASE_URL: validProductionEnv.SUPABASE_URL, SUPABASE_SECRET_KEY: validProductionEnv.SUPABASE_SECRET_KEY };
+    expect(parseEnv(local).success).toBe(true);
+    expect(parseEnv({ ...local, NODE_ENV: "production" }).success).toBe(false);
+    expect(parseEnv({ ...local, SUPABASE_SECRET_KEY: undefined }).success).toBe(false);
+  });
   it("accepts a complete HTTPS production configuration", () => {
     expect(parseEnv(validProductionEnv).success).toBe(true);
   });

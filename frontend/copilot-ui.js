@@ -1,4 +1,4 @@
-import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus } from "./copilot-api.js";
+import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js";
 import { clearCopilotApiKey, getCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
@@ -565,6 +565,21 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   document.querySelector("#copilot-settings").addEventListener("click", () => void openKeySettings());
   document.querySelector("#copilot-key-close").addEventListener("click", () => keyDialog.close());
   document.querySelector("#copilot-key-cancel").addEventListener("click", () => keyDialog.close());
+  document.querySelector("#copilot-key-test")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    keyResult.hidden = false;
+    keyResult.dataset.state = "pending";
+    keyResult.textContent = "Testing the saved key with the AI provider…";
+    try {
+      const result = await testCopilotProvider();
+      keyResult.dataset.state = result.data?.connected === true ? "success" : "error";
+      keyResult.textContent = result.data?.connected === true ? `AI connection verified. The provider accepted a text request${result.data.httpStatus ? ` (HTTP ${result.data.httpStatus})` : ""}.` : "The AI connection could not be verified.";
+    } catch (error) {
+      keyResult.dataset.state = "error";
+      keyResult.textContent = error instanceof Error ? error.message : "The AI connection could not be verified.";
+    } finally { button.disabled = false; }
+  });
   document.querySelector("#copilot-key-clear").addEventListener("click", () => {
     clearCopilotApiKey(); keyInput.value = ""; keyResult.hidden = true;
     void refreshProviderStatus();
@@ -577,6 +592,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       keyDialog.close();
     } catch (error) {
       keyResult.className = "form-message";
+      keyResult.dataset.state = "error";
       keyResult.textContent = error instanceof Error ? error.message : "The API key could not be saved.";
       keyResult.hidden = false;
     }

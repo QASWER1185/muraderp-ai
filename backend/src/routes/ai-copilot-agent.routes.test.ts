@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
 import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { pinoHttp } from "pino-http";
+import { ApiError } from "../errors/api-error.js";
 
 vi.mock("../middleware/copilot-auth.js", () => ({
   createCopilotAuth: () => (request: { browserPrincipal?: { userId: string } }, _response: unknown, next: () => void) => {
@@ -15,6 +17,24 @@ vi.mock("../middleware/copilot-auth.js", () => ({
 import { createAiCopilotRouter } from "./ai-copilot.routes.js";
 
 describe("Phase 1 agent route on the production backend baseline", () => {
+  it("tests the saved provider key without ERP tools and only reports success after a real text response", async () => {
+    const toolTurn = vi.fn().mockResolvedValue({ output: [{ type: "message", content: [{type:"output_text",text:"READY"}] }] });
+    const providerFactory = vi.fn(() => ({ toolTurn }) as unknown as AiProviderContract);
+    const app = express(); app.use(pinoHttp({enabled:false}), express.json());
+    app.use("/copilot", createAiCopilotRouter(undefined, undefined, undefined, undefined, undefined, undefined, undefined, providerFactory));
+    app.use(errorHandler);
+    const send = () => request(app).post("/copilot/settings/test").set("X-Api-Key", "test-only-gemini-key-123456789").set("X-AI-Provider", "gemini").send({});
+    const success = await send();
+    expect(success.status).toBe(200);
+    expect(success.body).toEqual({ data: { connected: true } });
+    expect(providerFactory).toHaveBeenCalledWith("test-only-gemini-key-123456789", expect.any(Function));
+    expect(toolTurn).toHaveBeenCalledWith(expect.any(String), expect.any(Array), [], expect.objectContaining({signal:expect.any(AbortSignal)}));
+    toolTurn.mockRejectedValueOnce(new ApiError(401, "AI_API_KEY_REJECTED", "The AI provider rejected this API key."));
+    const rejected = await send();
+    expect(rejected.status).toBe(401);
+    expect(rejected.body.error.code).toBe("AI_API_KEY_REJECTED");
+    expect(JSON.stringify(rejected.body)).not.toContain("test-only-gemini-key");
+  });
   it("supports the canonical and compatibility Copilot root endpoints with the same authentication and tenant scope", async () => {
     const run = vi.fn(async () => ({ answer: "Verified inventory", status: "completed" }));
     const app = express(); app.use(express.json());

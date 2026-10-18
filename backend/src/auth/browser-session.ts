@@ -6,13 +6,15 @@ import { ApiError } from "../errors/api-error.js";
 
 const COOKIE_NAME = "muraderp_session";
 const SESSION_TTL_SECONDS = 60 * 60;
-const TEST_SIGNING_SECRET = randomBytes(32);
+// Development sessions remain authenticated and signed. This is not an internal
+// service bearer token, and restarting requires a new Supabase session exchange.
+const LOCAL_SIGNING_SECRET = randomBytes(32);
 type SessionPayload = { userId: string; exp: number };
 
 function signingSecret(): string | Buffer {
   if (env.INTERNAL_API_TOKEN) return env.INTERNAL_API_TOKEN;
-  if (env.NODE_ENV === "test") return TEST_SIGNING_SECRET;
-  throw new Error("INTERNAL_API_TOKEN is required for browser sessions");
+  if (env.NODE_ENV === "test" || env.NODE_ENV === "development") return LOCAL_SIGNING_SECRET;
+  throw new ApiError(503, "AUTH_NOT_CONFIGURED", "Browser session signing is not configured. Contact your administrator.");
 }
 function sign(value: string): string { return createHmac("sha256", signingSecret()).update(value).digest("base64url"); }
 function encode(payload: SessionPayload): string { const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url"); return `${body}.${sign(body)}`; }

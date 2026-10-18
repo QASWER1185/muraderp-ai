@@ -1,7 +1,7 @@
 import { describe,expect,it,vi } from "vitest";
 import { z } from "zod";
 import { createAiProvider, createGeminiUserProvider } from "./factory.js";
-import { parseEnv } from "../../config/env.js";
+import { env, parseEnv } from "../../config/env.js";
 import { UnifiedCopilotAgent } from "../../ai-copilot/agent/agent.js";
 import { ProviderAgentModel } from "../../ai-copilot/agent/model.js";
 import { fixture,scope,call } from "../../ai-copilot/agent/stateful.test-fixtures.js";
@@ -70,6 +70,15 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
     fetcher.mockResolvedValueOnce(new Response("not JSON"));
     await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
   });
+  it("classifies Gemini invalid-key 400s without exposing upstream response details",async()=>{
+    const fetcher=fetchResult({error:{message:"API key not valid. PRIVATE PROVIDER DETAIL",status:"INVALID_ARGUMENT"}},400);
+    const adapter=createAiProvider(config("gemini"),fetcher);
+    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({status:401,code:"AI_API_KEY_REJECTED",message:"The AI provider rejected this API key. Check that it is active and authorized for the Gemini API."});
+    const badRequest=fetchResult({error:{message:"PRIVATE schema detail",status:"INVALID_ARGUMENT"}},400);
+    const rejected = createAiProvider(config("gemini"),badRequest).toolTurn("safe",[],[]);
+    await expect(rejected).rejects.toMatchObject({code:"AI_PROVIDER_BAD_REQUEST"});
+    await expect(rejected).rejects.not.toThrow("PRIVATE");
+  });
   it("runs the unchanged unified stateful tool loop with authoritative ERP pricing",async()=>{
     const steps=[["lookup_customers",{query:"Qasim"}],["set_task_context",{customer_id:19}],["begin_estimate_draft",{}],["search_products",{query:"Popular 25mm pipe"}],["add_draft_item",{quantity:20}],["inspect_draft",{}]] as const;
     let index=0;const fetcher=vi.fn<typeof fetch>(async()=>{
@@ -118,6 +127,15 @@ describe("provider configuration and speech capabilities",()=>{
     expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-3.8-flash:generateContent");
     expect(fetcher.mock.calls[0]![1]!.headers).toMatchObject({"x-goog-api-key":userKey});
     expect(createAiProvider(config("gemini")).name).toBe("gemini");
+  });
+  it("uses GEMINI_MODEL for a browser key independently of the server provider", async () => {
+    const previous = env.GEMINI_MODEL;
+    env.GEMINI_MODEL = "gemini-1.5-flash";
+    try {
+      const fetcher = fetchResult(native("gemini", [text("gemini", "connected")]));
+      await createGeminiUserProvider("test-only-gemini-key-1234567890", fetcher).toolTurn("safe", [{role:"user",content:"hello"}], []);
+      expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-1.5-flash:generateContent");
+    } finally { env.GEMINI_MODEL = previous; }
   });
   it.each(["openai","groq","compatible","gemini","anthropic"] as const)("selects %s through configuration",provider=>{
     expect(createAiProvider(config(provider)).name).toBe(provider);

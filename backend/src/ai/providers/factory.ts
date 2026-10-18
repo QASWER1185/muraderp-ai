@@ -25,9 +25,10 @@ export function createGeminiUserProvider(apiKey: string, fetcher: typeof fetch =
     throw new ApiError(400, "AI_API_KEY_INVALID", "Enter a valid Gemini API key in Copilot settings.");
   }
   const serverConfig = configuredAiProvider();
-  const model = env.AI_PROVIDER === "gemini" && serverConfig.model.trim()
+  // Browser keys use the native Gemini adapter and an independently configurable model.
+  const model = env.GEMINI_MODEL ?? (env.AI_PROVIDER === "gemini" && serverConfig.model.trim()
     ? serverConfig.model
-    : "gemini-3.8-flash";
+    : "gemini-3.8-flash");
   return createAiProvider({ provider: "gemini", apiKey: key, model, speechModel: model }, fetcher);
 }
 function adapter(config:AiProviderConfiguration,fetcher:typeof fetch):AiProviderContract {

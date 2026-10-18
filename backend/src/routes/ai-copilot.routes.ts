@@ -12,7 +12,7 @@ import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
 import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
 import { writeBusinessState } from "../ai-copilot/agent/business-state.js";
-import { createGeminiUserProvider, hasConfiguredAiProvider } from "../ai/providers/factory.js";
+import { createAiProvider, createGeminiUserProvider, hasConfiguredAiProvider } from "../ai/providers/factory.js";
 import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
 
@@ -118,7 +118,7 @@ export function createAiCopilotRouter(
   readOnlyAgent?: ReadOnlyCopilotAgent,
   conversationalTools?: ErpToolRegistry,
   multimodalInput?: MultimodalAgentInput,
-  requestProviderFactory: (apiKey: string) => AiProviderContract = createGeminiUserProvider,
+  requestProviderFactory: (apiKey: string, fetcher?: typeof fetch) => AiProviderContract = createGeminiUserProvider,
   requestAgentFactory: (provider: AiProviderContract) => ReadOnlyCopilotAgent = (provider): ReadOnlyCopilotAgent => createCopilotAgent(provider).core,
 ) {
   const router = Router();
@@ -146,6 +146,26 @@ export function createAiCopilotRouter(
     if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
     response.setHeader("Cache-Control", "no-store");
     response.json({ data: { serverConfigured: hasConfiguredAiProvider() } });
+  });
+
+  router.post("/settings/test", authorize, async (request, response) => {
+    if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
+    z.strictObject({}).parse(request.body ?? {});
+    let upstreamStatus: number | undefined;
+    const observedFetch: typeof fetch = async (input, init) => {
+      const result = await fetch(input, init);
+      upstreamStatus = result.status;
+      return result;
+    };
+    const key = userApiKey(request);
+    const provider = key ? requestProviderFactory(key, observedFetch) : createAiProvider(undefined, observedFetch);
+    const result = await provider.toolTurn("Connection test only. Reply READY. No ERP data or tools are available.",
+      [{ role: "user", content: "Reply READY." }], [], { signal: AbortSignal.timeout(30_000) });
+    const hasText = result.output.some((item: { type?: string; content?: Array<{ type?: string; text?: string }> }) =>
+      item.type === "message" && item.content?.some(part => part.type === "output_text" && part.text?.trim()));
+    if (!hasText) throw new ApiError(502, "AI_INVALID_OUTPUT", "The AI provider did not return a usable connection-test response.");
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ data: { connected: true, ...(upstreamStatus === undefined ? {} : { httpStatus: upstreamStatus }) } });
   });
 
   router.post("/agent/input", authorize, async (request, response) => {

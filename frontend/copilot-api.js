@@ -20,6 +20,10 @@ export async function getCopilotProviderStatus() {
   return api("/api/v1/ai/copilot/settings", { method: "GET" });
 }
 
+export async function testCopilotProvider() {
+  return api("/api/v1/ai/copilot/settings/test", { method: "POST", body: "{}" });
+}
+
 export async function createCopilotDraft(input, branchId, idempotencyKey = newIdempotencyKey("copilot-draft")) {
   return api("/api/v1/ai/copilot/drafts", {
     method: "POST",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument, getCopilotProviderStatus } from "./copilot-api.js";
+import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js";
 import { clearCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 
 afterEach(() => { vi.unstubAllGlobals(); clearCopilotApiKey(); });
@@ -9,6 +9,12 @@ function response(body = {}) {
 }
 
 describe("Copilot browser API tenant context", () => {
+  it("verifies a provider with a POST and propagates an actionable key error", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({error:{code:"AI_API_KEY_REJECTED",message:"The provider rejected this key."}}) });
+    vi.stubGlobal("fetch", fetch);
+    await expect(testCopilotProvider()).rejects.toMatchObject({code:"AI_API_KEY_REJECTED",message:"The provider rejected this key."});
+    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/settings/test", expect.objectContaining({ method: "POST", body: "{}", credentials: "include" }));
+  });
   it("sends the next read to the Phase 1 agent with signed conversation context", async () => {
     const fetch = vi.fn().mockResolvedValue(response({ data: { answer: "PKR 477", conversationToken: "new-token" } }));
     vi.stubGlobal("fetch", fetch);

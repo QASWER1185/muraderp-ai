@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { loadEnvironmentFiles } from "./load-env.js";
+
+// Tests exercise the loader with disposable fixtures, never real local secrets.
+if (process.env.NODE_ENV !== "test" && !process.env.VITEST) loadEnvironmentFiles();
 
 const FORBIDDEN_SERVICE_PRINCIPALS = new Set([
   "backend",
@@ -19,6 +23,7 @@ const envSchema = z
     GROQ_API_KEY: z.string().trim().min(20).optional(),
     OPENAI_API_KEY: z.string().trim().min(20).optional(),
     GEMINI_API_KEY: z.string().trim().min(20).optional(),
+    GEMINI_MODEL: z.string().trim().min(1).optional(),
     ANTHROPIC_API_KEY: z.string().trim().min(20).optional(),
     AI_MODEL: z.string().trim().min(1).optional(),
     AI_VISION_MODEL: z.string().trim().min(1).optional(),
@@ -71,7 +76,9 @@ const envSchema = z
     ];
     const configuredValues = erpValues.filter((value) => value !== undefined).length;
 
-    if (configuredValues > 0 && configuredValues < erpValues.length) {
+    const localBrowserOnly = configuration.NODE_ENV === "development"
+      && configuration.SUPABASE_URL && configuration.SUPABASE_SECRET_KEY && !configuration.INTERNAL_API_TOKEN;
+    if (configuredValues > 0 && configuredValues < erpValues.length && !localBrowserOnly) {
       context.addIssue({
         code: "custom",
         message:

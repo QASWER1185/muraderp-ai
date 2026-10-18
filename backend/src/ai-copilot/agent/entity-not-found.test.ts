@@ -100,6 +100,14 @@ describe("missing entities and Copilot failure recovery", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ errorCode: "AI_NOT_CONFIGURED" }), "Copilot reasoning failed");
   });
 
+  it("shows sanitized actionable model and request configuration failures", async () => {
+    const f = businessFixture();
+    const model = { respond: vi.fn(async () => { throw new ApiError(502, "AI_PROVIDER_BAD_REQUEST", "Safe settings guidance"); }) };
+    const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "hello" }, scope);
+    expect(result.answer).toContain("Safe settings guidance");
+    expect(result.answer).toContain("No ERP action was performed.");
+  });
+
   it("retains authoritative results if the next model turn fails", async () => {
     const f = businessFixture();
     f.respond.mockResolvedValueOnce(call("query_inventory", { query: "Popular pipe" })).mockRejectedValueOnce(new ApiError(502, "AI_PROVIDER_ERROR", "private upstream response"));

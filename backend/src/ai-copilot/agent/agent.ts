@@ -311,6 +311,10 @@ export class UnifiedCopilotAgent {
           answer = error.code === "AI_NOT_CONFIGURED"
             ? "Enter your Gemini API key in Copilot API key settings for conversational workflows. Basic stock inquiries remain available without a key."
             : "ERP data access is not configured. Please contact your administrator. Manual ERP pages remain available.";
+        } else if (error instanceof ApiError && ["AI_PROVIDER_BAD_REQUEST", "AI_MODEL_UNAVAILABLE", "AI_PROVIDER_PAYMENT_REQUIRED"].includes(error.code)) {
+          // These messages are authored by this service and contain no provider
+          // response body, so they can distinguish actionable setup failures.
+          answer = `${error.message} No ERP action was performed.`;
         } else if (error instanceof ApiError && error.code.startsWith("AI_PROVIDER_")) {
           answer = "The configured AI provider could not complete this request. Please try again or use the Customers and Stock pages. No ERP action was performed.";
         }

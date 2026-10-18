@@ -33,6 +33,30 @@ a configured AI provider, model and API key for live natural-language requests.
 
 ## Verification
 
+The backend loads environment files relative to its own location, including
+compiled `dist` startup. Precedence (highest first) is the shell environment,
+`backend/.env.local`, root `.env.local`, `backend/.env`, then root `.env`.
+Node's built-in environment-file parser is used; files and secret values are
+never logged. Tests do not automatically load real project environment files.
+
+Keep the Supabase configuration and the existing `INTERNAL_API_TOKEN` in an
+ignored root `.env.local` to preserve browser sessions across backend restarts.
+Without a token, development can sign new sessions with an in-memory random
+secret after verifying the user with Supabase. Those development sessions expire
+on restart, and this secret never grants internal service access. Production
+still requires the complete explicit ERP configuration.
+
+`GEMINI_MODEL` selects the model used with a browser-supplied Gemini key,
+independently of a Groq/OpenAI server provider. The default is the documented
+stable `gemini-3.8-flash`; an unavailable model returns `AI_MODEL_UNAVAILABLE`.
+The service does not silently switch providers or retry another billable model.
+
+In Copilot's API key settings, **Test saved key** sends a minimal text request
+through the authenticated backend and shows the upstream HTTP status on success.
+It does not invoke ERP tools or write business data. Saving a key alone does not
+verify provider access; invalid keys, unavailable models, and request errors are
+reported separately.
+
 ```sh
 cd frontend
 npm test -- --maxWorkers=1

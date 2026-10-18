@@ -31,6 +31,10 @@ function setup() {
 }
 
 describe("Phase 1 browser authentication boundary", () => {
+  it("requires a valid browser session before a provider connection test", async () => {
+    const { app } = setup();
+    expect((await request(app).post("/copilot/settings/test").send({})).status).toBe(401);
+  });
   it("rejects anonymous, forged-cookie, and internal-only requests", async () => {
     const { app, run } = setup();
     for (const headers of [{}, { Cookie: "muraderp_session=forged.invalid" }, { Authorization: `Bearer ${env.INTERNAL_API_TOKEN}` }]) {

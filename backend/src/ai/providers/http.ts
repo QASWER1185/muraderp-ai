@@ -9,6 +9,18 @@ export async function providerJson(fetcher: typeof fetch, url: string, key: stri
   catch { throw new ApiError(502,"AI_PROVIDER_UNAVAILABLE","AI provider could not be reached. Please retry."); }
   if(response.status===429) throw new ApiError(429,"AI_PROVIDER_RATE_LIMITED","The configured AI provider rate limit was reached. Please wait before retrying.");
   if(response.status===401 || response.status===403) throw new ApiError(401,"AI_API_KEY_REJECTED","The AI provider rejected its API key or model access. Check Copilot API key settings or contact your administrator.");
+  if(response.status===402) throw new ApiError(402,"AI_PROVIDER_PAYMENT_REQUIRED","The AI provider requires an active billing plan or available credits.");
+  if(response.status===404) throw new ApiError(503,"AI_MODEL_UNAVAILABLE","The configured AI model is unavailable. Check the provider model setting.");
+  if(response.status===400) {
+    // Gemini reports invalid API keys as HTTP 400 INVALID_ARGUMENT. Detect only
+    // the known safe signature; never return or log the upstream body.
+    const error = await response.clone().json().catch(() => null) as {error?:{message?:unknown;status?:unknown;details?:unknown}} | null;
+    const message = typeof error?.error?.message === "string" ? error.error.message : "";
+    const details = Array.isArray(error?.error?.details) ? error.error.details : [];
+    const reason = details.some((item) => item && typeof item === "object" && "reason" in item && (item as {reason?:unknown}).reason === "API_KEY_INVALID");
+    if (/^api key not valid\b/i.test(message) || reason) throw new ApiError(401,"AI_API_KEY_REJECTED","The AI provider rejected this API key. Check that it is active and authorized for the Gemini API.");
+    throw new ApiError(502,"AI_PROVIDER_BAD_REQUEST","The AI provider rejected the request format or model settings. Check Copilot provider compatibility; re-entering the key may not resolve this error.");
+  }
   if(!response.ok) throw new ApiError(502,"AI_PROVIDER_ERROR","AI provider could not process this request. Please retry or use manual entry.");
   return response.json().catch(()=>{throw new ApiError(502,"AI_INVALID_OUTPUT","AI provider returned an invalid response.");});
 }
