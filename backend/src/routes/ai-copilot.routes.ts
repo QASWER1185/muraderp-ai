@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
@@ -186,7 +186,7 @@ export function createAiCopilotRouter(
     const organizationId = z.string().uuid().parse(headerValue(request,"X-Organization-Id"));
     const branchId = z.string().uuid().parse(headerValue(request,"X-Branch-Id"));
     const input = z.strictObject({ source:z.enum(["image","camera","voice"]), media:mediaSchema,
-      message:z.string().trim().max(4000).optional(),task:z.enum(["auto","estimate"]).default("auto"),
+      message:z.string().trim().max(4000).optional(),fileName:z.string().trim().max(255).optional(),task:z.enum(["auto","estimate","rate_list_update"]).default("auto"),
       conversationToken:z.string().max(9000).optional(),conversationId:z.string().uuid().optional() }).parse(request.body);
     const scope = {userId,organizationId,branchId};
     await getConversationalTools().assertScope(scope);
@@ -199,6 +199,15 @@ export function createAiCopilotRouter(
     const inputPipeline = provider ? new MultimodalAgentInput(new ProviderBusinessInput(provider)) : (multimodalInput ??= new MultimodalAgentInput());
     const normalized = await inputPipeline.normalize(input,scope);
     response.setHeader("Cache-Control","no-store");
+    if (normalized.catalog) {
+      const idempotencyKey = "copilot-catalog-" + randomUUID();
+      const action = await getRuntime().createCatalogDraft({ ...scope, source: input.source, catalog: normalized.catalog }, idempotencyKey);
+      response.json({ data: { answer: normalized.message, status: "catalog_review", requiresConfirmation: true,
+        conversationToken: writeBusinessState(state), conversationId: state.conversationId,
+        catalogReview: { draftId: action.id, idempotencyKey, name: normalized.catalog.name, itemCount: normalized.catalog.items.length },
+        extraction: normalized.extraction, toolNames: ["extract_rate_list_catalog", "prepare_rate_list_import"] } });
+      return;
+    }
     if (normalized.reviewRequired) {
       response.json({data:{answer:"The document needs review. Correct or confirm the extracted wording before continuing; no ERP action was prepared.",
         status:"clarification",conversationToken:writeBusinessState(state),conversationId:state.conversationId,

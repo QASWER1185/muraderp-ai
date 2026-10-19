@@ -81,6 +81,23 @@ function deps(database: any): CopilotRuntimeDependencies {
 }
 
 describe("Phase 6 — AI Copilot safety / end-to-end regression", () => {
+  it("imports a complete catalog only after scoped confirmation and never repeats the write", async () => {
+    const database = fakeDatabase(), dependencies = deps(database);
+    const importRateList = vi.fn().mockResolvedValue({ rate_list: { id: 9 }, version: { id: 10, status: "ACTIVE" }, items: [] });
+    dependencies.rateLists = { createDraftVersion: vi.fn(), importRateList };
+    const runtime = new CopilotRuntime({} as any, dependencies);
+    const catalog = { documentType: "rate_list" as const, name: "Dura Flow PPRC", standardDiscountPercent: 50, complete: true, confidence: 1, warnings: [],
+      items: Array.from({ length: 132 }, (_, index) => ({ brand: "Dura Flow", category: "Pipes" as const, name: "Pipe PN-16", size: index + "mm", unit: "length", list_price: 1527 })) };
+    const action = await runtime.createCatalogDraft({ organizationId, branchId, userId, source: "image", catalog }, "catalog-1");
+    expect(importRateList).not.toHaveBeenCalled();
+    await expect(runtime.confirmAndExecute(action.id, organizationId, otherUserId, "catalog-1", branchId)).rejects.toThrow("user mismatch");
+    expect(importRateList).not.toHaveBeenCalled();
+    expect((await runtime.confirmAndExecute(action.id, organizationId, userId, "catalog-1", branchId)).status).toBe("EXECUTED");
+    await runtime.confirmAndExecute(action.id, organizationId, userId, "catalog-1", branchId);
+    expect(importRateList).toHaveBeenCalledOnce();
+    expect(importRateList).toHaveBeenCalledWith({ ...catalog, organization_id: organizationId, idempotency_key: "catalog-1" });
+    expect(dependencies.authorization.assertPermission).toHaveBeenCalledWith(userId, organizationId, "products.write");
+  });
   it("rejects direct Invoice drafts before persistence", async () => {
     const database = fakeDatabase();
     const runtime = new CopilotRuntime({} as any, deps(database));

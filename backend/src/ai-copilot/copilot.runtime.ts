@@ -151,7 +151,7 @@ export interface CopilotRuntimeDependencies {
   salesTransaction: Pick<SalesTransactionPort, "execute">;
   returns: Pick<SalesReturnService, "recordSalesReturn">;
   verifier: CopilotExecutionVerifier;
-  rateLists?: Pick<RateListService, "createDraftVersion">;
+  rateLists?: Pick<RateListService, "createDraftVersion"> & Partial<Pick<RateListService, "importRateList">>;
   customerPayments?: Pick<CustomerPaymentService, "recordPayment">;
   vendorPayments?: Pick<VendorPaymentService, "recordPayment">;
   database: () => any;
@@ -357,6 +357,13 @@ export class CopilotRuntime {
       requiresConfirmation: true,
     };
     return this.persistPlan(plan, idempotencyKey);
+  }
+
+  async createCatalogDraft(input: { organizationId: string; userId: string; branchId: string; source: CopilotActionPlan["source"]; catalog: import("./rate-list-catalog.js").RateListCatalog }, idempotencyKey: string) {
+    const { RateListCatalogSchema, mergeCatalogPages } = await import("./rate-list-catalog.js");
+    const catalog = mergeCatalogPages([RateListCatalogSchema.parse(input.catalog)]);
+    return this.persistPlan({ organizationId: input.organizationId, userId: input.userId, branchId: input.branchId,
+      source: input.source, target: "rate_list_update", catalogImport: catalog, lines: [], requiresConfirmation: true }, idempotencyKey);
   }
 
   async createRateListDraft(
@@ -575,6 +582,10 @@ export class CopilotRuntime {
       });
     }
 
+    if (plan.target === "rate_list_update" && plan.catalogImport) {
+      if (!this.dependencies.rateLists?.importRateList) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "Catalog import service is not configured");
+      return this.dependencies.rateLists.importRateList({ ...plan.catalogImport, organization_id: plan.organizationId, idempotency_key: idempotencyKey });
+    }
     const lines = requireLineProducts(plan);
 
     if (plan.target === "rate_list_update") {

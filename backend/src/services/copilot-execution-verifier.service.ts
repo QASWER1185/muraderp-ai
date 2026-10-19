@@ -11,7 +11,7 @@ export interface CopilotExecutionVerifier {
 }
 
 export interface CopilotVerificationReaders {
-  erp: Pick<ErpService, "getCustomer" | "getVendor" | "getPurchase">;
+  erp: Pick<ErpService, "getCustomer" | "getVendor" | "getPurchase"> & Partial<Pick<ErpService, "getProduct">>;
   estimates: Pick<EstimateCloneRepriceRepository, "getEstimateAggregate">;
   customerPayments: Pick<CustomerPaymentBrowserRepository, "getPayment">;
   vendorPayments: Pick<VendorPaymentBrowserRepository, "getPayment">;
@@ -156,6 +156,29 @@ export class DefaultCopilotExecutionVerifier implements CopilotExecutionVerifier
     }
 
     if (plan.target === "rate_list_update") {
+      if (plan.catalogImport) {
+        const catalog = plan.catalogImport;
+        const targetId = positiveId(record(result.rate_list, "Imported rate list").id, "Rate list");
+        const list = await this.readers.rateLists.getRateList(targetId, organizationId);
+        if (!list) throw new Error("Imported rate list was not found in this organization");
+        same("Catalog name", list.name, catalog.name);
+        const versionId = positiveId(record(result.version, "Imported version").id, "Version");
+        const version = (await this.readers.rateLists.listVersions(targetId)).find(row => row.id === versionId);
+        if (!version) throw new Error("Imported version was not found");
+        same("Catalog status", version.status, "ACTIVE");
+        same("Standard discount", (version as any).standard_discount_percent, catalog.standardDiscountPercent ?? 0);
+        const items = await this.readers.rateLists.listItems([versionId]);
+        if (!this.readers.erp.getProduct) throw new Error("Independent catalog product reader is unavailable");
+        const products = await Promise.all(items.map(item => this.readers.erp.getProduct!(item.product_id, organizationId)));
+        sameLines("Approved catalog", items.map((item, index) => {
+          same("Catalog minimum quantity", item.minimum_quantity, 1);
+          const product = products[index];
+          if (!product) throw new Error("Imported product was not found in this organization");
+          same("Product unit", product.unit, item.unit);
+          return { name: product.name, category: product.category, unit: item.unit, list_price: item.unit_price };
+        }), catalog.items.map(item => ({ name: [item.brand, item.name, item.size].join(" "), category: item.category, unit: item.unit, list_price: item.list_price })), ["name", "category", "unit", "list_price"]);
+        return;
+      }
       const executed = record(result.version, "Version execution result");
       const versionId = positiveId(executed.id, "Version");
       const target = plan.rateListUpdate;

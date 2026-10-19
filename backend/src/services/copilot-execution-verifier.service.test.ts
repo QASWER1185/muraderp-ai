@@ -23,6 +23,21 @@ function verifier(overrides: Record<string, unknown>) {
 }
 
 describe("independent ERP result comparison", () => {
+  it("independently verifies imported catalog prices, products and standard discount", async () => {
+    const product={id:7,name:"Dura Flow Pipe PN-16 25mm",unit:"length",category:"Pipes"};
+    const item={product_id:7,minimum_quantity:1,unit_price:1527,unit:"length"};
+    const version={id:10,status:"ACTIVE",standard_discount_percent:50};
+    const {service}=verifier({erp:{getProduct:vi.fn().mockResolvedValue(product)},rateLists:{
+      getRateList:vi.fn().mockResolvedValue({id:9,name:"Dura Flow PPRC"}),listVersions:vi.fn().mockResolvedValue([version]),listItems:vi.fn().mockResolvedValue([item])}});
+    const plan:CopilotActionPlan={...base,target:"rate_list_update",catalogImport:{documentType:"rate_list",name:"Dura Flow PPRC",standardDiscountPercent:50,complete:true,confidence:1,warnings:[],items:[{brand:"Dura Flow",category:"Pipes",name:"Pipe PN-16",size:"25mm",unit:"length",list_price:1527}]}};
+    await service.verify(plan,{rate_list:{id:9},version:{id:10}});
+    item.unit_price=763.5;
+    await expect(service.verify(plan,{rate_list:{id:9},version:{id:10}})).rejects.toThrow("Approved catalog");
+    item.unit_price=1527;version.standard_discount_percent=0;
+    await expect(service.verify(plan,{rate_list:{id:9},version:{id:10}})).rejects.toThrow("Standard discount");
+    version.standard_discount_percent=50;item.minimum_quantity=2;
+    await expect(service.verify(plan,{rate_list:{id:9},version:{id:10}})).rejects.toThrow("Catalog minimum quantity");
+  });
   it("checks persisted estimate header and priced lines against the execution result", async () => {
     const line = { line_number: 1, product_id: 501, quantity: 20, unit: "bag", unit_price: 1525 };
     const result = { id: 7001, status: "DRAFT", definition: { estimate_number: "EST-1" }, lines: [line] };

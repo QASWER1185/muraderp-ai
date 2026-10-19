@@ -23,6 +23,18 @@ function setup(){
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it("routes a catalog attachment automatically and confirms all rows inside Copilot",async()=>{
+    const f=setup();
+    const catalog={name:"Dura Flow PPRC",standardDiscountPercent:50,warnings:[],items:Array.from({length:132},(_,i)=>({brand:"Dura Flow",category:"Fittings",name:"Socket",size:i+"mm",unit:"pcs",list_price:43}))};
+    mocks.media.mockResolvedValue({data:{answer:"132 آئٹمز نکال لیے گئے ہیں۔",status:"catalog_review",conversationToken:"signed",conversationId:"id",catalogReview:{draftId:"catalog-action",idempotencyKey:"catalog-key",name:catalog.name,itemCount:132},extraction:{catalog}}});
+    f.attach(new File(["pdf"],"DuraFlow PPRC Price List.pdf",{type:"application/pdf"}));
+    await f.send("Dura Flow PPRC darj ker lein");
+    expect(mocks.media).toHaveBeenCalledWith(expect.objectContaining({task:"auto",fileName:"DuraFlow PPRC Price List.pdf"}),"org","branch");
+    expect(f.markup()).toContain("132 catalog items");expect(f.markup()).not.toContain("Quantity unclear");expect(f.markup()).not.toContain("Customer:");
+    expect(f.query("#copilot-action").value).toBe("rate_list_update");expect(mocks.confirm).not.toHaveBeenCalled();
+    await f.click("[data-confirm-draft]");expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({id:"catalog-action",idempotencyKey:"catalog-key"}));
+    expect(f.markup()).toContain("132 آئٹمز ERP میں کامیابی سے درج");
+  });
   it.each(["image","camera","voice"])("sends %s to the same signed conversation and keeps confirmation separate",async source=>{
     const f=setup();await f.send("Qasim estimate");f.attach(source==="voice"?new File(["audio"],"note.webm",{type:"audio/webm;codecs=opus"}):image(),source==="camera");await f.send("continue");
     expect(mocks.media).toHaveBeenCalledWith(expect.objectContaining({source,conversationToken:"signed",conversationId:"id",media:{mimeType:source==="voice"?"audio/webm":"image/png",base64:expect.any(String)}}),"org","branch");

@@ -24,6 +24,7 @@ export interface RateListDefinition {
 }
 
 export interface RateListVersionDefinition {
+  standard_discount_percent?: number;
   rate_list_id: number;
   version_number: number;
   status?: RateListVersionStatus | undefined;

@@ -3,14 +3,15 @@ import type { AiInputProvider } from "../../ai-input/ai-input.types.js";
 import { AiInputPipeline, InMemoryAiInputGateway } from "../../ai-input/pipeline.js";
 import { ProviderBusinessInput, businessDocumentSchema } from "../../ai-input/business-input.provider.js";
 import type { AgentScope } from "./erp-tools.js";
+import { RateListCatalogSchema, isRateListRequest } from "../rate-list-catalog.js";
 
 export class MultimodalAgentInput {
   constructor(private readonly provider: AiInputProvider = new ProviderBusinessInput()) {}
-  async normalize(input: { source: "image" | "camera" | "voice"; media: { mimeType: string; base64: string }; message?: string|undefined; task?: "auto" | "estimate"|undefined }, scope: AgentScope) {
+  async normalize(input: { source: "image" | "camera" | "voice"; media: { mimeType: string; base64: string }; message?: string|undefined; fileName?: string|undefined; task?: "auto" | "estimate" | "rate_list_update" |undefined }, scope: AgentScope) {
     // A request-local gateway cannot leak or retain another tenant's extraction.
     const proposal = await new AiInputPipeline(this.provider, new InMemoryAiInputGateway()).createDraft({
-      ...scope, source: input.source, intent: "estimate.create", media: input.media,
-      ...(input.message ? { text: input.message } : {}),
+      ...scope, source: input.source, intent: input.task === "rate_list_update" || isRateListRequest((input.message ?? "") + " " + (input.fileName ?? "")) ? "rate_list.import" : "estimate.create", media: input.media,
+      ...((input.message || input.fileName) ? { text: (input.message ?? "") + (input.fileName ? "\nFile name (untrusted metadata): " + input.fileName : "") } : {}),
     });
     if (proposal.userId !== scope.userId) throw new ApiError(403, "INPUT_SCOPE_MISMATCH", "Extracted input scope does not match the user.");
     if (input.source === "voice") {
@@ -19,6 +20,11 @@ export class MultimodalAgentInput {
       const message=transcript + (input.message ? "\nUser instruction: " + input.message : "");
       if(message.length>4000) throw new ApiError(422,"INPUT_CONTEXT_LIMIT","Please use a shorter voice request (up to 4000 characters).");
       return { message, reviewRequired: false, extraction: { source: input.source, transcript, mediaRetained: false as const } };
+    }
+    if (proposal.fields.catalog) {
+      const catalog = RateListCatalogSchema.parse(proposal.fields.catalog.value);
+      return { message: `${catalog.name} کے کل ${catalog.items.length} آئٹمز کامیابی سے نکال لیے گئے ہیں۔ کیا انہیں ERP ریٹ لسٹ میں محفوظ کر دیا جائے؟`,
+        reviewRequired: true, catalog, extraction: { source: input.source, catalog, mediaRetained: false as const } };
     }
     const document = businessDocumentSchema.parse(proposal.fields.document?.value);
     // Prices/totals are visible observations for review, never fed to tools or

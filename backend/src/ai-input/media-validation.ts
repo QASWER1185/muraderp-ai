@@ -73,7 +73,7 @@ export async function validateAgentMedia(input: unknown, source: AiInputSource) 
 }
 
 /** Local in-memory PDF rasterization. Never fetch embedded URLs or retain files. */
-export async function visionContent(media: ReturnType<typeof decodeMedia>): Promise<unknown[]> {
+export async function visionContent(media: ReturnType<typeof decodeMedia>, options: { maxPages?: number; maxRenderedBytes?: number } = {}): Promise<unknown[]> {
   if (media.mimeType !== "application/pdf") return [{ type: "input_image", image_url: `data:${media.mimeType};base64,${media.base64}`, detail: "high" }];
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = getDocument({ data: new Uint8Array(media.bytes), enableXfa: false, maxImageSize: MAX_PIXELS,
@@ -81,7 +81,8 @@ export async function visionContent(media: ReturnType<typeof decodeMedia>): Prom
   const timeout = setTimeout(()=>void task.destroy(),15_000);
   try {
     const pdf = await task.promise;
-    if (pdf.numPages < 1 || pdf.numPages > 3) throw new ApiError(413,"PDF_PAGE_LIMIT","PDFs must contain 1–3 pages. Split the document before uploading.");
+    const maxPages = options.maxPages ?? 3;
+    if (pdf.numPages < 1 || pdf.numPages > maxPages) throw new ApiError(413,"PDF_PAGE_LIMIT",`PDFs must contain 1–${maxPages} pages. Split the document before uploading.`);
     const content: unknown[] = [];
     let totalBytes = 0;
     for (let index=1;index<=pdf.numPages;index++) {
@@ -92,7 +93,7 @@ export async function visionContent(media: ReturnType<typeof decodeMedia>): Prom
       try {
         await page.render({ canvasContext: canvas.context, canvas: canvas.canvas, viewport }).promise;
         const bytes: Buffer = canvas.canvas.toBuffer("image/png"); totalBytes += bytes.length;
-        if (totalBytes > MEDIA_LIMIT) throw new ApiError(413,"MEDIA_TOO_LARGE","Rendered PDF exceeds the 8 MB image limit.");
+        if (totalBytes > (options.maxRenderedBytes ?? MEDIA_LIMIT)) throw new ApiError(413,"MEDIA_TOO_LARGE","Rendered PDF exceeds the image processing limit.");
         content.push({ type:"input_image",image_url:`data:image/png;base64,${bytes.toString("base64")}`,detail:"high" });
       } finally { factory.destroy(canvas); page.cleanup(); }
     }

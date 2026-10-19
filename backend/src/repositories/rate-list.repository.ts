@@ -8,8 +8,10 @@ type PricingDatabaseClient = SupabaseClient<Database> & { from(table: "rate_list
 export interface RateListRecord extends RateListDefinition { id: number; is_active: boolean; created_at: string; updated_at: string; }
 export interface RateListVersionRecord extends RateListVersionDefinition { id: number; status: "DRAFT" | "ACTIVE" | "ARCHIVED"; created_at: string; updated_at: string; }
 export interface RateListItemRecord extends RateListItemDefinition { id: number; minimum_quantity: number; created_at: string; updated_at: string; }
+export interface CatalogImportResult { rate_list: RateListRecord; version: RateListVersionRecord; items: RateListItemRecord[]; }
 
 export interface RateListRepository {
+  importRateList?(input: import("../ai-copilot/rate-list-catalog.js").RateListCatalogImport): Promise<CatalogImportResult>;
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
@@ -23,6 +25,14 @@ const scopePriority: Record<RateListScopeType, number> = { CUSTOMER: 3, VENDOR: 
 
 export class SupabaseRateListRepository implements RateListRepository, RateListLifecycleRepository {
   constructor(private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient) {}
+  async importRateList(input: import("../ai-copilot/rate-list-catalog.js").RateListCatalogImport): Promise<CatalogImportResult> {
+    const { organization_id, idempotency_key, ...catalog } = input;
+    const { data, error } = await (this.clientFactory() as any).rpc("import_rate_list_catalog", {
+      p_organization_id: organization_id, p_idempotency_key: idempotency_key, p_catalog: catalog,
+    });
+    if (error) throw error;
+    return data;
+  }
   async listRateLists(organizationId: string): Promise<RateListRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("*").eq("organization_id", organizationId).order("id", { ascending: false }); if (error) throw error; return (data ?? []) as RateListRecord[]; }
   async getRateList(rateListId: number, organizationId: string): Promise<RateListRecord | null> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("*").eq("organization_id", organizationId).eq("id", rateListId).maybeSingle(); if (error) throw error; return data as RateListRecord | null; }
   async listVersions(rateListId: number): Promise<RateListVersionRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").select("*").eq("rate_list_id", rateListId).order("version_number", { ascending: false }); if (error) throw error; return (data ?? []) as RateListVersionRecord[]; }

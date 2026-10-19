@@ -13,6 +13,7 @@ import type {
 } from "../repositories/rate-list.repository.js";
 
 export interface RateListService {
+  importRateList(input: import("../ai-copilot/rate-list-catalog.js").RateListCatalogImport): Promise<import("../repositories/rate-list.repository.js").CatalogImportResult>;
   createRateList(input: RateListDefinition): Promise<RateListRecord>;
   createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
   createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
@@ -28,6 +29,15 @@ export interface RateListService {
  */
 export class DefaultRateListService implements RateListService {
   constructor(private readonly repository: RateListRepository) {}
+
+  async importRateList(input: import("../ai-copilot/rate-list-catalog.js").RateListCatalogImport) {
+    const { RateListCatalogSchema, mergeCatalogPages } = await import("../ai-copilot/rate-list-catalog.js");
+    const { organization_id, idempotency_key, ...raw } = input;
+    if (!organization_id.trim() || !idempotency_key.trim()) throw new Error("Organization and import idempotency key are required");
+    const catalog = mergeCatalogPages([RateListCatalogSchema.parse(raw)]);
+    if (!this.repository.importRateList) throw new Error("Catalog import storage is not configured");
+    return this.repository.importRateList({ ...catalog, organization_id, idempotency_key });
+  }
 
   async createRateList(input: RateListDefinition): Promise<RateListRecord> {
     const name = input.name.trim();

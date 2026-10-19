@@ -29,6 +29,10 @@ export function ambiguityMarkup(clarification) {
   return `<article class="review-card" data-agent-ambiguity><h3>Choose the ${escapeHtml(clarification.kind)}</h3><p>Select an ERP candidate to continue the same conversation.</p>${clarification.candidates.map(row=>`<button class="button secondary" type="button" data-agent-candidate="${escapeHtml(row.id)}" data-candidate-kind="${escapeHtml(clarification.kind)}">${escapeHtml(row.name)}${row.city?" · "+escapeHtml(row.city):""}${row.sku?" · "+escapeHtml(row.sku):""}</button>`).join("")}</article>`;
 }
 export function extractionMarkup(extraction,reviewText) {
+  if (extraction.catalog) {
+    const catalog = extraction.catalog;
+    return `<article class="review-card" data-input-review><h3>${escapeHtml(catalog.name)}</h3><p>${catalog.items.length} catalog items · standard discount ${escapeHtml(catalog.standardDiscountPercent ?? "not specified")}%</p><details><summary>تمام نکالے گئے آئٹمز دیکھیں</summary>${catalog.items.map(item => `<p>${escapeHtml(item.brand)} · ${escapeHtml(item.category)} · ${escapeHtml(item.name)} · ${escapeHtml(item.size)} · ${escapeHtml(item.unit)} · printed PKR ${escapeHtml(item.list_price)}</p>`).join("")}</details>${catalog.warnings.length ? `<p class="review-warning">${escapeHtml(catalog.warnings.join(" "))}</p>` : ""}</article>`;
+  }
   if(extraction.transcript) return `<article class="review-card"><h3>Voice transcript</h3><p>${escapeHtml(extraction.transcript)}</p><p>Transcription is proposed wording; ERP tools verify business values.</p></article>`;
   const doc=extraction.document;
   if(!doc) return "";
@@ -338,13 +342,13 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
       const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
-      if (action === "auto" || action === "estimate") {
+      if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
         const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
         activeDraft = null; preparedConversation = null; customerPreparationScope = null;
         thread.querySelectorAll("[data-customer-preparation], [data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
-        const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,media:payload.media,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
+        const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,media:payload.media,fileName:sentAttachment.name,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
         if(version!==operationVersion) return;
         const current=getWorkspaceContext();
         if(getAuthenticatedUserId()!==userId || current?.organizationId!==context.organizationId || current?.branchId!==context.branchId) {conversation.clear();throw new Error("Workspace changed. Please resend in the active workspace.");}
@@ -361,6 +365,12 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
           appendMessage("assistant", customerDraftReviewMarkup(response.data.review));
         }
         if(response.data.extraction) appendMessage("assistant",extractionMarkup(response.data.extraction,response.data.reviewText));
+        if (response.data.catalogReview) {
+          const catalog = response.data.catalogReview;
+          activeDraft = { id: catalog.draftId, idempotencyKey: catalog.idempotencyKey, intent: "rate_list_update", organizationId: context.organizationId, branchId: context.branchId, userId, catalogName: catalog.name, itemCount: catalog.itemCount };
+          task.value = "rate_list_update";
+          appendMessage("assistant", '<article class="confirmation-card review-card"><p>تصدیق کے بعد تمام آئٹمز ERP میں درج ہوں گے اور یہ ریٹ لسٹ فعال ہو جائے گی۔</p><button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button><button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور ریٹ لسٹ محفوظ کریں</button></article>');
+        }
         if(response.data.clarification) appendMessage("assistant",ambiguityMarkup(response.data.clarification));
         if(response.data.toolNames?.length) appendMessage("assistant",`<details><summary>ERP tools completed</summary><p>${response.data.toolNames.map(escapeHtml).join(" · ")}</p></details>`);
         if (response.data.draft) {
@@ -455,6 +465,10 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       const completed = activeDraft;
       activeDraft = null;
       conversation.clear(); preparedConversation = null;
+      if (completed.catalogName && response.verified) {
+        task.value = "auto";
+        appendMessage("assistant", `<p class="message-success">${escapeHtml(completed.catalogName)} کی تمام ${completed.itemCount} آئٹمز ERP میں کامیابی سے درج کر دی گئی ہیں۔</p>`);
+      }
       appendMessage("assistant", `<div class="${response.verified ? "message-success" : "message-status"}">${icon(response.verified ? "check" : "alert")}<span><strong>${response.verified ? "Verified in ERP" : "Action not verified"}</strong><p>${response.verified ? "The ERP service executed this action and an independent read confirmed the resulting record." : "The resulting ERP record has not been verified. Check the action status before continuing."}</p>${response.verified ? '<button class="button secondary compact" type="button" data-open-record>Open in ERP</button>' : ""}</span></div>`);
       const button = thread.querySelector("[data-open-record]:last-of-type");
       if (button) { button.dataset.intent = completed.intent; button.dataset.recordId = String(response.data?.result?.id ?? response.data?.result?.purchase?.id ?? response.data?.result?.credit_note?.id ?? ""); }

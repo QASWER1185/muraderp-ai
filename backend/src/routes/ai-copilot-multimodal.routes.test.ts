@@ -22,7 +22,7 @@ const media=()=>({mimeType:"image/png",base64:createCanvas(120,60).toBuffer("ima
 function voice(){const b=Buffer.alloc(1644);b.write("RIFF");b.writeUInt32LE(b.length-8,4);b.write("WAVEfmt ",8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(8000,24);b.writeUInt32LE(16000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write("data",36);b.writeUInt32LE(1600,40);b.fill(12,44);return {mimeType:"audio/wav",base64:b.toString("base64")};}
 function setup(){
   const f=businessFixture(),provider={generate:vi.fn(async()=>structuredClone(document)),transcribe:vi.fn(async()=>"Qasim Popular pipe 20 MTR 40% discount estimate")};
-  const runtime={createConversationDraft:vi.fn(async(_state:unknown,_view:unknown)=>({id:"55555555-5555-4555-8555-555555555555",status:"DRAFT"})),confirmAndExecute:vi.fn(async()=>({status:"EXECUTED"}))};
+  const runtime={createCatalogDraft:vi.fn(async()=>({id:"55555555-5555-4555-8555-555555555555",status:"DRAFT"})),createConversationDraft:vi.fn(async(_state:unknown,_view:unknown)=>({id:"55555555-5555-4555-8555-555555555555",status:"DRAFT"})),confirmAndExecute:vi.fn(async()=>({status:"EXECUTED"}))};
   const app=express();app.use(express.json({limit:"12mb"}));app.use((req,_res,next)=>{req.log={info:vi.fn(),warn:vi.fn()} as any;next();});
   app.use("/copilot",createAiCopilotRouter(env.INTERNAL_API_TOKEN,runtime as any,"service",new CopilotAgent(f.core),f.core,f.tools,new MultimodalAgentInput(new ProviderBusinessInput(provider))));app.use(errorHandler);
   const cookieFor=(userId:string)=>{const payload=Buffer.from(JSON.stringify({userId,exp:Math.floor(Date.now()/1000)+60})).toString("base64url");return `muraderp_session=${payload}.${createHmac("sha256",env.INTERNAL_API_TOKEN!).update(payload).digest("base64url")}`;};
@@ -30,6 +30,16 @@ function setup(){
   return {...f,app,provider,runtime,cookieFor,post};
 }
 describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=>{
+  it("routes catalog extraction directly to a protected import review without reasoning or invoice requirements",async()=>{
+    const f=setup();
+    const catalog={documentType:"rate_list",name:"Dura Flow PPRC",standardDiscountPercent:50,complete:true,confidence:1,warnings:[],
+      items:Array.from({length:132},(_,i)=>({brand:"Dura Flow",category:"Fittings",name:"Socket",size:i+"mm",unit:"pcs",list_price:43}))};
+    f.provider.generate.mockResolvedValue(catalog as any);
+    const result=await f.post("agent/input",{source:"image",media:media(),message:"IS PRICE LO ERP K ANDAR DURA FLOW PPRC K TOR PER DARJ KER LEIN",fileName:"DuraFlow PPRC Price List.pdf"});
+    expect(result.status).toBe(200);expect(result.body.data).toMatchObject({status:"catalog_review",requiresConfirmation:true,catalogReview:{itemCount:132},answer:expect.stringContaining("132")});
+    expect(f.runtime.createCatalogDraft).toHaveBeenCalledWith(expect.objectContaining({...scope,catalog}),expect.any(String));
+    expect(f.respond).not.toHaveBeenCalled();expect(f.erpWrite).not.toHaveBeenCalled();expect(f.runtime.confirmAndExecute).not.toHaveBeenCalled();
+  });
   it.each(["image","camera","voice"])("creates a priced conversational draft from %s and requires separate preparation/confirmation",async source=>{
     const f=setup(),product=source==="voice"?pipe:elbow,discount=source==="voice"?40:10;
     if(source!=="voice")vi.mocked(f.services.search.searchProducts).mockResolvedValue(resolveCandidates([{...elbow,category:"Fitting",brandName:"Popular",confidence:.99,match_kind:"fuzzy_name"}],10));

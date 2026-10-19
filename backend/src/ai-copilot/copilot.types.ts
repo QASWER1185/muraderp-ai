@@ -44,6 +44,7 @@ export interface CopilotActionPlan {
   reason?: string;
   customerData?: CustomerInput;
   vendorData?: VendorInput;
+  catalogImport?: import("./rate-list-catalog.js").RateListCatalog;
   rateListUpdate?: {
     rateListId: number;
     versionNumber: number;
