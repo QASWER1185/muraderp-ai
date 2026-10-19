@@ -51,7 +51,7 @@ export function createApp(options: AppOptions = {}) {
     pinoHttp({
       enabled: env.NODE_ENV !== "test",
       redact: {
-        paths: ["req.headers.authorization", "req.headers.cookie", "req.headers.x-api-key"],
+        paths: ["req.headers.authorization", "req.headers.cookie", "req.headers.x-api-key", "req.headers.x-goog-api-key", "req.body.apiKey"],
         censor: "[REDACTED]",
       },
       customProps: (request) => ({ requestId: request.id }),

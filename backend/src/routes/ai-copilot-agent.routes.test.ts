@@ -17,6 +17,34 @@ vi.mock("../middleware/copilot-auth.js", () => ({
 import { createAiCopilotRouter } from "./ai-copilot.routes.js";
 
 describe("Phase 1 agent route on the production backend baseline", () => {
+  it.each(["header", "payload", "both"])("sanitizes %s credentials and never passes keys into the agent", async source => {
+    const key = "test-only-gemini-key-123456789";
+    const run = vi.fn(async (_input: unknown) => ({answer:"Verified",status:"completed"}));
+    const provider = {name:"gemini"} as AiProviderContract;
+    const providerFactory = vi.fn(() => provider);
+    const agentFactory = vi.fn(() => ({run}) as unknown as ReadOnlyCopilotAgent);
+    const app = express(); app.use(express.json());
+    app.use("/copilot",createAiCopilotRouter(undefined,undefined,undefined,undefined,undefined,undefined,undefined,providerFactory,agentFactory));
+    app.use(errorHandler);
+    let send = request(app).post("/copilot/agent").set("X-Organization-Id","22222222-2222-4222-8222-222222222222").set("X-Branch-Id","33333333-3333-4333-8333-333333333333");
+    if (source !== "payload") send = send.set("X-Api-Key",`  ${key}  `);
+    const response = await send.send({message:"ledger",...(source === "header" ? {} : {apiKey:source === "both" ? "ignored-payload-credential-123456789" : `  ${key}\n`})});
+    expect(response.status).toBe(200);
+    expect(providerFactory).toHaveBeenCalledWith(key);
+    expect(run.mock.calls[0]![0]).toEqual({message:"ledger"});
+    expect(JSON.stringify(response.body)).not.toContain(key);
+  });
+  it.each([42,"test-only-gemini-key\nheader-control"])("rejects malformed payload credentials without invoking a model", async apiKey => {
+    const providerFactory = vi.fn();
+    const app = express(); app.use(pinoHttp({enabled:false}),express.json());
+    app.use("/copilot",createAiCopilotRouter(undefined,undefined,undefined,undefined,undefined,undefined,undefined,providerFactory));
+    app.use(errorHandler);
+    const response = await request(app).post("/copilot/settings/test").send({apiKey});
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("AI_API_KEY_INVALID");
+    expect(providerFactory).not.toHaveBeenCalled();
+    expect(JSON.stringify(response.body)).not.toContain(String(apiKey));
+  });
   it("tests the saved provider key without ERP tools and only reports success after a real text response", async () => {
     const toolTurn = vi.fn().mockResolvedValue({ output: [{ type: "message", content: [{type:"output_text",text:"READY"}] }] });
     const providerFactory = vi.fn(() => ({ toolTurn }) as unknown as AiProviderContract);

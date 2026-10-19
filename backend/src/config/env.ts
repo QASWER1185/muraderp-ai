@@ -46,7 +46,7 @@ const envSchema = z
     if (configuration.AI_PROVIDER === "compatible" && !configuration.AI_BASE_URL) {
       context.addIssue({ code: "custom", path: ["AI_BASE_URL"], message: "Compatible AI providers require AI_BASE_URL" });
     }
-    if (["compatible", "gemini", "anthropic"].includes(configuration.AI_PROVIDER ?? "") && !configuration.AI_MODEL) {
+    if (["compatible", "anthropic"].includes(configuration.AI_PROVIDER ?? "") && !configuration.AI_MODEL) {
       context.addIssue({ code: "custom", path: ["AI_MODEL"], message: "The selected AI provider requires AI_MODEL" });
     }
     if (configuration.AI_BASE_URL) {

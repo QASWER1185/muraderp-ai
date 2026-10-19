@@ -1,6 +1,7 @@
 import { describe,expect,it,vi } from "vitest";
 import { z } from "zod";
-import { createAiProvider, createGeminiUserProvider } from "./factory.js";
+import { createAiProvider, createGeminiUserProvider, configuredAiProvider, hasConfiguredAiProvider } from "./factory.js";
+import { providerJson } from "./http.js";
 import { env, parseEnv } from "../../config/env.js";
 import { UnifiedCopilotAgent } from "../../ai-copilot/agent/agent.js";
 import { ProviderAgentModel } from "../../ai-copilot/agent/model.js";
@@ -95,6 +96,43 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
 });
 
 describe("provider configuration and speech capabilities",()=>{
+  it("normalizes Google's outbound authentication even if given browser-hop headers", async () => {
+    const key = "test-only-gemini-key-123456789";
+    const fetcher = fetchResult({candidates: []});
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+    await providerJson(fetcher, url, `  ${key}\n`, {"X-Api-Key":"wrong-browser-header", "Authorization":"Bearer wrong", "X-Goog-Api-Key":"stale"}, {contents:[]});
+    expect(fetcher.mock.calls[0]![0]).toBe(url);
+    expect(fetcher.mock.calls[0]![1]!.headers).toEqual({"Content-Type":"application/json", "x-goog-api-key":key});
+    expect(String(fetcher.mock.calls[0]![0])).not.toContain(key);
+    await expect(providerJson(fetcher, url, "embedded\nheader-control", {}, {})).rejects.toMatchObject({code:"AI_API_KEY_INVALID"});
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it("supports a server Gemini key without AI_MODEL and keeps browser overrides isolated", async () => {
+    const previous = {AI_PROVIDER:env.AI_PROVIDER,AI_MODEL:env.AI_MODEL,AI_API_KEY:env.AI_API_KEY,GEMINI_MODEL:env.GEMINI_MODEL,GEMINI_API_KEY:env.GEMINI_API_KEY};
+    const serverKey = "test-server-gemini-key-123456789";
+    const browserKey = "test-browser-gemini-key-123456789";
+    Object.assign(env, {AI_PROVIDER:"gemini",AI_MODEL:undefined,AI_API_KEY:undefined,GEMINI_MODEL:undefined,GEMINI_API_KEY:`  ${serverKey}  `});
+    try {
+      expect(parseEnv({AI_PROVIDER:"gemini",GEMINI_API_KEY:serverKey}).success).toBe(true);
+      expect(hasConfiguredAiProvider()).toBe(true);
+      expect(configuredAiProvider()).toMatchObject({provider:"gemini",apiKey:serverKey,model:"gemini-3.5-flash-lite"});
+      const fetcher = fetchResult(native("gemini", [text("gemini", "READY")]));
+      await createGeminiUserProvider(undefined,fetcher).toolTurn("ping",[],[]);
+      await createGeminiUserProvider(`  ${browserKey}\n`,fetcher).toolTurn("ping",[],[]);
+      expect(fetcher.mock.calls.map(([, init]) => init!.headers)).toEqual([
+        {"Content-Type":"application/json","x-goog-api-key":serverKey},
+        {"Content-Type":"application/json","x-goog-api-key":browserKey},
+      ]);
+      env.GEMINI_MODEL = "configured-gemini-model";
+      expect(configuredAiProvider().model).toBe("configured-gemini-model");
+      expect(env.GEMINI_API_KEY).toBe(`  ${serverKey}  `);
+    } finally { Object.assign(env,previous); }
+  });
+  it.each(["test-only-gemini-key with-space", "test-only-gemini-key\u0000suffix", "test-only-gemini-key\nheader", "short"])("rejects malformed keys before any outbound request", key => {
+    const fetcher = fetchResult({});
+    expect(() => createGeminiUserProvider(key, fetcher)).toThrow(ApiError);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("uses one isolated Gemini extraction proposal and retains strict nested validation",async()=>{
     const document=z.strictObject({lines:z.array(z.strictObject({quantity:z.number().positive().nullable()})).max(1)});
     const fetcher=fetchResult(native("gemini",[tool("gemini","erp_proposal",{proposal:{lines:[{quantity:null}]}})]));
@@ -124,7 +162,7 @@ describe("provider configuration and speech capabilities",()=>{
     const provider=createGeminiUserProvider(userKey,fetcher);
     const result=await provider.toolTurn("safe",[{role:"user",content:"hello"}],[]);
     expect(result.output[0]).toMatchObject({type:"message",content:[{type:"output_text",text:"verified"}]});
-    expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-3.8-flash:generateContent");
+    expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-3.5-flash-lite:generateContent");
     expect(fetcher.mock.calls[0]![1]!.headers).toMatchObject({"x-goog-api-key":userKey});
     expect(createAiProvider(config("gemini")).name).toBe("gemini");
   });
@@ -141,7 +179,7 @@ describe("provider configuration and speech capabilities",()=>{
     expect(createAiProvider(config(provider)).name).toBe(provider);
     expect(parseEnv({AI_PROVIDER:provider,AI_MODEL:"configured-model",...(provider==="compatible"?{AI_BASE_URL:"https://compatible.example/v1"}:{})}).success).toBe(true);
   });
-  it.each(["gemini","anthropic","compatible"])("requires an explicit model for %s",provider=>{
+  it.each(["anthropic","compatible"])("requires an explicit model for %s",provider=>{
     expect(parseEnv({AI_PROVIDER:provider,AI_BASE_URL:"https://compatible.example/v1"}).success).toBe(false);
   });
   it.each(["http://unsafe.example","https://user:password@example.com","https://example.com?token=secret","https://example.com#fragment"])("rejects insecure compatible endpoint %s",baseUrl=>{

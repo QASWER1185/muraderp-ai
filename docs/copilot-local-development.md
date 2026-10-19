@@ -48,8 +48,18 @@ still requires the complete explicit ERP configuration.
 
 `GEMINI_MODEL` selects the model used with a browser-supplied Gemini key,
 independently of a Groq/OpenAI server provider. The default is the documented
-stable `gemini-3.8-flash`; an unavailable model returns `AI_MODEL_UNAVAILABLE`.
+stable `gemini-3.5-flash-lite`; an unavailable model returns `AI_MODEL_UNAVAILABLE`.
 The service does not silently switch providers or retry another billable model.
+
+For a native Gemini server configuration, set `AI_PROVIDER=gemini` and
+`GEMINI_API_KEY`. `AI_MODEL` takes precedence, followed by `GEMINI_MODEL`, then
+the stable default, so a server key no longer requires a separate model setting.
+Browser credentials take precedence for that request, are trimmed and validated,
+and use `X-Api-Key` on the browser-to-ERP hop (or the optional `apiKey` JSON
+transport field). The field is removed before ERP schema validation and agent
+execution. The native Google request always uses `x-goog-api-key`, never the
+browser header or a credential in the URL. Key resolution stays in the HTTP
+boundary/provider factory; the business agent receives only a provider instance.
 
 In Copilot's API key settings, **Test saved key** sends a minimal text request
 through the authenticated backend and shows the upstream HTTP status on success.

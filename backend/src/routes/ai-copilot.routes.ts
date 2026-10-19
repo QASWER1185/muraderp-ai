@@ -15,6 +15,7 @@ import { writeBusinessState } from "../ai-copilot/agent/business-state.js";
 import { createAiProvider, createGeminiUserProvider, hasConfiguredAiProvider } from "../ai/providers/factory.js";
 import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
+import { normalizeGeminiApiKey } from "../ai/providers/http.js";
 
 const idSchema = z.coerce.number().int().positive();
 const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
@@ -101,12 +102,12 @@ const invoiceExtractionSchema = z.strictObject({
   if ((value.source === "image" || value.source === "camera") && !value.media) context.addIssue({ code: "custom", path: ["media"], message: "Image or document media is required" });
 });
 function headerValue(request: { header(name: string): string | string[] | undefined }, name: string): string | undefined { const value = request.header(name); return Array.isArray(value) ? value[0] : value; }
-function userApiKey(request: { header(name: string): string | string[] | undefined }): string | undefined {
-  const value = headerValue(request, "X-Api-Key");
-  if (value === undefined) return undefined;
-  if (headerValue(request, "X-AI-Provider") !== "gemini") throw new ApiError(400, "AI_PROVIDER_UNSUPPORTED", "Copilot browser keys currently support Gemini.");
-  if (value.length < 20 || value.length > 512 || /[\r\n]/.test(value)) throw new ApiError(400, "AI_API_KEY_INVALID", "Enter a valid Gemini API key in Copilot settings.");
-  return value;
+function userApiKey(request: { header(name: string): string | string[] | undefined }, payloadKey?: unknown): string | undefined {
+  const value = headerValue(request, "X-Api-Key")?.trim() || payloadKey;
+  if (value === undefined || (typeof value === "string" && !value.trim())) return undefined;
+  const provider = headerValue(request, "X-AI-Provider")?.trim().toLowerCase();
+  if (provider && provider !== "gemini") throw new ApiError(400, "AI_PROVIDER_UNSUPPORTED", "Copilot browser keys currently support Gemini.");
+  return normalizeGeminiApiKey(value);
 }
 function toAiDraft(input: z.output<typeof draftSchema>) { return { organizationId: input.organizationId, intent: input.intent, source: input.source, ...(input.customerId ? { customerId: { value: input.customerId, confidence: input.confidence, source: input.source } } : {}), ...(input.vendorId ? { vendorId: { value: input.vendorId, confidence: input.confidence, source: input.source } } : {}), ...(input.documentNumber ? { documentNumber: { value: input.documentNumber, confidence: input.confidence, source: input.source } } : {}), lines: input.lines.map((line) => ({ productName: { value: line.productName, confidence: input.confidence, source: input.source, ...(line.brandHint ? { rawText: line.brandHint } : {}) }, ...(line.productId !== undefined ? { productId: { value: line.productId, confidence: input.confidence, source: input.source } } : {}), quantity: { value: line.quantity, confidence: input.confidence, source: input.source }, ...(line.unit ? { unit: { value: line.unit, confidence: input.confidence, source: input.source } } : {}), ...(line.unitRate !== undefined ? { unitRate: { value: line.unitRate, confidence: input.confidence, source: input.source } } : {}), ...(line.rateListId !== undefined ? { rateListId: { value: line.rateListId, confidence: input.confidence, source: input.source } } : {}), ...(line.sourceItemId !== undefined ? { sourceItemId: { value: line.sourceItemId, confidence: input.confidence, source: input.source } } : {}) })), confidence: input.confidence, requiresHumanConfirmation: true as const }; }
 
@@ -122,6 +123,17 @@ export function createAiCopilotRouter(
   requestAgentFactory: (provider: AiProviderContract) => ReadOnlyCopilotAgent = (provider): ReadOnlyCopilotAgent => createCopilotAgent(provider).core,
 ) {
   const router = Router();
+  const payloadKeys = new WeakMap<object, unknown>();
+  // Keep optional transport credentials out of strict ERP schemas, model input,
+  // signed conversation state, and any later request-body logging.
+  router.use((request, _response, next) => {
+    if (request.body && typeof request.body === "object" && !Array.isArray(request.body) && Object.hasOwn(request.body, "apiKey")) {
+      const { apiKey, ...body } = request.body;
+      payloadKeys.set(request, apiKey);
+      request.body = body;
+    }
+    next();
+  });
   const authorize = createCopilotAuth(internalApiToken, servicePrincipalId);
   let activeRuntime = runtime;
   const getRuntime = () => { activeRuntime ??= new CopilotRuntime(); return activeRuntime; };
@@ -134,7 +146,7 @@ export function createAiCopilotRouter(
   let activeReadOnlyAgent = readOnlyAgent;
   const getReadOnlyAgent = () => { activeReadOnlyAgent ??= getAgent().core; return activeReadOnlyAgent; };
   const providerFor = (request: Parameters<typeof userApiKey>[0]) => {
-    const apiKey = userApiKey(request);
+    const apiKey = userApiKey(request, payloadKeys.get(request));
     return apiKey === undefined ? undefined : requestProviderFactory(apiKey);
   };
   const readOnlyAgentFor = (request: Parameters<typeof userApiKey>[0], provider = providerFor(request)) =>
@@ -157,7 +169,7 @@ export function createAiCopilotRouter(
       upstreamStatus = result.status;
       return result;
     };
-    const key = userApiKey(request);
+    const key = userApiKey(request, payloadKeys.get(request));
     const provider = key ? requestProviderFactory(key, observedFetch) : createAiProvider(undefined, observedFetch);
     const result = await provider.toolTurn("Connection test only. Reply READY. No ERP data or tools are available.",
       [{ role: "user", content: "Reply READY." }], [], { signal: AbortSignal.timeout(30_000) });
