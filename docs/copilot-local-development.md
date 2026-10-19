@@ -60,6 +60,9 @@ transport field). The field is removed before ERP schema validation and agent
 execution. The native Google request always uses `x-goog-api-key`, never the
 browser header or a credential in the URL. Key resolution stays in the HTTP
 boundary/provider factory; the business agent receives only a provider instance.
+Browser save/read validation uses the same printable-character checks as the
+backend. Malformed legacy storage values are retained but are not sent as keys;
+normal server configuration is used when no valid browser override is available.
 
 In Copilot's API key settings, **Test saved key** sends a minimal text request
 through the authenticated backend and shows the upstream HTTP status on success.
