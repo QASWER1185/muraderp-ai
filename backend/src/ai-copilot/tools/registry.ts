@@ -43,7 +43,7 @@ export const ERP_ACTION_PERMISSIONS: Record<ErpActionName, PermissionCode> = {
   erp_customer_return:"returns.create",
 };
 const descriptions: Record<ErpActionName,string> = {
-  erp_import_rate_list:"Prepare the complete brand catalog import with printed prices and per-item discounts; no customer/quantity needed. User approval commits the entire list atomically.",
+  erp_import_rate_list:"Prepare validated priced catalog rows for import, omitting blank or unreadable rates with review warnings; no customer/quantity needed. User approval commits the previewed rows atomically.",
   erp_update_product_price:"Prepare an audited price change to the product and its authoritative active sale rate version. Ask for the reason and resolve the intended list if ambiguous.",
   erp_create_customer:"Prepare customer creation including address, opening receivable balance and credit limit. Do not invent a phone; an explicitly unknown phone can be empty. Approval posts any opening balance through accounting.",
   erp_update_customer:"Prepare a scoped customer name/phone/address/credit-limit update, preserving existing accounting history.",

@@ -1,15 +1,16 @@
 import { z } from "zod";
 import { ApiError } from "../../errors/api-error.js";
 import type { AiInputRequest } from "../../ai-input/ai-input.types.js";
-import type { AiProviderContract,AiProviderConfiguration } from "./contracts.js";
+import type { AiProviderContract,AiProviderConfiguration,StructuredGenerationOptions } from "./contracts.js";
 import { providerJson,invalidOutput,inlineMedia,appendMessage } from "./http.js";
+import { parseStructuredOutput } from "./structured-output.js";
 
 export class AnthropicAdapter implements AiProviderContract {
   readonly name="anthropic" as const;
   constructor(private readonly config:AiProviderConfiguration,private readonly fetcher:typeof fetch=fetch){}
-  private async request(body:unknown,signal?:AbortSignal){
+  private async request(body:unknown,signal?:AbortSignal,allowPartial=false){
     const result=await providerJson(this.fetcher,"https://api.anthropic.com/v1/messages",this.config.apiKey,{"x-api-key":this.config.apiKey??"","anthropic-version":"2023-06-01"},body,signal);
-    if(!["end_turn","tool_use"].includes(result.stop_reason) || !Array.isArray(result.content))throw new ApiError(422,"AI_INCOMPLETE","AI reasoning/extraction did not complete. Please clarify or retry.");return result;
+    if((!["end_turn","tool_use"].includes(result.stop_reason) && !(allowPartial && result.stop_reason==="max_tokens")) || !Array.isArray(result.content))throw new ApiError(422,"AI_INCOMPLETE","AI reasoning/extraction did not complete. Please clarify or retry.");return result;
   }
   async toolTurn(instructions:string,input:unknown[],tools:unknown[],options?:{toolChoice?:"auto"|"required";signal?:AbortSignal}){
     const messages:any[]=[];
@@ -32,16 +33,16 @@ export class AnthropicAdapter implements AiProviderContract {
       throw invalidOutput();
     });return {output};
   }
-  async generate(schema:z.ZodType,instructions:string,content:unknown[]){
+  async generate(schema:z.ZodType,instructions:string,content:unknown[],options?:StructuredGenerationOptions){
     const blocks=content.map(value=>{const part=value as any;
       if(part.type==="input_text")return {type:"text",text:part.text};
       if(part.type==="input_image"||part.type==="input_file"){const media=inlineMedia(part.image_url??part.file_data);return {type:media.mimeType==="application/pdf"?"document":"image",source:{type:"base64",media_type:media.mimeType,data:media.data}};}
       throw new ApiError(422,"AI_INPUT_UNSUPPORTED","Unsupported extraction input.");
     });
     const model=content.some(value=>["input_image","input_file"].includes((value as any).type))?this.config.visionModel??this.config.model:this.config.model;
-    const result=await this.request({model,system:instructions,messages:[{role:"user",content:blocks}],max_tokens:8000,tools:[{name:"erp_proposal",description:"Return extracted observations only, never ERP authority or actions.",input_schema:z.toJSONSchema(schema)}],tool_choice:{type:"tool",name:"erp_proposal",disable_parallel_tool_use:true}});
+    const result=await this.request({model,system:instructions,messages:[{role:"user",content:blocks}],max_tokens:options?.recoverIncomplete?16000:8000,tools:[{name:"erp_proposal",description:"Return extracted observations only, never ERP authority or actions.",input_schema:z.toJSONSchema(schema)}],tool_choice:{type:"tool",name:"erp_proposal",disable_parallel_tool_use:true}},undefined,!!options?.recoverIncomplete);
     const calls=result.content.filter((part:any)=>part.type==="tool_use");if(calls.length!==1||calls[0].name!=="erp_proposal")throw invalidOutput();
-    try{return schema.parse(calls[0].input);}catch{throw invalidOutput();}
+    return parseStructuredOutput(schema,calls[0].input,options,result.stop_reason==="max_tokens");
   }
   async transcribe(_input:NonNullable<AiInputRequest["media"]>):Promise<string>{
     throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The selected provider has no native transcription adapter. Configure an explicit supported AI_SPEECH_PROVIDER or use text.");

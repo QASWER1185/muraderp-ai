@@ -8,7 +8,8 @@ vi.mock("../config/env.js",async importOriginal=>{
 });
 import express from "express";
 import request from "supertest";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, PDFDocument } from "@napi-rs/canvas";
+import { duraUpvcPages } from "../ai-copilot/catalog.test-fixtures.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
 import { DefaultRateListService } from "./rate-list.service.js";
 import { UnifiedCopilotAgent } from "../ai-copilot/agent/agent.js";
@@ -52,6 +53,7 @@ it("imports catalogs atomically and confirms all 35 conduit rows through Urdu, R
       insert into organizations values('11111111-1111-4111-8111-111111111111'),('22222222-2222-4222-8222-222222222222');
     `);
     await db.exec(await readFile(new URL("../../../supabase/migrations/20261019090000_copilot_catalog_import.sql",import.meta.url),"utf8"));
+    await db.exec(await readFile(new URL("../../../supabase/migrations/20261021100000_copilot_partial_catalog_import.sql",import.meta.url),"utf8"));
     const catalog={documentType:"rate_list",name:"Dura Flow PPRC",complete:true,standardDiscountPercent:50,items:Array.from({length:132},(_,i)=>({brand:"Dura Flow",category:"Fittings",name:"Socket",size:i+"mm",unit:"pcs",list_price:43+i}))};
     const run=(key:string,value:unknown=catalog,org="11111111-1111-4111-8111-111111111111")=>db.query<{result:any}>("select import_rate_list_catalog($1,$2,$3::jsonb) result",[org,key,JSON.stringify(value)]);
     const first=(await run("catalog-1")).rows[0]!.result;
@@ -108,5 +110,22 @@ it("imports catalogs atomically and confirms all 35 conduit rows through Urdu, R
     expect(spoken.status).toBe(200);expect(spoken.body.data.answer).toContain("تمام 35 آئٹمز");
     expect(importRateList).toHaveBeenCalledOnce();expect(respond).not.toHaveBeenCalled();expect(provider.generate).toHaveBeenCalledOnce();
     expect((await db.query<{count:number}>("select count(*)::int count from rate_list_versions where rate_list_id=$1",[rateListId])).rows[0]!.count).toBe(1);
+
+    // The two-page U-PVC regression contains 85 priced variants and three dash
+    // cells. A partial preview must survive approval and real SQL persistence.
+    const [pageOne,pageTwo]=duraUpvcPages();
+    const verifiedBeforePartial=verify.mock.calls.length;
+    provider.generate.mockResolvedValueOnce({...pageOne,complete:false} as any).mockResolvedValueOnce(pageTwo as any);
+    const pdf=new PDFDocument();for(let n=0;n<2;n++){const ctx=pdf.beginPage(120,60);ctx.fillText("U-PVC catalog",5,20);pdf.endPage();}
+    const partial=await post("agent/input",{source:"image",media:{mimeType:"application/pdf",base64:pdf.close().toString("base64")},fileName:"Dura Max U-PVC Price List 29.09.2026.pdf"});
+    expect(partial.status).toBe(200);expect(partial.body.data.catalogReview.itemCount).toBe(85);
+    expect(partial.body.data.extraction.catalog).toMatchObject({complete:false,warnings:expect.arrayContaining([expect.stringContaining("Skipped 3")])});
+    expect(importRateList).toHaveBeenCalledOnce();
+    const approved=await post("agent",{message:"درج کر دیں",conversationToken:partial.body.data.conversationToken,conversationId:partial.body.data.conversationId});
+    expect(approved.status).toBe(200);expect(approved.body.data.answer).toContain("تمام 85 آئٹمز");
+    expect(importRateList).toHaveBeenCalledTimes(2);expect(verify).toHaveBeenCalledTimes(verifiedBeforePartial+1);
+    expect((await db.query<{count:number;minimum:string}>("select count(*)::int count,min(unit_price)::text minimum from rate_list_items where rate_list_version_id=$1",[approved.body.data.execution.result.version.id])).rows[0]).toEqual({count:85,minimum:"176"});
+    await expect(run("raw-unpriced-catalog",{...pageOne,complete:false})).rejects.toThrow("Invalid catalog row");
+    await expect(run("empty-partial-catalog",{...pageOne,items:[],complete:false})).rejects.toThrow("validated priced items");
   } finally { await db.close(); }
 },120000);

@@ -23,7 +23,8 @@ export class MultimodalAgentInput {
     }
     if (proposal.fields.catalog) {
       const catalog = RateListCatalogSchema.parse(proposal.fields.catalog.value);
-      return { message: `${catalog.name} کے کل ${catalog.items.length} آئٹمز کامیابی سے نکال لیے گئے ہیں۔ کیا انہیں ERP ریٹ لسٹ میں محفوظ کر دیا جائے؟`,
+      const name = /dura.*u[\s-]*pvc/i.test(catalog.name) ? "ڈیورا یو پی وی سی" : catalog.name;
+      return { message: `${name} کے ${catalog.items.length} درست آئٹمز کامیابی سے نکال لیے گئے ہیں۔ کیا انہیں ERP ریٹ لسٹ میں محفوظ کر دیا جائے؟`,
         reviewRequired: true, catalog, extraction: { source: input.source, catalog, mediaRetained: false as const } };
     }
     const document = businessDocumentSchema.parse(proposal.fields.document?.value);
