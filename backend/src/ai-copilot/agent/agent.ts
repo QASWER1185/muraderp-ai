@@ -8,7 +8,7 @@ import type { AgentModel, FunctionCall } from "./model.js";
 import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
 import { businessAnswer } from "./business-answer.js";
 import { BUSINESS_TOOL_DEFINITIONS, entityNotFoundSchema, type BusinessFact } from "./business-tools.js";
-import { isAffirmation, executionIdentity } from "../tools/confirmation.js";
+import { isAffirmation, confirmConversationAction } from "../tools/confirmation.js";
 
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
@@ -77,18 +77,7 @@ export class UnifiedCopilotAgent {
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
     }
     if(isAffirmation(request.message)) {
-      const pending=state.pendingAction;
-      if(!pending||pending.expires<=Date.now()||!this.tools.confirmPendingAction) {
-        delete state.pendingAction;
-        return {answer:"منظوری کے لیے کوئی موجودہ preview موجود نہیں۔ پہلے مطلوبہ کام کا preview تیار کریں۔",status:"clarification",
-          conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:false,toolNames:[]};
-      }
-      const completed=await this.tools.confirmPendingAction(pending,scope);
-      if(completed.status!=="EXECUTED")throw new ApiError(502,"ERP_ACTION_UNVERIFIED","عمل کی ERP میں تصدیق نہیں ہو سکی۔");
-      delete state.pendingAction;state.revision++;
-      return {answer:completed.result?.memoryMessage ?? "ERP میں کامیابی سے درج اور تصدیق ہو گئی ہے۔ ریکارڈ ID: "+String(executionIdentity(completed.result))+"۔ "+pending.summary,
-        status:"completed",execution:completed,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,
-        toolNames:["confirm_erp_action"],requiresConfirmation:false};
+      return confirmConversationAction(state,scope,this.tools.confirmPendingAction?.bind(this.tools),traceId);
     }
     // Any new non-affirmative request replaces the previous proposed action.
     delete state.pendingAction;

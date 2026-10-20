@@ -16,6 +16,7 @@ import { createAiProvider, createGeminiUserProvider, hasConfiguredAiProvider } f
 import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
 import { normalizeGeminiApiKey } from "../ai/providers/http.js";
+import { confirmConversationAction, isAffirmation } from "../ai-copilot/tools/confirmation.js";
 
 const idSchema = z.coerce.number().int().positive();
 const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
@@ -153,6 +154,13 @@ export function createAiCopilotRouter(
     provider ? requestAgentFactory(provider) : getReadOnlyAgent();
   let activeTools = conversationalTools;
   const getConversationalTools = () => { activeTools ??= createConversationalTools(); return activeTools; };
+  const confirmConversation = async (message:string,scope:{userId:string;organizationId:string;branchId:string},token?:string,conversationId?:string) => {
+    if(!isAffirmation(message))return null;
+    await getConversationalTools().assertScope(scope);
+    const state=readBusinessState(token,scope,conversationId);
+    return confirmConversationAction(state,scope,(pending,context)=>getRuntime().confirmAndExecute(
+      pending.draftId,context.organizationId,context.userId,pending.idempotencyKey,context.branchId));
+  };
 
   router.get("/settings", authorize, (request, response) => {
     if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
@@ -199,9 +207,20 @@ export function createAiCopilotRouter(
     const inputPipeline = provider ? new MultimodalAgentInput(new ProviderBusinessInput(provider)) : (multimodalInput ??= new MultimodalAgentInput());
     const normalized = await inputPipeline.normalize(input,scope);
     response.setHeader("Cache-Control","no-store");
+    // A voice transcript is the user's current instruction. Extracted document
+    // text is never eligible to approve another action. Typed amendments also
+    // prevent an affirmative transcript from approving an unchanged preview.
+    if(input.source==="voice" && "transcript" in normalized.extraction &&
+      (!input.message || isAffirmation(input.message))) {
+      const confirmed=await confirmConversation(normalized.extraction.transcript,scope,input.conversationToken,input.conversationId);
+      if(confirmed) {response.json({data:{...confirmed,extraction:normalized.extraction},requiresConfirmation:false});return;}
+    }
+    delete state.pendingAction;
     if (normalized.catalog) {
       const idempotencyKey = "copilot-catalog-" + randomUUID();
       const action = await getRuntime().createCatalogDraft({ ...scope, source: input.source, catalog: normalized.catalog }, idempotencyKey);
+      state.pendingAction={draftId:action.id,idempotencyKey,summary:normalized.message.slice(0,1000),expires:Math.min(state.expires,Date.now()+10*60_000),
+        catalog:{name:normalized.catalog.name,itemCount:normalized.catalog.items.length}};
       response.json({ data: { answer: normalized.message, status: "catalog_review", requiresConfirmation: true,
         conversationToken: writeBusinessState(state), conversationId: state.conversationId,
         catalogReview: { draftId: action.id, idempotencyKey, name: normalized.catalog.name, itemCount: normalized.catalog.items.length },
@@ -224,6 +243,8 @@ export function createAiCopilotRouter(
     const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
     const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
     const parsed = agentRequestSchema.parse(request.body);
+    const confirmed=!parsed.selection ? await confirmConversation(parsed.message,{userId,organizationId,branchId},parsed.conversationToken,parsed.conversationId) : null;
+    if(confirmed) {response.setHeader("Cache-Control","no-store");response.json({data:confirmed,requiresConfirmation:false});return;}
     const result = await readOnlyAgentFor(request).run(parsed, { userId, organizationId, branchId }, request.log);
     response.setHeader("Cache-Control", "no-store");
     response.status(200).json({ data: result, requiresConfirmation: result.requiresConfirmation });
@@ -237,6 +258,8 @@ export function createAiCopilotRouter(
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
     if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
     const context = { userId, organizationId: parsed.organizationId, branchId };
+    const confirmed=await confirmConversation(parsed.message,context,parsed.conversationToken,parsed.conversationId);
+    if(confirmed) {response.setHeader("Cache-Control","no-store");response.json({data:{...confirmed,message:confirmed.answer},requiresConfirmation:false});return;}
     const provider = providerFor(request);
     const conversationalAgent = provider ? createCopilotAgent(provider) : getAgent();
     const result = parsed.conversationToken || parsed.conversationId
