@@ -8,6 +8,7 @@ import type { AgentModel, FunctionCall } from "./model.js";
 import type { RankedEntity, EntityResolution } from "../../services/entity-search.service.js";
 import { businessAnswer } from "./business-answer.js";
 import { BUSINESS_TOOL_DEFINITIONS, entityNotFoundSchema, type BusinessFact } from "./business-tools.js";
+import { isAffirmation, executionIdentity } from "../tools/confirmation.js";
 
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
@@ -18,6 +19,7 @@ const FALLBACK = "I could not verify that request right now. Please clarify or t
 const CLARIFY_PRODUCT = "Which product do you mean? Please provide its name or SKU.";
 export type AgentLogger = { info: (fields: Record<string, unknown>, message: string) => void; warn: (fields: Record<string, unknown>, message: string) => void };
 export interface AgentToolExecutor {
+  confirmPendingAction?(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope):Promise<any>;
   definitions(): unknown[];
   assertScope?(scope: AgentScope): Promise<void>;
   applySelection?(selection:{kind:"product"|"customer"|"vendor";id:number},scope:AgentScope,state:BusinessState):Promise<void>;
@@ -68,6 +70,22 @@ export class UnifiedCopilotAgent {
       return { answer: "The conversation context is invalid or expired. Please identify the customer and products again.",
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
     }
+    if(isAffirmation(request.message)) {
+      const pending=state.pendingAction;
+      if(!pending||pending.expires<=Date.now()||!this.tools.confirmPendingAction) {
+        delete state.pendingAction;
+        return {answer:"منظوری کے لیے کوئی موجودہ preview موجود نہیں۔ پہلے مطلوبہ کام کا preview تیار کریں۔",status:"clarification",
+          conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:false,toolNames:[]};
+      }
+      const completed=await this.tools.confirmPendingAction(pending,scope);
+      if(completed.status!=="EXECUTED")throw new ApiError(502,"ERP_ACTION_UNVERIFIED","عمل کی ERP میں تصدیق نہیں ہو سکی۔");
+      delete state.pendingAction;state.revision++;
+      return {answer:"ERP میں کامیابی سے درج اور تصدیق ہو گئی ہے۔ ریکارڈ ID: "+String(executionIdentity(completed.result))+"۔ "+pending.summary,
+        status:"completed",execution:completed,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,
+        toolNames:["confirm_erp_action"],requiresConfirmation:false};
+    }
+    // Any new non-affirmative request replaces the previous proposed action.
+    delete state.pendingAction;
     const input: unknown[] = state.lastMessage ? [{ role: "user", content: "Previous untrusted wording (not entity or price authority): " + state.lastMessage }] : [];
     if(request.selection) {
       if(!request.conversationToken || !request.conversationId || !this.tools.applySelection) throw new ApiError(422,"INVALID_ENTITY_SELECTION","Select within the current conversation.");
@@ -199,7 +217,14 @@ export class UnifiedCopilotAgent {
               businessFacts.push({ kind: "sale_rate", rate: result });
             }
             if (result && typeof result === "object" && "review" in result && result.review) {
-              review = result.review; answer = "Review the prepared ERP action and confirm it explicitly before execution."; status = "completed"; break;
+              review = result.review;
+              const prepared=result.review as {draftId?:string;idempotencyKey?:string;preview?:{summary?:string}};
+              answer=prepared.preview?.summary??"Review the prepared ERP action and confirm it explicitly before execution.";
+              if(prepared.draftId&&prepared.idempotencyKey)state.pendingAction={draftId:prepared.draftId,idempotencyKey:prepared.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
+              status = "completed"; break;
+            }
+            if(call.name==="erp_get_business_report"&&result&&typeof result==="object"&&"answer" in result&&typeof result.answer==="string") {
+              answer=result.answer;status="completed";review=undefined;break;
             }
             if (result && typeof result === "object" && "requiresConfirmation" in result && "lines" in result && "totals" in result) draftView = result as DraftView;
             if (call.name === "search_products" || call.name === "lookup_customers") {
@@ -262,7 +287,7 @@ export class UnifiedCopilotAgent {
                 if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
               }
             }
-            if (error instanceof ApiError && ["DRAFT_CONTEXT_REQUIRED", "BUSINESS_CONTEXT_REQUIRED"].includes(error.code)) {
+            if (error instanceof ApiError && ["DRAFT_CONTEXT_REQUIRED", "BUSINESS_CONTEXT_REQUIRED","ERP_ACTION_CLARIFICATION"].includes(error.code)) {
               const candidates = businessStateSchema.shape.clarification.safeParse(error.details);
               if (candidates.success && candidates.data) state.clarification = candidates.data;
               if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }

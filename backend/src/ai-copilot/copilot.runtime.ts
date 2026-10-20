@@ -29,6 +29,10 @@ import type { AiDraft } from "../ai-input/contracts.js";
 import type { CopilotActionPlan } from "./copilot.types.js";
 import { createCopilotPlanFromDraft, assertCopilotDraftExecution } from "./copilot.service.js";
 import type { BusinessState } from "./agent/business-state.js";
+import { DefaultErpOperations, ACTION_TARGETS, type ErpOperations } from "./tools/operations.js";
+import { ERP_ACTION_PERMISSIONS, type ErpActionName } from "./tools/registry.js";
+import { SupabaseEntitySearchService } from "../services/entity-search.service.js";
+import { SupabaseInvoiceBrowserRepository } from "../repositories/invoice-browser.repository.js";
 import type { DraftView } from "./agent/draft-tools.js";
 import {
   SupabaseCopilotReferenceResolver,
@@ -52,6 +56,9 @@ const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> 
   rate_list_update: "products.write",
   customer_payment: "payments.create",
   vendor_payment: "payments.create",
+  customer_update: "customers.write",
+  product_price_update: "products.write",
+  estimate_convert_invoice: "sales.create",
   customer_return: "returns.create",
   supplier_bill: "purchases.create",
   inventory_adjustment: "inventory.adjust",
@@ -141,6 +148,7 @@ function sourceType(source: CopilotActionPlan["source"]): "VOICE" | "OCR" | "AI_
 }
 
 export interface CopilotRuntimeDependencies {
+  operations?: ErpOperations;
   authorization: Pick<AuthorizationService, "assertPermission">;
   branchAccess?: Pick<TenantAccessService, "assertBranchAccess">;
   references?: Pick<CopilotReferenceResolver, "assertOwnedReferences">;
@@ -171,7 +179,7 @@ function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContra
   const authorizationGateway = new SupabaseAuthorizationGateway(
     createAuthorizationClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY),
   );
-  return {
+  const dependencies: CopilotRuntimeDependencies = {
     authorization: new AuthorizationService(authorizationGateway),
     branchAccess: new TenantAccessService(authorizationGateway),
     references: new SupabaseCopilotReferenceResolver(client),
@@ -203,6 +211,11 @@ function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContra
     database: client,
     servicePrincipalId,
   };
+  dependencies.operations = new DefaultErpOperations({ erp,search:new SupabaseEntitySearchService(),pricing,
+    rateLists:dependencies.rateLists as RateListService,rates:rateListRepository,estimates:estimateRepository,
+    invoices:new SupabaseInvoiceBrowserRepository(),payments:dependencies.customerPayments!,paymentReader:new SupabaseCustomerPaymentBrowserRepository(),
+    database:client,principal:servicePrincipalId });
+  return dependencies;
 }
 
 export class CopilotRuntime {
@@ -226,6 +239,27 @@ export class CopilotRuntime {
       { userId: plan.userId, organizationId: plan.organizationId },
       plan.branchId,
     );
+    if (plan.unifiedAction?.tool === "erp_create_customer" && plan.unifiedAction.input.openingBalance !== 0)
+      await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"accounting.post");
+    if (plan.unifiedAction?.tool === "erp_create_invoice" && plan.unifiedAction.input.paidAmount > 0)
+      await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"payments.create");
+  }
+
+  async createUnifiedDraft(tool: Exclude<ErpActionName,"erp_get_business_report">, input: unknown,
+    scope: {userId:string;organizationId:string;branchId:string}, source: CopilotActionPlan["source"] = "text") {
+    await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[tool]);
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
+    const prepared = await this.dependencies.operations.prepare(tool,input,scope);
+    const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
+    const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
+    return {intent:"erp_action" as const,tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:true as const};
+  }
+  async getBusinessReport(input:unknown,scope:{userId:string;organizationId:string;branchId:string}) {
+    await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"reports.view");
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP reporting services are not configured.");
+    return this.dependencies.operations.report(input,scope);
   }
 
   private async assertPlanReferences(plan: CopilotActionPlan): Promise<void> {
@@ -472,7 +506,7 @@ export class CopilotRuntime {
     if (action.user_id !== userId) throw new Error("copilot action user mismatch");
     if (action.idempotency_key !== idempotencyKey) throw new Error("copilot confirmation idempotency mismatch");
     const plan = action.action_plan as CopilotActionPlan;
-    if (plan.target === "invoice") {
+    if (plan.target === "invoice" && !plan.unifiedAction) {
       throw new ApiError(422, "COPILOT_INVOICE_NOT_SUPPORTED", "Copilot cannot execute Invoice drafts; use the native Estimate-to-Invoice workflow");
     }
     assertCopilotDraftExecution(plan, organizationId, userId, plan.target, branchId);
@@ -516,7 +550,10 @@ export class CopilotRuntime {
   private async verifyAndComplete(actionId: string, plan: CopilotActionPlan, result: unknown, status: "CONFIRMED" | "EXECUTED" = "CONFIRMED", existing?: any) {
     const db = this.dependencies.database();
     try {
-      await this.dependencies.verifier.verify(plan, result);
+      if(plan.unifiedAction) {
+        if(!this.dependencies.operations||!plan.branchId)throw new Error("ERP action verification is unavailable.");
+        await this.dependencies.operations.verify(plan.unifiedAction,{userId:plan.userId,organizationId:plan.organizationId,branchId:plan.branchId},result);
+      } else await this.dependencies.verifier.verify(plan, result);
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Independent ERP read failed";
       const { error: auditError } = await db.from("ai_copilot_actions")
@@ -537,6 +574,10 @@ export class CopilotRuntime {
   }
 
   private async execute(plan: CopilotActionPlan, idempotencyKey: string): Promise<unknown> {
+    if(plan.unifiedAction) {
+      if(!this.dependencies.operations||!plan.branchId)throw new Error("ERP action services are not configured.");
+      return this.dependencies.operations.execute(plan.unifiedAction,{userId:plan.userId,organizationId:plan.organizationId,branchId:plan.branchId},idempotencyKey);
+    }
     const date = isoDate(plan.documentDate);
     const currency = plan.currencyCode ?? "PKR";
     const estimatePricing = new DefaultEstimatePricingService(this.dependencies.pricing);

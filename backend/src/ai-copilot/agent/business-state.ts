@@ -19,6 +19,8 @@ export const businessStateSchema = z.strictObject({
   // A display/model hint only. It never supplies entity, price, or permission authority.
   lastMessage: z.string().max(500).optional(),
   pendingRequest: z.string().max(4000).optional(),
+  pendingAction: z.strictObject({draftId:z.string().min(1).max(100),idempotencyKey:z.string().min(1).max(255),
+    summary:z.string().max(1000),expires:z.number().int()}).optional(),
   inputSource:z.enum(["text","image","camera","voice"]).optional(),
   productContext: z.strictObject({ candidates: z.array(product).max(5), ambiguous: z.boolean() }).optional(),
   customer: z.strictObject({ id, name: z.string().max(160) }).optional(),

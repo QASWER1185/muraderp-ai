@@ -4,7 +4,7 @@ import type { CustomerPaymentInput } from "../services/customer-payment.service.
 import type { VendorPaymentInput } from "../services/vendor-payment.service.js";
 import type { EstimatePricingSelection } from "../types/estimate-pricing-selection.types.js";
 
-export type CopilotTarget = AiInputIntent | "customer_create" | "vendor_create" | "rate_list_update" | "customer_payment" | "vendor_payment";
+export type CopilotTarget = AiInputIntent | "customer_create" | "vendor_create" | "rate_list_update" | "customer_payment" | "vendor_payment" | "customer_update" | "product_price_update" | "estimate_convert_invoice";
 export type CopilotInputSource = AiInputSource;
 
 export type CopilotRateSource =
@@ -45,6 +45,7 @@ export interface CopilotActionPlan {
   customerData?: CustomerInput;
   vendorData?: VendorInput;
   catalogImport?: import("./rate-list-catalog.js").RateListCatalog;
+  unifiedAction?: import("./tools/registry.js").PreparedErpAction;
   rateListUpdate?: {
     rateListId: number;
     versionNumber: number;

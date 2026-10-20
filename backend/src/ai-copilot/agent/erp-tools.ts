@@ -13,6 +13,7 @@ import { touchDraft } from "./business-state.js";
 import { BusinessIntelligenceTools, BUSINESS_TOOL_DEFINITIONS, type BusinessServices } from "./business-tools.js";
 import type { CopilotRuntime } from "../copilot.runtime.js";
 import { randomUUID } from "node:crypto";
+import { ERP_ACTION_DEFINITIONS, ERP_ACTION_SCHEMAS, ERP_ACTION_PERMISSIONS, isErpActionName } from "../tools/registry.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -22,7 +23,7 @@ export type ToolServices = {
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
-  runtime?: Pick<CopilotRuntime, "createMasterDataDraft">;
+  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"getBusinessReport"|"confirmAndExecute">>;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -133,10 +134,26 @@ export class ErpToolRegistry {
   }
   definitions() {
     const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name) && (tool.name !== "prepare_customer_create" || this.services.runtime)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
-    return [...reads, ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
+    return [...reads, ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []), ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
+  }
+  async confirmPendingAction(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope) {
+    if(!this.services.runtime?.confirmAndExecute)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP confirmation service is not configured.");
+    await this.assertScope(scope);
+    return this.services.runtime.confirmAndExecute(pending.draftId,scope.organizationId,scope.userId,pending.idempotencyKey,scope.branchId);
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    if(isErpActionName(name)) {
+      if(!this.services.runtime?.createUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
+      await this.services.tenant.assertPermission(scope,ERP_ACTION_PERMISSIONS[name]);await this.assertScope(scope);signal?.throwIfAborted();
+      const parsed=ERP_ACTION_SCHEMAS[name].safeParse(raw);
+      if(!parsed.success)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","Please provide the missing or valid action fields: "+parsed.error.issues.map(issue=>issue.path.join(".")).join(", "));
+      if(name==="erp_get_business_report") {
+        if(!this.services.runtime.getBusinessReport)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Reporting is not configured.");
+        return this.services.runtime.getBusinessReport(parsed.data,scope);
+      }
+      return {review:await this.services.runtime.createUnifiedDraft(name,parsed.data,scope,state?.inputSource??"text")};
+    }
     if (this.business?.handles(name)) {
       if (!state) throw new ApiError(400, "CONVERSATION_CONTEXT_REQUIRED", "Validated conversation state is required.");
       return this.business.execute(name, raw, scope, state, signal);

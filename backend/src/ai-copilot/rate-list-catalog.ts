@@ -5,10 +5,12 @@ const text = z.string().trim().min(1).max(200);
 export const rateListCatalogItemSchema = z.strictObject({
   brand: text, category: z.enum(["Pipes", "Fittings", "Hardware"]), name: text,
   size: text, unit: z.string().trim().min(1).max(50), list_price: z.number().finite().nonnegative(),
+  discountPercent: z.number().finite().min(0).max(100).optional(),
 });
 // Catalog observations have no customer, ordered quantities or invoice totals.
 export const RateListCatalogSchema = z.strictObject({
   documentType: z.enum(["rate_list"]), name: text,
+  effectiveDate: z.iso.date().optional(),
   items: z.array(rateListCatalogItemSchema).min(1),
   standardDiscountPercent: z.number().finite().min(0).max(100).nullable(),
   complete: z.boolean(), confidence: z.number().min(0).max(1),

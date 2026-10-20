@@ -31,7 +31,11 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
     runtime: { createMasterDataDraft: (...args) => {
       const fullProvider = provider && "generate" in provider && "transcribe" in provider ? provider as AiProviderContract : undefined;
       return new CopilotRuntime(undefined, undefined, fullProvider).createMasterDataDraft(...args);
-    } },
+    },
+    createUnifiedDraft:(...args)=>new CopilotRuntime().createUnifiedDraft(...args),
+    getBusinessReport:(...args)=>new CopilotRuntime().getBusinessReport(...args),
+    confirmAndExecute:(...args)=>new CopilotRuntime().confirmAndExecute(...args),
+    },
   }, true, { erp, repository: new SupabaseCopilotBusinessRepository(), customers: new SupabaseCustomerPaymentBrowserRepository(), vendors: new SupabaseVendorPaymentBrowserRepository() });
 }
 export function createUnifiedAgent(provider?: ToolCallingAiProvider): UnifiedCopilotAgent {
