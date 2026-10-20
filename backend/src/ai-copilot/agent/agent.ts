@@ -25,6 +25,12 @@ export interface AgentToolExecutor {
   applySelection?(selection:{kind:"product"|"customer"|"vendor";id:number},scope:AgentScope,state:BusinessState):Promise<void>;
   execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, originalMessage?: string, signal?: AbortSignal): Promise<unknown>;
 }
+export interface AgentResult {
+  answer:string; conversationToken:string; conversationId:string; traceId:string; status:string; toolNames:string[]; requiresConfirmation:boolean;
+  execution?:any; draft?:DraftView; review?:unknown; businessFacts?:BusinessFact[];
+  paymentPreparation?:BusinessState["paymentPreparation"]; clarification?:BusinessState["clarification"];
+  preparation?:{intent:string;requiredFields:string[]};
+}
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -58,7 +64,7 @@ async function withinDeadline<T>(task: Promise<T>, signal: AbortSignal): Promise
 
 export class UnifiedCopilotAgent {
   constructor(private readonly model: AgentModel, private readonly tools: AgentToolExecutor, private readonly timeoutMs = TIMEOUT_MS) {}
-  async run(request: { message: string; conversationToken?: string | undefined; conversationId?: string | undefined;selection?:{kind:"product"|"customer"|"vendor";id:number}|undefined }, scope: AgentScope, logger?: AgentLogger) {
+  async run(request: { message: string; conversationToken?: string | undefined; conversationId?: string | undefined;selection?:{kind:"product"|"customer"|"vendor";id:number}|undefined }, scope: AgentScope, logger?: AgentLogger):Promise<AgentResult> {
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401, "TENANT_CONTEXT_REQUIRED", "Authenticated user and tenant context are required");
     if (!request.message.trim() || request.message.length > 20_000) throw new ApiError(400, "VALIDATION_ERROR", "A valid bounded message is required.");
     await this.tools.assertScope?.(scope);
@@ -80,7 +86,7 @@ export class UnifiedCopilotAgent {
       const completed=await this.tools.confirmPendingAction(pending,scope);
       if(completed.status!=="EXECUTED")throw new ApiError(502,"ERP_ACTION_UNVERIFIED","عمل کی ERP میں تصدیق نہیں ہو سکی۔");
       delete state.pendingAction;state.revision++;
-      return {answer:"ERP میں کامیابی سے درج اور تصدیق ہو گئی ہے۔ ریکارڈ ID: "+String(executionIdentity(completed.result))+"۔ "+pending.summary,
+      return {answer:completed.result?.memoryMessage ?? "ERP میں کامیابی سے درج اور تصدیق ہو گئی ہے۔ ریکارڈ ID: "+String(executionIdentity(completed.result))+"۔ "+pending.summary,
         status:"completed",execution:completed,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,
         toolNames:["confirm_erp_action"],requiresConfirmation:false};
     }

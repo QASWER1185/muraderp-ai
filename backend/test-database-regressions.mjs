@@ -14,6 +14,7 @@ const tests = [
   'products_final_gate.sql',
   'estimate_conversion.sql',
   'copilot_dev_seed.sql',
+  'copilot_institutional_memory.sql',
 ];
 try {
   await db.exec(await read('scripts/database-test-bootstrap.sql'));

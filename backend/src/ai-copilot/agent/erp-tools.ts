@@ -14,9 +14,11 @@ import { BusinessIntelligenceTools, BUSINESS_TOOL_DEFINITIONS, type BusinessServ
 import type { CopilotRuntime } from "../copilot.runtime.js";
 import { randomUUID } from "node:crypto";
 import { ERP_ACTION_DEFINITIONS, ERP_ACTION_SCHEMAS, ERP_ACTION_PERMISSIONS, isErpActionName } from "../tools/registry.js";
+import type { CustomerMemory } from "../customerMemoryStore.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
+  memory?: CustomerMemory;
   tenant: Pick<TenantAccessService, "assertPermission" | "assertBranchAccess">;
   erp: Pick<ErpService, "getProduct" | "getCustomer">;
   catalog: Pick<CopilotCatalogRepository, "getCatalog">;
@@ -56,6 +58,15 @@ const CUSTOMER_CREATE_TOOL = defineTool({ name: "prepare_customer_create", descr
   } });
 
 export const ERP_TOOLS = [
+  defineTool({name:"recall_customer_memory",description:"Recall preferred brands by category, dated authorized historical discounts and purchasing patterns for a resolved customer. Current rates and merchant cost floors still apply.",schema:z.strictObject({customer_id:id}),permission:"customers.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async({customer_id},scope,{memory,erp,tenant})=>{
+    await tenant.assertPermission(scope,"sales.read");
+    const customer=await erp.getCustomer(customer_id,scope.organizationId);
+    if(!customer)throw new ApiError(404,"CUSTOMER_NOT_FOUND","Customer is unavailable.");
+    if(!memory)throw new ApiError(503,"CUSTOMER_MEMORY_UNAVAILABLE","Customer memory is not configured.");
+    const profile=await memory.recall(scope,customer.id,customer.name);
+    // A bounded model context; complete history remains available to the server.
+    return {...profile,history:profile.history.slice(0,30)};
+  }}),
   defineTool({ name: "search_products", description: "Search ERP products with typo-tolerant database matching by name, SKU, brand, category, dimensions, PN rating or unit. Returns ranked candidates and resolution. Use bestCandidate only when resolved; otherwise ask for clarification.", schema: lookup, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { search }) => {
     return search.searchProducts(query, limit, scope);
   } }),

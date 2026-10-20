@@ -10,6 +10,7 @@ export const saleItemSchema = z.strictObject({
   qty: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(),
   rate: money.optional(), discount: percent.optional(), rateListId: id.optional(),
   unitCost: money.optional(),
+  rawShorthand: text.optional(),
 });
 const sale = { customerId: id.optional(), customerName: text.optional(),
   items: z.array(saleItemSchema).min(1), discountScheme: z.strictObject({ percent }).optional() };
@@ -24,6 +25,8 @@ export const ERP_ACTION_SCHEMAS = {
     reference: z.string().trim().max(200).optional(), notes: z.string().trim().max(2000).optional(), paymentDate: date.optional(),
     allocations: z.array(z.strictObject({ invoiceId: id, amount: z.number().finite().positive() })).optional() }),
   erp_create_estimate: z.strictObject(sale),
+  erp_customer_return: z.strictObject({ customerId: id, productId: id, qty: z.number().finite().positive(),
+    invoiceId: id.optional(), warehouseId: id.optional(), reason: z.string().trim().min(1).max(2000) }),
   erp_convert_estimate_to_invoice: z.strictObject({ estimateId: id, warehouseId: id.optional(),
     unitCosts: z.array(z.strictObject({ productId: id, unitCost: money })).optional() }),
   erp_create_invoice: z.strictObject({ ...sale, customerId: id, discount: percent.optional(), warehouseId: id.optional(), carriageCharges: money.default(0), paidAmount: money.default(0) }),
@@ -37,6 +40,7 @@ export const ERP_ACTION_PERMISSIONS: Record<ErpActionName, PermissionCode> = {
   erp_record_payment:"payments.create", erp_create_estimate:"sales.create",
   erp_convert_estimate_to_invoice:"sales.create", erp_create_invoice:"sales.create",
   erp_get_business_report:"reports.view",
+  erp_customer_return:"returns.create",
 };
 const descriptions: Record<ErpActionName,string> = {
   erp_import_rate_list:"Prepare the complete brand catalog import with printed prices and per-item discounts; no customer/quantity needed. User approval commits the entire list atomically.",
@@ -48,6 +52,7 @@ const descriptions: Record<ErpActionName,string> = {
   erp_convert_estimate_to_invoice:"Prepare conversion of a persisted active estimate to an invoice, with stock, receivables and accounting. Warehouse is required if more than one exists. Costs come from reconciled movement valuation or explicit reviewed unitCosts; never guess.",
   erp_create_invoice:"Prepare a direct invoice including discounts, carriage and any payment in one atomic transaction. Current sale rates and verified inventory costs are required. Use unitCost only when explicitly provided by the user.",
   erp_get_business_report:"Read a date-bounded authoritative daily sales, customer balances, low-stock or realized profit report. No approval/write is required.",
+  erp_customer_return:"Prepare a return bound to this customer's exact historical invoice line and NET billed rate/discount. Never supply prices. Uses the latest posted sale unless the user specifies its invoiceId. Requires approval before credit.",
 };
 export const ERP_ACTION_DEFINITIONS = Object.entries(ERP_ACTION_SCHEMAS).map(([name,schema]) => ({
   type:"function" as const, name, description:descriptions[name as ErpActionName], strict:false, parameters:z.toJSONSchema(schema),

@@ -16,6 +16,8 @@ import { SupabaseReportingGateway } from "../../reports/supabase-reporting.gatew
 import { ERP_ACTION_SCHEMAS, type ErpActionName, type PreparedErpAction } from "./registry.js";
 import type { CopilotTarget } from "../copilot.types.js";
 import { RateListCatalogSchema } from "../rate-list-catalog.js";
+import { CustomerMemoryStore, rememberedDiscount, returnMemoryMessage, type CustomerMemory } from "../customerMemoryStore.js";
+import { SupabaseSalesReturnService, type SalesReturnService } from "../../services/sales-return.service.js";
 
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const amount=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
@@ -28,12 +30,15 @@ export const ACTION_TARGETS:Record<Exclude<ErpActionName,"erp_get_business_repor
   erp_import_rate_list:"rate_list_update",erp_update_product_price:"product_price_update",
   erp_create_customer:"customer_create",erp_update_customer:"customer_update",erp_record_payment:"customer_payment",
   erp_create_estimate:"estimate",erp_create_invoice:"invoice",erp_convert_estimate_to_invoice:"estimate_convert_invoice",
+  erp_customer_return:"customer_return",
 };
 export interface OperationsDependencies {
   erp:ErpService; search:EntitySearchService; pricing:PricingService; rateLists:RateListService;
   rates:SupabaseRateListRepository; estimates:SupabaseEstimateRepository; invoices:InvoiceBrowserRepository;
   payments:CustomerPaymentService; paymentReader:Pick<SupabaseCustomerPaymentBrowserRepository,"getPayment">;
   database:()=>any; principal:string;
+  memory?: CustomerMemory;
+  returns?: SalesReturnService;
 }
 export interface ErpOperations {
   prepare(tool:Exclude<ErpActionName,"erp_get_business_report">,raw:unknown,scope:AgentScope):Promise<PreparedErpAction>;
@@ -43,7 +48,8 @@ export interface ErpOperations {
 }
 /** Preparation performs scoped reads only. The runtime owns approval/claiming. */
 export class DefaultErpOperations implements ErpOperations {
-  constructor(private readonly deps:OperationsDependencies) {}
+  private readonly memory: CustomerMemory;
+  constructor(private readonly deps:OperationsDependencies) { this.memory = deps.memory ?? new CustomerMemoryStore(deps.database); }
   private async rpc(name:string,args:Record<string,unknown>) {
     const {data,error}=await this.deps.database().rpc(name,args);
     if(error) throw new ApiError(error.code==="42501"?403:error.code==="40001"?409:422,"ERP_TRANSACTION_REJECTED",error.message??"ERP transaction was rejected.");
@@ -89,13 +95,18 @@ export class DefaultErpOperations implements ErpOperations {
   }
   private async quote(input:any,scope:AgentScope,invoice=false,asOf=today()) {
     const customer=await this.customer(input,scope);
+    const profile=await this.memory.recall(scope,customer.id,customer.name);
     const warehouseId=invoice?await this.warehouse(input.warehouseId,scope):undefined;
     const lines:any[]=[];
     for(const item of input.items) {
       let product=item.productId?await this.deps.erp.getProduct(item.productId,scope.organizationId):null;
       if(!item.productId) {
         if(!item.name)requireChoice("Each item needs a product name or Product ID.");
-        const match=await this.deps.search.searchProducts([item.name,item.size].filter(Boolean).join(" "),5,scope);
+        let match=await this.deps.search.searchProducts([item.name,item.size].filter(Boolean).join(" "),5,scope);
+        if(match.resolution!=="resolved") {
+          const preferred=profile.preferredBrands.filter(brand=>match.items.some(row=>row.category===brand.category && row.brandName===brand.brandName));
+          if(preferred.length===1) match=await this.deps.search.searchProducts([preferred[0]!.brandName,item.name,item.size].filter(Boolean).join(" "),5,scope);
+        }
         if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("Please clarify product "+item.name+": "+match.items.map(row=>row.name+" (ID "+row.id+")").join("; "));
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
@@ -105,10 +116,12 @@ export class DefaultErpOperations implements ErpOperations {
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
       if(!rate||rate.unit!==product.unit)requireChoice("No unambiguous active sale rate is available for "+product.name+". Choose its Rate List.");
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
-      const discount=item.discount??input.discountScheme?.percent??input.discount??0;
+      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code);
       const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
+      const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
+      await this.memory.assertFloor(scope,product.id,rate.unit_price,item.qty*rate.unit_price===0?0:discountAmount/(item.qty*rate.unit_price)*100,product.unit,rate.currency_code,cost?.unitCost);
       lines.push({line_number:lines.length+1,product_id:product.id,productName:product.name,quantity:item.qty,unit:product.unit,unit_price:rate.unit_price,
-        discount_amount:amount(item.qty*rate.unit_price*discount/100),discountPercent:discount,pricing_source:"RESOLVED_RATE",
+        discount_amount:discountAmount,discountPercent:discount,pricing_source:"RESOLVED_RATE",
         rate_list_id:rate.rate_list_id,rate_list_version_id:rate.rate_list_version_id,resolved_price:rate,
         ...(cost??{})});
     }
@@ -129,6 +142,15 @@ export class DefaultErpOperations implements ErpOperations {
         items:input.items.map((item:any)=>({brand:input.brand,category:item.category??(/pipe|پائپ/i.test(item.name)?"Pipes":/valve|plug|وال|پلگ/i.test(item.name)?"Hardware":"Fittings"),
           name:item.name,size:item.size,unit:item.unit,list_price:item.list_price,discountPercent:item.discount})),
         standardDiscountPercent:input.items.every((item:any)=>item.discount===input.items[0].discount)?input.items[0].discount:null,complete:true,confidence:1,warnings:[]});
+    } else if(tool==="erp_customer_return") {
+      const customer=await this.customer(input,scope);
+      const sale=await this.memory.latestSale(scope,customer.id,input.productId,input.invoiceId);
+      const warehouseId=await this.warehouse(input.warehouseId,scope);
+      const returned=await this.rows("credit_note_items","id,quantity,credit_notes!inner(status)",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("invoice_item_id",sale.source_item_id).eq("credit_notes.status","POSTED"));
+      if(input.qty+returned.reduce((sum,row)=>sum+Number(row.quantity),0)>Number(sale.quantity))requireChoice("Return quantity exceeds the remaining quantity of the bound historical invoice line.");
+      data={customerId:customer.id,customerName:customer.name,sale,warehouseId,date:today(),reason:input.reason,
+        lines:[{product_id:sale.product_id,invoice_item_id:sale.source_item_id,quantity:input.qty,unit:sale.unit,unit_price:Number(sale.net_unit_price),discountPercent:Number(sale.discount_percent)}],
+        totals:{grand_total:input.qty*Number(sale.net_unit_price)},memoryMessage:returnMemoryMessage(customer.name,sale)};
     } else if(tool==="erp_create_customer") data={...input};
     else if(tool==="erp_update_customer") {
       if(!Object.keys(input.updates).length)requireChoice("Specify at least one customer field to update.");
@@ -154,8 +176,10 @@ export class DefaultErpOperations implements ErpOperations {
       const warehouseId=await this.warehouse(input.warehouseId,scope),lines=[];
       for(const item of source.items) {
         const cost=await this.inventory(item.product_id,warehouseId,scope,input.unitCosts?.find((row:any)=>row.productId===item.product_id)?.unitCost);
+        await this.memory.assertFloor(scope,item.product_id,Number(item.unit_price),Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100,item.unit,source.record.currency_code,cost.unitCost);
         if(item.quantity>cost.available)requireChoice("Insufficient stock for Product "+item.product_id+".");
-        lines.push({...item,...cost});
+        const {rate_list_selection_source:_selection,...commercial}=item;
+        lines.push({...commercial,...cost,discountPercent:Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100});
       }
       data={customerId:source.record.customer_id,warehouseId,lines,totals:calculateEstimateTotals(lines,source.record.pass_through_rent??0),
         sourceEstimateId:input.estimateId,sourceFingerprint:digest(source),date:today()};
@@ -164,7 +188,7 @@ export class DefaultErpOperations implements ErpOperations {
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
     const summary="میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
-      (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟";
+      (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
     return {tool,input,data,preview:{title,summary,
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
       ...(data.totals?{totals:data.totals}:{}),
@@ -172,6 +196,17 @@ export class DefaultErpOperations implements ErpOperations {
   }
   async execute(action:PreparedErpAction,scope:AgentScope,key:string) {
     const {tool,input,data}=action;
+    if(tool==="erp_customer_return") {
+      // Revalidate the exact approved source, never silently rebind to a newer sale.
+      const sale=await this.memory.latestSale(scope,input.customerId,input.productId,data.sale.document_id);
+      equal(sale,data.sale,"Historical return binding");
+      const service=this.deps.returns??new SupabaseSalesReturnService(this.deps.database);
+      const result=await service.recordSalesReturn({credit_note_number:data.documentNumber,invoice_id:sale.document_id,customer_id:input.customerId,
+        credit_date:data.date,currency_code:sale.currency_code,reason:data.reason,items:[{invoice_item_id:sale.source_item_id,warehouse_id:data.warehouseId,quantity:input.qty}]},
+        {organizationId:scope.organizationId,branchId:scope.branchId,actorUserId:scope.userId,servicePrincipalId:this.deps.principal,
+          operation:"sales-return.create",idempotencyKey:key,requestFingerprint:digest(action)});
+      return {...(result as Record<string,unknown>),memoryMessage:returnMemoryMessage(data.customerName,sale,true)};
+    }
     if(tool==="erp_import_rate_list")return {...await this.deps.rateLists.importRateList({...data.catalog,organization_id:scope.organizationId,idempotency_key:key})};
     if(tool==="erp_create_customer"||tool==="erp_update_customer"||tool==="erp_update_product_price"||(tool==="erp_record_payment"&&!data.allocations.length))
       return this.rpc("commit_copilot_profile_action",{p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,
@@ -188,6 +223,7 @@ export class DefaultErpOperations implements ErpOperations {
     } else {
       const source=await this.deps.estimates.getEstimateAggregate(data.sourceEstimateId,scope.organizationId);
       equal(digest(source),data.sourceFingerprint,"Source estimate");
+      for(const line of data.lines) await this.memory.assertFloor(scope,line.product_id,line.unit_price,line.quantity*line.unit_price===0?0:(line.discount_amount??0)/(line.quantity*line.unit_price)*100,line.unit,source!.record.currency_code,line.unitCost);
     }
     if(tool==="erp_create_estimate") return new DefaultEstimateService(this.deps.estimates).createDraft({
       definition:{organization_id:scope.organizationId,branch_id:scope.branchId,customer_id:data.customerId,estimate_number:data.documentNumber,issue_date:data.date,currency_code:"PKR"},
@@ -201,7 +237,7 @@ export class DefaultErpOperations implements ErpOperations {
       committed=await this.rpc("commit_copilot_sale",{p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,
         p_service_principal:this.deps.principal,p_idempotency_key:key,p_payload:{
           invoice:{...request.invoice.definition,source_type:invoice.source_type,source_estimate_id:invoice.source_estimate_id,subtotal:invoice.subtotal,discount_total:invoice.discount_total,grand_total:invoice.grand_total,pass_through_rent:invoice.pass_through_rent},
-          lines:request.lines,warehouseId:data.warehouseId,paidAmount:input.paidAmount??0,
+          lines:request.lines.map((line,index)=>({...line,gross_unit_price:data.lines[index].unit_price,customer_discount_percent:data.lines[index].discountPercent??0,customer_discount_amount:data.lines[index].discount_amount??0})),warehouseId:data.warehouseId,paidAmount:input.paidAmount??0,
         }});
       return {invoice:{...invoice,id:committed.invoice_id,status:"POSTED"},inventory_decreased:true,customer_receivable_updated:true,revenue_recorded:true,cogs_recorded:true,profit_loss_recorded:true,pass_through_rent_recorded:invoice.pass_through_rent>0};
     }}).createInvoice({organization_id:scope.organizationId,branch_id:scope.branchId,actor_user_id:scope.userId,idempotency_key:key,warehouse_id:data.warehouseId,invoice,
@@ -211,6 +247,15 @@ export class DefaultErpOperations implements ErpOperations {
   }
   async verify(action:PreparedErpAction,scope:AgentScope,result:any) {
     const {tool,input,data}=action;
+    if(tool==="erp_customer_return") {
+      const notes=await this.rows("credit_notes","id,customer_id,invoice_id,status,grand_total",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("id",result.credit_note?.id));
+      const note=notes[0];if(!note||note.status!=="POSTED")throw new Error("Posted return was not found.");
+      equal(Number(note.customer_id),input.customerId,"Return customer");equal(Number(note.invoice_id),data.sale.document_id,"Return invoice");
+      equal(Number(note.grand_total),data.totals.grand_total,"Return net credit");
+      const items=await this.rows("credit_note_items","id,invoice_item_id,quantity,unit_price",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("credit_note_id",note.id));
+      equal(items.map(row=>[Number(row.invoice_item_id),Number(row.quantity),Number(row.unit_price)]),[[data.sale.source_item_id,input.qty,Number(data.sale.net_unit_price)]],"Return historical price");
+      return;
+    }
     if(tool==="erp_create_customer"||tool==="erp_update_customer") {
       const id=tool==="erp_create_customer"?result.id:data.customerId;
       const row:any=await this.deps.erp.getCustomer(id,scope.organizationId);
@@ -263,6 +308,11 @@ export class DefaultErpOperations implements ErpOperations {
       equal(saved.invoice.customer_id,data.customerId,"Invoice customer");
       equal(Number(saved.invoice.grand_total),data.totals.grand_total,"Invoice total");
       equal(projectLines(saved.lines,false),projectLines(data.lines,false),"Invoice lines");
+      const {data:terms,error:termsError}=await this.deps.database().from("copilot_commercial_history").select("source_item_id,unit_price,discount_percent,net_unit_price")
+        .eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("document_type","invoice").eq("document_id",result.invoice_id).order("source_item_id");
+      if(termsError)throw new Error("Invoice commercial terms could not be verified.");
+      equal((terms??[]).map((row:any)=>[Number(row.unit_price),Number(row.discount_percent),Number(row.net_unit_price)]),
+        data.lines.map((line:any)=>[Number(line.unit_price),Number(line.discountPercent??0),(line.quantity*line.unit_price-(line.discount_amount??0))/line.quantity]),"Invoice discount memory");
       if(input.paidAmount>0) {
         const payment:any=await this.deps.paymentReader.getPayment(scope.organizationId,scope.branchId,result.payment_id);
         if(!payment)throw new Error("Invoice receipt was not found.");

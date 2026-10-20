@@ -27,6 +27,8 @@ export interface CopilotLineCandidate {
   discountPercent?: number;
   approvedUnitPrice?: number;
   approvedCurrencyCode?: string;
+  rawShorthand?:string;
+  size?:string;
 }
 
 export interface CopilotActionPlan {

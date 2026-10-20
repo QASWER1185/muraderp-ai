@@ -18,6 +18,7 @@ import type { AiProviderContract, ToolCallingAiProvider } from "../../ai/provide
 import { CopilotRuntime } from "../copilot.runtime.js";
 import { hasConfiguredAiProvider } from "../../ai/providers/factory.js";
 import { BasicInventoryModel } from "./basic-inventory-model.js";
+import { CustomerMemoryStore } from "../customerMemoryStore.js";
 
 export function createConversationalTools(provider?: ToolCallingAiProvider): ErpToolRegistry {
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
@@ -26,6 +27,7 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
   const erp = new SupabaseErpService();
   return new ErpToolRegistry({
     tenant: new TenantAccessService(authorization), erp,
+    memory:new CustomerMemoryStore(),
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
     search: new SupabaseEntitySearchService(), pricing: new DefaultPricingService(rateLists), rateLists,
     runtime: { createMasterDataDraft: (...args) => {

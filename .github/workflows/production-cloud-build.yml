@@ -85,15 +85,15 @@ jobs:
           for migration in supabase/migrations/*.sql; do
             psql -X -v ON_ERROR_STOP=1 -f "$migration"
           done
-      - name: Run all five database regression scripts
+      - name: Run database regression scripts
         shell: bash
         run: |
           set -euo pipefail
-          for test in database_foundation accounting_ledger_foundation_v2 p0_8_authoritative_accounting_posting products_final_gate estimate_conversion; do
+          for test in database_foundation accounting_ledger_foundation_v2 p0_8_authoritative_accounting_posting products_final_gate estimate_conversion copilot_institutional_memory; do
             psql -X -v ON_ERROR_STOP=1 -f "supabase/tests/$test.sql"
             echo "PASS $test"
           done
-          echo 'Database regressions: 5/5 PASS'
+          echo 'Database regressions: 6/6 PASS'
 
   image:
     needs: [verify, database]

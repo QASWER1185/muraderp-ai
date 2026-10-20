@@ -192,6 +192,8 @@ export class BusinessIntelligenceTools {
     const netRevenue = revenue === null ? null : Math.round(calculateEstimateTotals([{ line_number: 1, product_id: reference.id,
       quantity: qty, unit: reference.unit, unit_price: sale.value!.unit_price, discount_amount: discountAmount!, pricing_source: "RESOLVED_RATE" }]).grand_total * 100) / 100;
     const netUnitPrice = netRevenue === null ? null : netRevenue / qty;
+    if(compatibleSale && this.base.memory) await this.base.memory.assertFloor(scope,reference.id,sale.value!.unit_price,
+      revenue ? discountAmount!/revenue*100 : 0,reference.unit,sale.value!.currency_code,compatibleCost?cost.value!.unit_price:undefined);
     const summary = netUnitPrice === null ? null : await new DefaultEstimateProfitService({ resolveEstimatedCost: async () => compatibleCost ? cost.value!.unit_price : null }).analyze([
       { line_number: 1, product_id: reference.id, quantity: qty, unit: reference.unit, unit_price: netUnitPrice, pricing_source: "RESOLVED_RATE" },
     ], asOf);

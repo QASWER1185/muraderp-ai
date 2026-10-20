@@ -11,6 +11,8 @@ export const draftLineSchema = z.strictObject({
   id: z.string().uuid(), productId: id, quantity: z.number().finite().positive().max(1_000_000),
   unit: z.string().min(1).max(30), discountPercent: z.number().finite().min(0).max(100),
   rateListId: id.optional(),
+  rawShorthand:z.string().trim().min(1).max(200).optional(), size:z.string().trim().max(100).optional(),
+  discountSource:z.enum(["memory","user"]).optional(), memoryCustomerId:id.optional(),
 });
 export const businessStateSchema = z.strictObject({
   version: z.literal(2), conversationId: z.string().uuid(),

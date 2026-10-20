@@ -76,10 +76,10 @@ describe("read-only ERP agent", () => {
       expect(deps.pricing.resolvePrice).not.toHaveBeenCalled();
     }
   });
-  it("loads six valid native tool definitions and rejects invalid schemas", async () => {
+  it("loads seven valid native tool definitions including customer memory and rejects invalid schemas", async () => {
     const registry = new ErpToolRegistry(services());
-    expect(ERP_TOOLS).toHaveLength(6);
-    expect(new Set(registry.definitions().map((tool) => tool.name)).size).toBe(6);
+    expect(ERP_TOOLS).toHaveLength(7);
+    expect(new Set(registry.definitions().map((tool) => tool.name)).size).toBe(7);
     expect(registry.definitions().every((tool) => tool.type === "function" && tool.parameters.type === "object")).toBe(true);
     expect(ERP_TOOLS.every((tool) => tool.classification === "read" && tool.authentication === "required")).toBe(true);
     expect(await registry.execute("search_products", { query: "Popular 25mm", limit: 10 }, scope)).toMatchObject({ items: [expect.objectContaining({ id: 7 })] });

@@ -8,6 +8,8 @@ import { SupabaseAuthorizationGateway, createAuthorizationClient } from "../auth
 import { env } from "../config/env.js";
 import { SupabaseErpService, type ErpService } from "../services/erp.service.js";
 import { DefaultEstimateService, type EstimateService } from "../services/estimate.service.js";
+import { CustomerMemoryStore } from "./customerMemoryStore.js";
+import { SlipLearningStore } from "./slipLearningStore.js";
 import { SupabaseEstimateRepository } from "../repositories/estimate.repository.js";
 import { SupabaseCustomerPaymentBrowserRepository } from "../repositories/customer-payment-browser.repository.js";
 import { SupabaseVendorPaymentBrowserRepository } from "../repositories/vendor-payment-browser.repository.js";
@@ -148,6 +150,8 @@ function sourceType(source: CopilotActionPlan["source"]): "VOICE" | "OCR" | "AI_
 }
 
 export interface CopilotRuntimeDependencies {
+  memory?: import("./customerMemoryStore.js").CustomerMemory;
+  slipLearning?: import("./slipLearningStore.js").SlipLearning;
   operations?: ErpOperations;
   authorization: Pick<AuthorizationService, "assertPermission">;
   branchAccess?: Pick<TenantAccessService, "assertBranchAccess">;
@@ -209,12 +213,13 @@ function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContra
     customerPayments: new SupabaseCustomerPaymentService(),
     vendorPayments: new SupabaseVendorPaymentService(),
     database: client,
+    memory:new CustomerMemoryStore(client),slipLearning:new SlipLearningStore(client),
     servicePrincipalId,
   };
   dependencies.operations = new DefaultErpOperations({ erp,search:new SupabaseEntitySearchService(),pricing,
     rateLists:dependencies.rateLists as RateListService,rates:rateListRepository,estimates:estimateRepository,
     invoices:new SupabaseInvoiceBrowserRepository(),payments:dependencies.customerPayments!,paymentReader:new SupabaseCustomerPaymentBrowserRepository(),
-    database:client,principal:servicePrincipalId });
+    database:client,principal:servicePrincipalId,memory:dependencies.memory!,returns:dependencies.returns });
   return dependencies;
 }
 
@@ -355,11 +360,15 @@ export class CopilotRuntime {
       source: state.inputSource??"text", target: "estimate", customerId: String(state.customer.id),
       documentNumber: `AI-${state.draft.id}`, currencyCode: view.currencyCode,
       reason: `Conversation ${state.conversationId}, revision ${state.draft.revision}`,
-      lines: view.lines.map(line => ({
+      lines: view.lines.map(line => {
+        const observed = state.draft!.lines.find(item => item.id === line.lineId);
+        return {
         productId: line.productId, productName: line.productName, quantity: line.quantity, unit: line.unit,
         rateSource: "SELECTED_RATE_LIST", pricingSelection: { mode: "RATE_LIST", rate_list_id: line.rate!.rate_list_id, source: "LINE_OVERRIDE" },
         discountPercent: line.discountPercent, approvedUnitPrice: line.rate!.unit_price, approvedCurrencyCode: line.rate!.currency_code,
-      })),
+        ...(observed?.rawShorthand ? { rawShorthand: observed.rawShorthand } : {}),
+        ...(observed?.size ? { size: observed.size } : {}),
+      }; }),
       requiresConfirmation: true,
     };
     const action = await this.persistPlan(plan, idempotencyKey);
@@ -554,6 +563,29 @@ export class CopilotRuntime {
         if(!this.dependencies.operations||!plan.branchId)throw new Error("ERP action verification is unavailable.");
         await this.dependencies.operations.verify(plan.unifiedAction,{userId:plan.userId,organizationId:plan.organizationId,branchId:plan.branchId},result);
       } else await this.dependencies.verifier.verify(plan, result);
+      if (this.dependencies.slipLearning && plan.branchId && (plan.source === "image" || plan.source === "camera") &&
+        (plan.unifiedAction?.tool === "erp_create_estimate" || plan.unifiedAction?.tool === "erp_create_invoice")) {
+        const action = plan.unifiedAction;
+        const patterns: import("./slipLearningStore.js").SlipPattern[] = [];
+        for (const [index,item] of action.input.items.entries()) {
+          if (!item.rawShorthand) continue;
+          const line=action.data.lines[index];
+          const product=await this.dependencies.erp.getProduct(line.product_id,plan.organizationId);
+          if(!product || product.name!==line.productName || product.unit!==line.unit) throw new Error("Confirmed slip product changed before learning.");
+          patterns.push({raw_shorthand:item.rawShorthand,verified_item_name:product.name,verified_size:item.size??"",verified_unit:product.unit});
+        }
+        await this.dependencies.slipLearning.confirm({userId:plan.userId,organizationId:plan.organizationId,branchId:plan.branchId},actionId,patterns);
+      }
+      if(this.dependencies.slipLearning && plan.branchId && !plan.unifiedAction && plan.target==="estimate" && (plan.source==="image"||plan.source==="camera")) {
+        const patterns:import("./slipLearningStore.js").SlipPattern[]=[];
+        for(const line of plan.lines) {
+          if(!line.rawShorthand||!line.productId)continue;
+          const product=await this.dependencies.erp.getProduct(line.productId,plan.organizationId);
+          if(!product||product.unit!==line.unit)throw new Error("Confirmed slip product is unavailable for learning.");
+          patterns.push({raw_shorthand:line.rawShorthand,verified_item_name:product.name,verified_size:line.size??"",verified_unit:product.unit});
+        }
+        await this.dependencies.slipLearning.confirm({userId:plan.userId,organizationId:plan.organizationId,branchId:plan.branchId},actionId,patterns);
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Independent ERP read failed";
       const { error: auditError } = await db.from("ai_copilot_actions")
@@ -666,8 +698,11 @@ export class CopilotRuntime {
             priced.resolved_price?.currency_code !== line.approvedCurrencyCode || priced.unit !== line.unit)) {
           throw new ApiError(409, "DRAFT_PRICE_CHANGED", "The ERP price/unit changed after review. Recalculate and prepare the estimate again.");
         }
+        const gross=priced.quantity*priced.unit_price;
+        const discountAmount=line.discountPercent===undefined ? (priced.discount_amount??0) : Math.min(gross,Math.round(gross*line.discountPercent)/100);
+        if (this.dependencies.memory && plan.branchId) await this.dependencies.memory.assertFloor({userId:plan.userId,organizationId:plan.organizationId,branchId:plan.branchId},line.productId,priced.unit_price,gross===0?0:discountAmount/gross*100,priced.unit,priced.resolved_price?.currency_code??currency);
         return line.discountPercent === undefined ? priced : {
-          ...priced, discount_amount: Math.min(priced.quantity * priced.unit_price, Math.round(priced.quantity * priced.unit_price * line.discountPercent) / 100),
+          ...priced, discount_amount: discountAmount,
         };
       }));
       return this.dependencies.estimate.createDraft({

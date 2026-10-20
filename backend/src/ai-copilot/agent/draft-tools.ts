@@ -7,6 +7,7 @@ import type { PricedEstimateLine } from "../../types/estimate.types.js";
 import type { ResolvedPrice } from "../../types/pricing.types.js";
 import type { AgentScope, ToolServices } from "./erp-tools.js";
 import { touchDraft, type BusinessState } from "./business-state.js";
+import { rememberedDiscount } from "../customerMemoryStore.js";
 
 const id = z.number().int().positive();
 const quantity = z.number().finite().positive().max(1_000_000);
@@ -15,7 +16,7 @@ const lineId = z.string().uuid();
 const schemas = {
   set_task_context: z.strictObject({ customer_id: id.optional(), brand_hint: z.string().trim().min(1).max(120).optional(), rate_list_id: id.optional() }),
   begin_estimate_draft: z.strictObject({}),
-  add_draft_item: z.strictObject({ product_id: id.optional(), quantity, unit: z.string().trim().min(1).max(30).optional(), rate_list_id: id.optional() }),
+  add_draft_item: z.strictObject({ product_id: id.optional(), quantity, unit: z.string().trim().min(1).max(30).optional(), rate_list_id: id.optional(),rawShorthand:z.string().trim().min(1).max(200).optional(),size:z.string().trim().max(100).optional() }),
   remove_draft_item: z.strictObject({ line_id: lineId }),
   update_draft_quantity: z.strictObject({ line_id: lineId, quantity }),
   update_draft_discount: z.strictObject({ line_ids: z.array(lineId).min(1).max(20).optional(), percent: discount }),
@@ -97,17 +98,24 @@ export class ConversationalDraftService {
         signal?.throwIfAborted();
         if (quoted.unit.toLocaleLowerCase() !== line.unit.toLocaleLowerCase()) throw unavailable("The requested unit differs from the rate unit. Please clarify the quantity/unit.");
         const resolved = quoted.resolved_price!;
+        if(this.services.memory && state.customer && line.discountSource!=="user" && line.memoryCustomerId!==state.customer.id) {
+          const profile=await this.services.memory.recall(scope,state.customer.id,state.customer.name);
+          line.discountPercent=rememberedDiscount(profile,product,line.unit,resolved.currency_code);
+          line.discountSource="memory";line.memoryCustomerId=state.customer.id;row.discountPercent=line.discountPercent;
+        }
         if (!Number.isFinite(resolved.unit_price) || resolved.unit_price < 0) throw new Error("Invalid ERP rate");
         if (currency && currency !== resolved.currency_code) throw unavailable("Draft lines use different currencies. Choose one compatible rate list.");
         currency = resolved.currency_code;
         const gross = line.quantity * quoted.unit_price;
         const discountAmount = Math.min(gross, Math.round(gross * line.discountPercent) / 100);
+        await this.services.memory?.assertFloor(scope,product.id,quoted.unit_price,gross===0?0:discountAmount/gross*100,line.unit,resolved.currency_code);
         if (!Number.isFinite(gross)) throw unavailable("The draft amount is too large.");
         row.rate = resolved; row.discountAmount = discountAmount; row.amount = gross - discountAmount;
         priced.push({ ...quoted, discount_amount: discountAmount });
       } catch (error) {
         signal?.throwIfAborted();
         if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
+        if (error instanceof ApiError && ["DISCOUNT_BELOW_COST","PURCHASE_BASELINE_REQUIRED","PURCHASE_MEMORY_UNAVAILABLE"].includes(error.code)) throw error;
         row.error = error instanceof ApiError ? error.message : "No verified current sale rate is available. Clarify the applicable rate list.";
       }
       lines.push(row);
@@ -158,6 +166,9 @@ export class ConversationalDraftService {
       const requestedUnit = args.unit ?? product.unit;
       if (requestedUnit.toLocaleLowerCase() !== product.unit.toLocaleLowerCase()) throw unavailable("Use the verified ERP unit or clarify the conversion.");
       const unit = product.unit;
+      const profile = candidate.customer && this.services.memory ? await this.services.memory.recall(scope,candidate.customer.id,candidate.customer.name) : undefined;
+      const rate = profile ? await this.lookupRate({product_id:productId,customer_id:candidate.customer!.id,quantity:args.quantity,...((args.rate_list_id??candidate.rateListId)?{rate_list_id:args.rate_list_id??candidate.rateListId}:{})},scope,signal) as ResolvedPrice|null : null;
+      const discountPercent = profile && rate ? rememberedDiscount(profile,product,unit,rate.currency_code) : 0;
       const rateListId = args.rate_list_id ?? candidate.rateListId;
       const draft = touchDraft(candidate);
       const existing = draft.lines.find(line => line.productId === productId && line.unit === unit && line.rateListId === rateListId);
@@ -166,7 +177,9 @@ export class ConversationalDraftService {
         existing.quantity += args.quantity;
       } else {
         if (draft.lines.length >= 20) throw unavailable("A conversational draft supports at most 20 lines.");
-        draft.lines.push({ id: randomUUID(), productId, quantity: args.quantity, unit, discountPercent: 0,
+        draft.lines.push({ id: randomUUID(), productId, quantity: args.quantity, unit, discountPercent,
+          discountSource:"memory",...(candidate.customer?{memoryCustomerId:candidate.customer.id}:{}),
+          ...(args.rawShorthand?{rawShorthand:args.rawShorthand}:{}),...(args.size?{size:args.size}:{}),
           ...(rateListId ? { rateListId } : {}) });
       }
     }
@@ -182,7 +195,7 @@ export class ConversationalDraftService {
       if (!selected.length || selected.some((selectedId: string) => !candidate.draft!.lines.some(line => line.id === selectedId))) {
         throw unavailable("Choose existing draft lines before applying a discount.");
       }
-      touchDraft(candidate).lines.forEach(line => { if (selected.includes(line.id)) line.discountPercent = args.percent; });
+      touchDraft(candidate).lines.forEach(line => { if (selected.includes(line.id)) {line.discountPercent = args.percent;line.discountSource="user";} });
     }
     if (name === "recalculate_draft") touchDraft(candidate);
     const view = await this.inspect(candidate, scope, signal);
