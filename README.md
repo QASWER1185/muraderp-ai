@@ -57,6 +57,11 @@ Database-backed requests require this header:
 Authorization: Bearer <INTERNAL_API_TOKEN>
 ```
 
+Versioned business API routes also accept the optional server-side `X-API-Key` credential
+configured as `MURAD_API_KEY`. Set a high-entropy secret in the backend environment; requests
+with a valid key still pass through tenant and transaction authorization checks. Browser session
+cookies remain supported. The API key is not used by `/api/copilot` or `/api/v1/ai/copilot`.
+
 Available versioned resources:
 
 - `/api/v1/brands`

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
+import { apiKeyAuth } from "./middleware/apiKeyAuth.js";
 import { createErpRouter } from "./routes/erp.routes.js";
 import { healthRouter } from "./routes/health.js";
 import { createInventoryRouter } from "./routes/inventory.routes.js";
@@ -69,6 +70,9 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api/v1/health", healthRouter);
   app.use("/api/health", healthRouter);
   app.use("/api/v1/auth", authRouter);
+  // The Copilot mount above intentionally keeps its existing authentication flow.
+  // This applies to the remaining versioned business API routers only.
+  app.use("/api/v1", apiKeyAuth);
   app.use("/api/v1/workspaces", createWorkspaceRouter(options.workspaceDiscoveryService));
   app.use("/api/v1/warehouses", createWarehouseBrowserRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, service: erpService, tenantAuthorizer: options.tenantAccessService }));
 

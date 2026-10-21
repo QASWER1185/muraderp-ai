@@ -34,6 +34,17 @@ export type BrowserPrincipal = { userId: string };
 declare global { namespace Express { interface Request { browserPrincipal?: BrowserPrincipal; } } }
 export function browserSessionHandler(required = true): RequestHandler {
   return (request: Request, response: Response, next: NextFunction) => {
+    if (request.apiKeyAuth === true) {
+      const userId = request.header("X-Actor-User-Id")?.trim();
+      if (userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+        request.browserPrincipal = { userId };
+        next();
+        return;
+      }
+      response.status(401).json({ error: { code: "UNAUTHORIZED", message: "A valid X-Actor-User-Id is required with API-key authentication" } });
+      return;
+    }
+
     const session = decode(cookieValue(request));
     if (!session) { if (required) response.status(401).json({ error: { code: "UNAUTHORIZED", message: "A valid browser session is required" } }); else next(); return; }
     request.browserPrincipal = { userId: session.userId }; next();
