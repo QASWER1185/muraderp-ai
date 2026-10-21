@@ -1,0 +1,64 @@
+name: Phase 5 Dispatch Bootstrap
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase5-dispatch-bootstrap.yml"
+      - ".github/workflows/phase5-master-data-audit.yml"
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-phase5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve latest develop SHA
+        id: develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA="$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/develop --jq '.object.sha')"
+          test -n "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether Phase 5 already ran for this SHA
+        id: runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.develop.outputs.sha }}
+        run: |
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow phase5-master-data-audit.yml \
+            --branch develop \
+            --limit 20 \
+            --json databaseId,headSha,status,conclusion \
+            > /tmp/phase5-runs.json
+
+          if jq -e --arg sha "$TARGET_SHA" '.[] | select(.headSha == $sha)' /tmp/phase5-runs.json >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch Phase 5 for develop
+        if: steps.runs.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.develop.outputs.sha }}
+        run: |
+          gh workflow run phase5-master-data-audit.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref develop
+          echo "Dispatched Phase 5 for develop SHA $TARGET_SHA"
+
+      - name: Bootstrap status
+        run: echo "Phase 5 bootstrap checked develop at ${{ steps.develop.outputs.sha }}"

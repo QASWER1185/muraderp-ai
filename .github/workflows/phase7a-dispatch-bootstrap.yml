@@ -1,0 +1,30 @@
+name: Phase 7A Dispatch Bootstrap
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/phase7a-dispatch-bootstrap.yml"
+      - ".github/workflows/phase7a-authoritative-final-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-phase7a:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch authoritative Phase 7A gate on develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/actions/workflows/phase7a-authoritative-final-gate.yml/dispatches \
+            -f ref=develop

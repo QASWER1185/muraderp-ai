@@ -1,25 +1,22 @@
+import type { EstimateDefinition, EstimateDocument, EstimateDraft, EstimateStatus } from "./estimate-document.types.js";
+
 /**
- * Compatibility layer only.
- *
- * Canonical sales-offer document: Estimate.
- * In MuradERP-AI, "Quotation" is a user-facing synonym for Estimate,
- * not a separate database/domain entity.
+ * Estimate and Quotation are the same commercial document in MuradERP-AI.
+ * "Estimate" and "Quotation" are presentation/business-language aliases,
+ * not separate database entities or lifecycle domains.
  */
-import type { EstimateDefinition, EstimateDocument, EstimateDraft } from "./estimate-document.types.js";
-
-export type QuotationStatus = EstimateDocument["status"];
+export type QuotationStatus = EstimateStatus;
 export type QuotationDefinition = EstimateDefinition;
-export type QuotationDraft = EstimateDraft;
 export type QuotationDocument = EstimateDocument;
+export type QuotationDraft = EstimateDraft;
 
-/** @deprecated Use EstimateDefinition and EstimateDocument directly. */
 export function buildQuotationFromEstimate(
   estimate: EstimateDocument,
-  definition: QuotationDefinition,
-  _id = 0,
+  _definition?: QuotationDefinition,
+  _id = estimate.id,
 ): QuotationDocument {
   return {
     ...estimate,
-    definition,
+    id: _id,
   };
 }

@@ -42,6 +42,14 @@ export class DefaultInvoiceService {
     return this.transaction.execute(buildInvoiceFromEstimate(estimate, definition));
   }
 
+  /** Quotation is only a presentation label for the same Estimate document. */
+  async createFromQuotation(
+    estimate: EstimateDocument,
+    definition: InvoiceDefinition,
+  ): Promise<InvoiceTransactionResult> {
+    return this.createFromEstimate(estimate, definition);
+  }
+
   async createDirect(
     definition: InvoiceDefinition,
     lines: PricedEstimateLine[],
