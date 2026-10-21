@@ -48,6 +48,14 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
     fetcher.mockResolvedValueOnce(new Response(JSON.stringify(native(provider,[tool(provider,"erp_proposal",provider==="gemini"?{proposal:{value:"x",inventedPrice:9999}}:{value:"x",inventedPrice:9999})]))));
     await expect(adapter.generate(schema,"extract",[{type:"input_text",text:"x"}])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
   });
+  it("strips image data-URL headers and normalizes JPG MIME for Gemini inline data",async()=>{
+    if(provider!=="gemini")return;
+    const fetcher=fetchResult(native("gemini",[tool("gemini","erp_proposal",{proposal:{value:"observed"}})]));
+    const adapter=createAiProvider(config("gemini"),fetcher);
+    await adapter.generate(schema,"extract",[{type:"input_image",image_url:"data:image/jpg;base64,YQ=="}]);
+    const body=JSON.parse(String(fetcher.mock.calls[0]![1]!.body));
+    expect(body.contents[0].parts[0].inlineData).toEqual({mimeType:"image/jpeg",data:"YQ=="});
+  });
   it("fails closed on refusal, incomplete generation, remote media and malformed tool calls",async()=>{
     const fetcher=fetchResult(provider==="gemini"?{candidates:[{finishReason:"SAFETY",content:{parts:[]}}]}:{stop_reason:"max_tokens",content:[]});
     const adapter=createAiProvider(config(provider),fetcher);
