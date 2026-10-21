@@ -96,7 +96,10 @@ begin
   perform pg_temp.memory_check(not has_table_privilege('authenticated','public.copilot_slip_patterns','SELECT'),'browser cannot read learned text directly');
   perform pg_temp.memory_check(not has_table_privilege('anon','public.copilot_commercial_history','SELECT'),'anonymous commercial history blocked');
   perform pg_temp.memory_check(not has_function_privilege('authenticated','public.commit_copilot_sale(uuid,uuid,uuid,text,text,jsonb)','EXECUTE'),'browser cannot invoke sale adapter');
-  raise notice 'Commercial recall, mixed discounts, historical net returns, floors, scoped learning and idempotency PASS';
+  perform pg_temp.memory_check(to_regprocedure('public.commit_copilot_profile_action(uuid,uuid,uuid,text,text,text,jsonb)') is not null,'approved customer profile action RPC is installed');
+  perform pg_temp.memory_check(has_function_privilege('service_role','public.commit_copilot_profile_action(uuid,uuid,uuid,text,text,text,jsonb)','EXECUTE'),'backend can invoke approved customer profile actions');
+  perform pg_temp.memory_check(not has_function_privilege('authenticated','public.commit_copilot_profile_action(uuid,uuid,uuid,text,text,text,jsonb)','EXECUTE'),'browser cannot bypass Copilot confirmation with direct profile RPC calls');
+  raise notice 'Commercial recall, mixed discounts, historical net returns, floors, scoped learning, idempotency and profile writes PASS';
 end;
 $$;
 rollback;
