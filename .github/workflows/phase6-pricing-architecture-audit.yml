@@ -1,0 +1,91 @@
+name: Phase 6 Pricing Architecture Audit
+run-name: Phase 6 Pricing Production Audit - ${{ github.ref_name }} - ${{ github.sha }}
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase6-pricing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pricing-architecture:
+    name: Phase 6 Pricing Architecture Production Audit
+    runs-on: [self-hosted, windows, x64]
+    timeout-minutes: 60
+    steps:
+      - name: Verify runner identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "runner=$env:RUNNER_NAME"
+          Write-Host "os=$env:RUNNER_OS"
+          Write-Host "arch=$env:RUNNER_ARCH"
+
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Verify checkout integrity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:GITHUB_SHA) { throw "Checkout integrity failure: HEAD=$head GITHUB_SHA=$env:GITHUB_SHA" }
+
+      - name: Verify Node.js 22+ runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = (node --version).Trim()
+          $npm = (npm --version).Trim()
+          Write-Host "node=$node"
+          Write-Host "npm=$npm"
+          if ($node -notmatch '^v(22|23|24)\.') { throw "Node.js >=22 is required; detected $node" }
+
+      - name: Verify backend lockfile
+        working-directory: backend
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path package-lock.json)) { throw 'backend/package-lock.json is missing' }
+
+      - name: Backend dependency installation
+        working-directory: backend
+        shell: powershell
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Phase 6 complete regression
+        working-directory: backend
+        shell: powershell
+        run: npm test
+
+      - name: Backend typecheck
+        working-directory: backend
+        shell: powershell
+        run: npm run typecheck
+
+      - name: Backend production build
+        working-directory: backend
+        shell: powershell
+        run: npm run build
+
+      - name: Verify pricing migration
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'supabase/migrations/20260813132000_pricing_rate_list_foundation.sql')) { throw 'Pricing foundation migration is missing' }
+
+      - name: Final Phase 6 gate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host 'PHASE_6_PRICING_ARCHITECTURE_FINAL_PASS'
+          Write-Host "COMMIT: $env:GITHUB_SHA"

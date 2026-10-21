@@ -1,0 +1,1 @@
+Phase 16 remediation is ready for CI and review. The branch includes schema, repository adapter, service lifecycle, and focused tests. The authoritative completion gate remains CI -> merge -> post-merge develop CI.

@@ -1,0 +1,132 @@
+name: Production Cloud Build
+
+on:
+  push:
+    branches: [main, develop, feature/copilot-multimodal-phase2d]
+  pull_request:
+    branches: [main, develop, feature/copilot-multimodal-phase2d]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-cloud-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  npm_config_fetch_retries: '5'
+  npm_config_fetch_retry_mintimeout: '20000'
+  npm_config_fetch_retry_maxtimeout: '120000'
+  npm_config_fetch_timeout: '300000'
+  npm_config_maxsockets: '4'
+  npm_config_audit: 'false'
+  npm_config_fund: 'false'
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify repository build layout
+        run: |
+          test -f frontend/package-lock.json
+          test -f backend/package-lock.json
+          test -f Dockerfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      # setup-node caches ~/.npm tarballs, never node_modules or DB volumes.
+      - run: npm ci --prefix backend --include=dev --prefer-offline
+      - run: npm ci --prefix frontend --include=dev --prefer-offline
+      - name: TypeScript compilation and backend unit tests
+        run: |
+          npm run typecheck --prefix backend
+          npm test --prefix backend -- --maxWorkers=2 --pool=threads
+          npm run build --prefix backend
+      - name: Frontend checks, unit tests, and production bundle
+        run: |
+          npm run typecheck --prefix frontend
+          npm test --prefix frontend -- --maxWorkers=2 --pool=threads
+          npm run build --prefix frontend
+
+  database:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: regression
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d regression"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: disposable-ci-only
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: regression
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations to disposable PostgreSQL 17.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(psql -X -Atc 'show server_version_num')" = '170006'
+          psql -X -v ON_ERROR_STOP=1 -f scripts/database-test-bootstrap.sql
+          for migration in supabase/migrations/*.sql; do
+            psql -X -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Run database regression scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in database_foundation accounting_ledger_foundation_v2 p0_8_authoritative_accounting_posting products_final_gate estimate_conversion copilot_institutional_memory depot_v9; do
+            psql -X -v ON_ERROR_STOP=1 -f "supabase/tests/$test.sql"
+            echo "PASS $test"
+          done
+          echo 'Database regressions: 7/7 PASS'
+
+  image:
+    needs: [verify, database]
+    # Public repos receive 16 GB on this label. Private repos must configure
+    # PRODUCTION_BUILD_RUNNER with a GitHub-hosted larger runner of >=16 GB.
+    runs-on: ${{ vars.PRODUCTION_BUILD_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the cloud build memory budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          memory_kib=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+          if (( memory_kib < 15000000 )); then
+            echo '::error::Configure PRODUCTION_BUILD_RUNNER with a GitHub-hosted runner offering at least 16 GB RAM.'
+            exit 1
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production container entirely in GitHub Actions
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: muraderp-ai:${{ github.sha }}
+          outputs: type=docker,dest=${{ runner.temp }}/muraderp-ai.tar
+          cache-from: type=gha,scope=production-image
+          cache-to: type=gha,mode=max,scope=production-image
+      - name: Save deployable image for release
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-image-${{ github.sha }}
+          path: ${{ runner.temp }}/muraderp-ai.tar
+          retention-days: 3
+          if-no-files-found: error

@@ -1,0 +1,100 @@
+name: Phase 23 Production Closure
+
+on:
+  push:
+    branches:
+      - feature/phase-23-final-production-closure
+      - develop
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "supabase/**"
+      - ".github/workflows/phase23-closure.yml"
+      - "docs/PHASE-23-*"
+      - "architecture/adr/ADR-027-*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  production-closure:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify exact develop post-merge target
+        if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+        working-directory: .
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/develop"
+          echo "POST-MERGE DEVELOP SHA VERIFIED: ${GITHUB_SHA}"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Backend typecheck
+        run: npm run typecheck
+      - name: Backend tests
+        run: npm test
+      - name: Backend production build
+        run: npm run build
+      - name: Production secret hygiene scan
+        working-directory: .
+        run: |
+          ! grep -RInE 'sb_secret_[A-Za-z0-9_-]{20,}|gsk_[A-Za-z0-9_-]{20,}|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{20,}' backend frontend supabase --exclude-dir=node_modules --exclude='*.lock'
+      - name: Frontend syntax verification
+        working-directory: frontend
+        run: |
+          node --check app.js
+          node --check auth.js
+          node --check copilot-api.js
+          node --check ai-experience.js
+      - name: Publish connector-visible closure status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Phase 23 closure verification passed"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Phase 23 closure verification was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Phase 23 closure verification failed"
+          fi
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$STATE" \
+            -f context="github-connector/phase23-closure" \
+            -f description="$DESCRIPTION" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/develop" ]; then
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+              -f state="$STATE" \
+              -f context="github-connector/ci-verification" \
+              -f description="Exact post-merge develop verification: ${JOB_STATUS}" \
+              -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          fi

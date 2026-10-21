@@ -1,0 +1,17 @@
+{
+  "name": "muraderp-ai-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev-server.cjs",
+    "preview": "node dev-server.cjs --production",
+    "test": "vitest run",
+    "test:phase5": "vitest run phase5-master-data.test.js",
+    "typecheck": "node typecheck-check.mjs",
+    "build": "node build-check.mjs"
+  },
+  "devDependencies": {
+    "happy-dom": "20.14.6",
+    "vitest": "4.1.11"
+  }
+}

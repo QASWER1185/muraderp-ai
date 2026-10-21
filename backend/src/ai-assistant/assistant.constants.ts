@@ -1,0 +1,1 @@
+export const ASSISTANT_MIN_CONFIDENCE = 0.8;

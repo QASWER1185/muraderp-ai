@@ -1,0 +1,103 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAdminClient } from "../config/supabase.js";
+import type { Database } from "../types/database.types.js";
+import type { PriceResolutionContext, RateListDefinition, RateListDraftVersionInput, RateListDraftVersionResult, RateListItemDefinition, RateListVersionDefinition, RateListScopeType, ResolvedPrice } from "../types/pricing.types.js";
+
+type PricingDatabaseClient = SupabaseClient<Database> & { from(table: "rate_lists" | "rate_list_versions" | "rate_list_items"): any };
+
+export interface RateListRecord extends RateListDefinition { id: number; is_active: boolean; created_at: string; updated_at: string; }
+export interface RateListVersionRecord extends RateListVersionDefinition { id: number; status: "DRAFT" | "ACTIVE" | "ARCHIVED"; created_at: string; updated_at: string; }
+export interface RateListItemRecord extends RateListItemDefinition { id: number; minimum_quantity: number; created_at: string; updated_at: string; }
+export interface CatalogImportResult { rate_list: RateListRecord; version: RateListVersionRecord; items: RateListItemRecord[]; }
+
+export interface RateListRepository {
+  importRateList?(input: import("../ai-copilot/rate-list-catalog.js").RateListCatalogImport): Promise<CatalogImportResult>;
+  createRateList(input: RateListDefinition): Promise<RateListRecord>;
+  createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord>;
+  createItem(input: RateListItemDefinition): Promise<RateListItemRecord>;
+  createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult>;
+  listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]>;
+  findBestRateListItem(context: PriceResolutionContext): Promise<ResolvedPrice | null>;
+  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]>;
+}
+export interface RateListLifecycleRepository { getVersion(versionId: number): Promise<RateListVersionRecord>; activateVersion(versionId: number): Promise<RateListVersionRecord>; archiveVersion(versionId: number): Promise<RateListVersionRecord>; }
+const scopePriority: Record<RateListScopeType, number> = { CUSTOMER: 3, VENDOR: 2, GLOBAL: 1 };
+
+export class SupabaseRateListRepository implements RateListRepository, RateListLifecycleRepository {
+  constructor(private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient) {}
+  async importRateList(input: import("../ai-copilot/rate-list-catalog.js").RateListCatalogImport): Promise<CatalogImportResult> {
+    const { organization_id, idempotency_key, ...catalog } = input;
+    const { data, error } = await (this.clientFactory() as any).rpc("import_rate_list_catalog", {
+      p_organization_id: organization_id, p_idempotency_key: idempotency_key, p_catalog: catalog,
+    });
+    if (error) throw error;
+    return data;
+  }
+  async listRateLists(organizationId: string): Promise<RateListRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("*").eq("organization_id", organizationId).order("id", { ascending: false }); if (error) throw error; return (data ?? []) as RateListRecord[]; }
+  async getRateList(rateListId: number, organizationId: string): Promise<RateListRecord | null> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("*").eq("organization_id", organizationId).eq("id", rateListId).maybeSingle(); if (error) throw error; return data as RateListRecord | null; }
+  async listVersions(rateListId: number): Promise<RateListVersionRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").select("*").eq("rate_list_id", rateListId).order("version_number", { ascending: false }); if (error) throw error; return (data ?? []) as RateListVersionRecord[]; }
+  async listItems(versionIds: number[]): Promise<RateListItemRecord[]> { if (!versionIds.length) return []; const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_items").select("*").in("rate_list_version_id", versionIds).order("id"); if (error) throw error; return (data ?? []) as RateListItemRecord[]; }
+  async publishVersion(versionId: number, organizationId: string): Promise<RateListVersionRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await (client as any).rpc("publish_rate_list_version", { p_organization_id: organizationId, p_version_id: versionId }); if (error) throw error; return data as RateListVersionRecord; }
+  async createRateList(input: RateListDefinition): Promise<RateListRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").insert({ organization_id: input.organization_id, name: input.name, code: input.code, price_type: input.price_type, scope_type: input.scope_type, vendor_id: input.vendor_id ?? null, customer_id: input.customer_id ?? null, currency_code: input.currency_code, is_active: input.is_active ?? true }).select().single(); if (error) throw error; return data as RateListRecord; }
+  async createVersion(input: RateListVersionDefinition): Promise<RateListVersionRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").insert({ rate_list_id: input.rate_list_id, version_number: input.version_number, status: input.status ?? "DRAFT", effective_from: input.effective_from, effective_to: input.effective_to ?? null }).select().single(); if (error) throw error; return data as RateListVersionRecord; }
+  async createItem(input: RateListItemDefinition): Promise<RateListItemRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_items").insert({ rate_list_version_id: input.rate_list_version_id, product_id: input.product_id, minimum_quantity: input.minimum_quantity ?? 1, unit_price: input.unit_price, unit: input.unit }).select().single(); if (error) throw error; return data as RateListItemRecord; }
+  async createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const { data, error } = await (client as any).rpc("create_rate_list_draft_version", {
+      p_organization_id: input.organization_id,
+      p_rate_list_id: input.rate_list_id,
+      p_version_number: input.version_number,
+      p_effective_from: input.effective_from,
+      p_items: input.items,
+    });
+    if (error) throw error;
+    return data as RateListDraftVersionResult;
+  }
+  async listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("id, organization_id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active, created_at, updated_at").eq("organization_id", organizationId).eq("price_type", "SALE").eq("is_active", true).order("name", { ascending: true }); if (error) throw error; return (data ?? []) as RateListRecord[]; }
+
+  async findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]> {
+    const client = this.clientFactory() as PricingDatabaseClient;
+    const normalized = hint.trim().toLowerCase();
+    if (!normalized) return [];
+    const { data, error } = await client.from("rate_lists").select("id, organization_id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active, created_at, updated_at").eq("organization_id", context.organization_id).eq("price_type", context.price_type).eq("is_active", true);
+    if (error) throw error;
+    return ((data ?? []) as RateListRecord[]).filter((list) => {
+      const textMatch = list.name.toLowerCase() === normalized || list.code.toLowerCase() === normalized;
+      if (!textMatch) return false;
+      if (list.scope_type === "CUSTOMER") return list.customer_id === context.customer_id;
+      if (list.scope_type === "VENDOR") return list.vendor_id === context.vendor_id;
+      return true;
+    });
+  }
+
+  async findBestRateListItem(context: PriceResolutionContext): Promise<ResolvedPrice | null> {
+    const client = this.clientFactory() as PricingDatabaseClient; const asOf = Date.parse(context.as_of);
+    let rateListQuery = client.from("rate_lists").select("id, organization_id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active, created_at, updated_at").eq("organization_id", context.organization_id).eq("price_type", context.price_type).eq("is_active", true);
+    if (context.rate_list_id != null) rateListQuery = rateListQuery.eq("id", context.rate_list_id);
+    const { data: rawRateLists, error: rateListError } = await rateListQuery; if (rateListError) throw rateListError;
+    const rateLists = (rawRateLists ?? []) as RateListRecord[];
+    const applicableRateLists = rateLists.filter((rateList) => { if (context.rate_list_id != null) return rateList.id === context.rate_list_id; if (rateList.scope_type === "CUSTOMER") return rateList.customer_id === context.customer_id; if (rateList.scope_type === "VENDOR") return rateList.vendor_id === context.vendor_id; return rateList.scope_type === "GLOBAL"; });
+    if (applicableRateLists.length === 0) return null;
+
+    if (context.rate_list_id == null) {
+      const winningScopePriority = Math.max(...applicableRateLists.map((rateList) => scopePriority[rateList.scope_type]));
+      const winningScopeRateListIds = new Set(applicableRateLists.filter((rateList) => scopePriority[rateList.scope_type] === winningScopePriority).map((rateList) => rateList.id));
+      if (winningScopeRateListIds.size > 1) {
+        throw new Error("Ambiguous pricing: multiple active rate lists match the winning scope");
+      }
+    }
+
+    const { data: rawVersions, error: versionError } = await client.from("rate_list_versions").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").in("rate_list_id", applicableRateLists.map((r) => r.id)).eq("status", "ACTIVE"); if (versionError) throw versionError;
+    const versions = (rawVersions ?? []) as RateListVersionRecord[];
+    const applicableVersions = versions.filter((version) => { const from = Date.parse(version.effective_from); const to = version.effective_to ? Date.parse(version.effective_to) : Number.POSITIVE_INFINITY; return from <= asOf && asOf < to; });
+    if (applicableVersions.length === 0) return null;
+    const { data: rawItems, error: itemError } = await client.from("rate_list_items").select("id, rate_list_version_id, product_id, minimum_quantity, unit_price, unit, created_at, updated_at").in("rate_list_version_id", applicableVersions.map((v) => v.id)).eq("product_id", context.product_id).lte("minimum_quantity", context.quantity); if (itemError) throw itemError;
+    const candidates = ((rawItems ?? []) as RateListItemRecord[]).map((item) => { const version = applicableVersions.find((v) => v.id === item.rate_list_version_id); const rateList = version ? applicableRateLists.find((r) => r.id === version.rate_list_id) : undefined; return version && rateList ? { item, version, rateList } : null; }).filter((x): x is { item: RateListItemRecord; version: RateListVersionRecord; rateList: RateListRecord } => x !== null);
+    candidates.sort((a, b) => { const scope = scopePriority[b.rateList.scope_type] - scopePriority[a.rateList.scope_type]; if (scope) return scope; const quantity = b.item.minimum_quantity - a.item.minimum_quantity; if (quantity) return quantity; const effective = Date.parse(b.version.effective_from) - Date.parse(a.version.effective_from); if (effective) return effective; return b.version.version_number - a.version.version_number; });
+    const best = candidates[0]; if (!best) return null;
+    return { rate_list_id: best.rateList.id, rate_list_version_id: best.version.id, rate_list_item_id: best.item.id, product_id: best.item.product_id, unit_price: best.item.unit_price, unit: best.item.unit, currency_code: best.rateList.currency_code, minimum_quantity: best.item.minimum_quantity, scope_type: best.rateList.scope_type, effective_from: best.version.effective_from };
+  }
+  async getVersion(versionId: number): Promise<RateListVersionRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").eq("id", versionId).single(); if (error) throw error; return data as RateListVersionRecord; }
+  async activateVersion(versionId: number): Promise<RateListVersionRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").update({ status: "ACTIVE", updated_at: new Date().toISOString() }).eq("id", versionId).eq("status", "DRAFT").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").single(); if (error) throw error; return data as RateListVersionRecord; }
+  async archiveVersion(versionId: number): Promise<RateListVersionRecord> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_list_versions").update({ status: "ARCHIVED", updated_at: new Date().toISOString() }).eq("id", versionId).eq("status", "ACTIVE").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").single(); if (error) throw error; return data as RateListVersionRecord; }
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#155eef" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <title>MuradERP-AI</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="nav" class="sidebar" aria-label="ERP navigation"></aside>
+    <button id="nav-scrim" class="nav-scrim" type="button" aria-label="Close navigation"></button>
+    <div class="app-main">
+      <header class="topbar">
+        <div class="topbar-leading">
+          <button id="menu" class="icon-button menu-button" type="button" aria-label="Open navigation"></button>
+          <div><span class="topbar-kicker">Workspace</span><strong id="page-title">Dashboard</strong></div>
+        </div>
+        <div class="topbar-actions">
+          <span id="connection-status" class="network-status" aria-live="polite"></span>
+          <button id="workspace-button" class="button secondary" type="button" aria-label="Choose workspace" title="Choose workspace"></button>
+          <button id="auth-button" class="button secondary" type="button">Sign in</button>
+          <button id="copilot-button" class="button primary copilot-launch" type="button"></button>
+        </div>
+      </header>
+      <main id="content" class="content" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <dialog id="auth-dialog" class="modal-dialog">
+    <form class="modal-card" id="auth-form">
+      <div class="surface-heading"><div><p class="eyebrow">Secure session</p><h2>Sign in to MuradERP</h2></div><button id="auth-close" class="icon-button" type="button" aria-label="Close"></button></div>
+      <label>Email<input id="auth-email" type="email" autocomplete="username" required /></label>
+      <label>Password<input id="auth-password" type="password" autocomplete="current-password" required /></label>
+      <p id="auth-result" class="form-message" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="auth-signout" class="button secondary" type="button" hidden>Sign out</button><button id="auth-submit" class="button primary" type="submit">Sign in</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="workspace-dialog" class="modal-dialog">
+    <form id="workspace-form" class="modal-card">
+      <div class="surface-heading"><div><p class="eyebrow">Access context</p><h2>Choose workspace</h2></div><button id="workspace-close" class="icon-button" type="button" aria-label="Close"></button></div>
+      <p class="muted">Choose an organization and branch assigned to your signed-in account.</p>
+      <div class="field-stack"><label>Organization<select name="organization" required></select></label><label>Branch<select name="branch" required></select></label></div>
+      <p id="workspace-result" class="form-message" role="alert" hidden></p>
+      <div class="dialog-actions"><button class="button secondary" type="button" id="workspace-refresh">Refresh</button><button class="button primary" type="submit">Connect workspace</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="copilot" class="copilot-dialog">
+    <section class="copilot-panel" aria-label="AI Copilot">
+      <header class="copilot-header"><div class="copilot-mark" aria-hidden="true"></div><div><p class="eyebrow">MuradERP AI</p><h2>Copilot</h2></div><div class="copilot-header-actions"><button id="copilot-settings" class="button secondary compact" type="button">API key settings</button><button id="copilot-close" class="icon-button" type="button" aria-label="Close Copilot"></button></div></header>
+      <div id="copilot-thread" class="copilot-thread" aria-live="polite"></div>
+      <div id="copilot-attachment" class="attachment-preview" hidden></div>
+      <p id="copilot-status" class="copilot-status" role="status" hidden></p>
+      <div class="copilot-composer">
+        <label class="sr-only" for="copilot-action">Task</label>
+        <select id="copilot-action" class="task-select" aria-label="Copilot task"><option value="auto">ERP Business Agent</option><option value="estimate">Prepare estimate</option><option value="purchase">Review supplier bill</option><option value="return">Review customer return</option><option value="inventory_adjustment">Review stock adjustment</option><option value="rate_list_update">Review rate list</option><option value="invoice_extract">Extract invoice only</option></select>
+        <textarea id="copilot-input" rows="1" placeholder="Ask about a product, rate, or ERP action" aria-label="Message Copilot"></textarea>
+        <div class="composer-actions"><div><button id="copilot-attach" class="icon-button" type="button" aria-label="Attach image or PDF" title="Attach image or PDF"></button><button id="copilot-camera-button" class="icon-button" type="button" aria-label="Take a photo" title="Take a photo"></button><button id="copilot-mic" class="icon-button" type="button" aria-label="Record voice" title="Record voice"></button></div><button id="copilot-send" class="icon-button send-button" type="button" aria-label="Send message" title="Send message"></button></div>
+        <input id="copilot-file" type="file" multiple accept="image/*,application/pdf,audio/webm,audio/mp4,audio/mpeg,audio/wav,audio/ogg" hidden />
+        <input id="copilot-camera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden />
+      </div>
+      <p class="copilot-boundary">Read answers use live ERP data. Actions require your review and explicit confirmation before the authoritative ERP service executes them.</p>
+    </section>
+  </dialog>
+  <dialog id="copilot-key-dialog" class="modal-dialog">
+    <form id="copilot-key-form" class="modal-card">
+      <div class="surface-heading"><div><p class="eyebrow">Copilot setup</p><h2>API key settings</h2></div><button id="copilot-key-close" class="icon-button" type="button" aria-label="Close"></button></div>
+      <p id="copilot-key-backend-status" class="muted" role="status">Checking for a server-side AI key…</p>
+      <label>Gemini API key<input id="copilot-api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Enter your Gemini API key" maxlength="512" /></label>
+      <p class="copilot-key-notice">Your key is saved in this browser’s localStorage and sent over HTTPS to MuradERP’s backend for Copilot requests. Browser storage is accessible to scripts running on this site, so use a dedicated, revocable key.</p>
+      <p id="copilot-key-result" class="form-message" role="status" hidden></p>
+      <button id="copilot-key-test" class="button secondary" type="button">Test saved key</button>
+      <div class="dialog-actions"><button id="copilot-key-clear" class="button secondary" type="button">Remove saved key</button><button id="copilot-key-cancel" class="button secondary" type="button">Cancel</button><button class="button primary" type="submit">Save key</button></div>
+    </form>
+  </dialog>
+  <script src="/public-config.js"></script>
+  <script type="module" src="/app.js"></script>
+  <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));}</script>
+</body>
+</html>

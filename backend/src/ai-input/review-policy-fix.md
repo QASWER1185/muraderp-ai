@@ -1,0 +1,1 @@
+Phase 18 review policy implementation note: use review-policy-v2.ts for the corrected contract-aligned policy. The original draft policy is superseded and should be removed before merge.

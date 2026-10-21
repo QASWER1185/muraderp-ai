@@ -1,10 +1,10 @@
-node_modules
+node_modules/
+dist/
+coverage/
 .env
 .env.local
-dist
-build
-coverage
-.next
-.vscode
-.idea
+.vscode/
+.idea/
 *.log
+supabase/.temp/
+.supabase-cli-home/

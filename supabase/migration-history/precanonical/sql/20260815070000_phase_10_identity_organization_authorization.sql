@@ -1,0 +1,129 @@
+-- Phase 10: Identity, organization and role-based authorization foundation
+
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (length(trim(name)) between 2 and 200),
+  slug text not null unique check (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.organization_memberships (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('owner','admin','manager','accountant','sales','purchase','inventory','viewer')),
+  status text not null default 'active' check (status in ('active','suspended','invited')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, user_id)
+);
+
+create table if not exists public.permissions (
+  code text primary key,
+  description text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.role_permissions (
+  role text not null check (role in ('owner','admin','manager','accountant','sales','purchase','inventory','viewer')),
+  permission_code text not null references public.permissions(code) on delete cascade,
+  primary key (role, permission_code)
+);
+
+insert into public.permissions(code, description) values
+  ('customers.read','Read customers'),
+  ('customers.write','Create and update customers'),
+  ('vendors.read','Read vendors'),
+  ('vendors.write','Create and update vendors'),
+  ('products.read','Read products'),
+  ('products.write','Create and update products'),
+  ('inventory.read','Read inventory'),
+  ('inventory.adjust','Adjust inventory'),
+  ('purchases.read','Read purchases'),
+  ('purchases.create','Create purchases'),
+  ('purchases.approve','Approve purchases'),
+  ('sales.read','Read sales'),
+  ('sales.create','Create sales'),
+  ('sales.approve','Approve sales'),
+  ('payments.create','Record payments'),
+  ('returns.create','Create returns'),
+  ('accounting.read','Read accounting'),
+  ('accounting.post','Post accounting entries'),
+  ('reports.view','View reports'),
+  ('organization.manage','Manage organization members and roles')
+ on conflict (code) do nothing;
+
+-- Owner/admin are intentionally broad; sensitive accounting and organization actions remain explicit.
+insert into public.role_permissions(role, permission_code)
+select 'owner', code from public.permissions on conflict do nothing;
+insert into public.role_permissions(role, permission_code)
+select 'admin', code from public.permissions where code <> 'organization.manage' on conflict do nothing;
+insert into public.role_permissions(role, permission_code) values
+ ('manager','customers.read'),('manager','customers.write'),('manager','vendors.read'),('manager','vendors.write'),
+ ('manager','products.read'),('manager','products.write'),('manager','inventory.read'),('manager','purchases.read'),
+ ('manager','purchases.create'),('manager','purchases.approve'),('manager','sales.read'),('manager','sales.create'),
+ ('manager','sales.approve'),('manager','payments.create'),('manager','returns.create'),('manager','reports.view'),
+ ('accountant','customers.read'),('accountant','vendors.read'),('accountant','purchases.read'),('accountant','sales.read'),
+ ('accountant','payments.create'),('accountant','accounting.read'),('accountant','accounting.post'),('accountant','reports.view'),
+ ('sales','customers.read'),('sales','customers.write'),('sales','products.read'),('sales','inventory.read'),('sales','sales.read'),
+ ('sales','sales.create'),('sales','returns.create'),
+ ('purchase','vendors.read'),('purchase','vendors.write'),('purchase','products.read'),('purchase','inventory.read'),
+ ('purchase','purchases.read'),('purchase','purchases.create'),
+ ('inventory','products.read'),('inventory','products.write'),('inventory','inventory.read'),('inventory','inventory.adjust'),
+ ('viewer','customers.read'),('viewer','vendors.read'),('viewer','products.read'),('viewer','inventory.read'),('viewer','purchases.read'),
+ ('viewer','sales.read'),('viewer','accounting.read'),('viewer','reports.view')
+ on conflict do nothing;
+
+create or replace function public.current_user_organizations()
+returns table (organization_id uuid)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select om.organization_id
+  from public.organization_memberships om
+  where om.user_id = auth.uid()
+    and om.status = 'active';
+$$;
+
+create or replace function public.has_permission(p_organization_id uuid, p_permission_code text)
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.organization_memberships om
+    join public.role_permissions rp on rp.role = om.role
+    where om.organization_id = p_organization_id
+      and om.user_id = auth.uid()
+      and om.status = 'active'
+      and rp.permission_code = p_permission_code
+  );
+$$;
+
+alter table public.organizations enable row level security;
+alter table public.organization_memberships enable row level security;
+alter table public.permissions enable row level security;
+alter table public.role_permissions enable row level security;
+
+create policy organizations_select_member on public.organizations
+for select using (exists (select 1 from public.organization_memberships om where om.organization_id = organizations.id and om.user_id = auth.uid() and om.status = 'active'));
+
+create policy memberships_select_self_or_same_org on public.organization_memberships
+for select using (user_id = auth.uid() or exists (select 1 from public.organization_memberships own where own.organization_id = organization_memberships.organization_id and own.user_id = auth.uid() and own.status = 'active' and own.role in ('owner','admin')));
+
+create policy permissions_select_authenticated on public.permissions
+for select using (auth.uid() is not null);
+
+create policy role_permissions_select_authenticated on public.role_permissions
+for select using (auth.uid() is not null);
+
+revoke all on function public.current_user_organizations() from public;
+grant execute on function public.current_user_organizations() to authenticated;
+revoke all on function public.has_permission(uuid,text) from public;
+grant execute on function public.has_permission(uuid,text) to authenticated;
