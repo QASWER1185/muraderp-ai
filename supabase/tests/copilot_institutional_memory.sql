@@ -26,12 +26,19 @@ begin
   perform pg_temp.memory_check(public.copilot_purchase_floor(org,product,100,'pcs','PKR')=50,'wholesale ceiling outranks lower stale product cost');
   perform pg_temp.memory_check(public.copilot_purchase_floor(other_org,product,100,'pcs','PKR') is null,'foreign product has no usable cost');
   perform pg_temp.memory_check(public.copilot_purchase_floor(org,product,100,'ft','PKR') is null,'unit mismatch cannot supply a floor');
+  set local role service_role;
+  result:=public.commit_copilot_profile_action(org,branch,actor,'memory-regression','profile-create','erp_create_customer',
+    jsonb_build_object('name','Copilot Profile Fixture','phone','0000','address','Fixture','openingBalance',0,'creditLimit',2500));
+  replay:=public.commit_copilot_profile_action(org,branch,actor,'memory-regression','profile-create','erp_create_customer',
+    jsonb_build_object('name','Copilot Profile Fixture','phone','0000','address','Fixture','openingBalance',0,'creditLimit',2500));
+  perform pg_temp.memory_check(result->>'id'=replay->>'id','customer creation RPC replays idempotently');
+  perform pg_temp.memory_check((select name='Copilot Profile Fixture' and city='Fixture' and credit_limit=2500
+    from public.customers where id=(result->>'id')::bigint and organization_id=org),'approved customer creation persists scoped profile');
   payload:=jsonb_build_object('warehouseId',warehouse,'paidAmount',0,
     'invoice',jsonb_build_object('invoice_number','MEM-'||org,'customer_id',customer,'source_type','DIRECT','issue_date','2026-10-18','currency_code','PKR','subtotal',400,'discount_total',140,'grand_total',260,'pass_through_rent',0),
     'lines',jsonb_build_array(
       jsonb_build_object('line_number',1,'product_id',product,'quantity',2,'unit','pcs','unit_price',100,'line_total',200,'unit_cost',25,'cogs_total',50,'gross_unit_price',100,'customer_discount_percent',50,'customer_discount_amount',100),
       jsonb_build_object('line_number',2,'product_id',product,'quantity',2,'unit','pcs','unit_price',100,'line_total',200,'unit_cost',25,'cogs_total',50,'gross_unit_price',100,'customer_discount_percent',20,'customer_discount_amount',40)));
-  set local role service_role;
   result:=public.commit_copilot_sale(org,branch,actor,'memory-regression','sale',payload);
   replay:=public.commit_copilot_sale(org,branch,actor,'memory-regression','sale',payload);
   invoice:=(result->>'invoice_id')::bigint;
