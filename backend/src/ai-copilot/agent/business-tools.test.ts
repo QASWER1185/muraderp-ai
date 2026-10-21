@@ -27,7 +27,7 @@ describe("Part 3 authoritative business tools", () => {
     vi.mocked(f.business.repository.customerLedger).mockResolvedValue({ balances: [], transactions: [], latestPayment: null, nextCursor: null });
     const empty = await f.tools.execute("query_customer_ledger", {}, scope, f.state) as BusinessFact;
     expect(empty).toMatchObject({ status: "empty", balances: [] });
-    expect(businessAnswer([empty],"ledger")).toContain("currency balance is unavailable");
+    expect(businessAnswer([empty],"ledger")).toContain("کرنسی کے مطابق بقایا دستیاب نہیں");
   });
   it("uses indexed customer queries and revalidates a resolved party", async () => {
     const f = businessFixture(); delete f.state.customer;

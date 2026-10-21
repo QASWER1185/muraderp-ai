@@ -26,7 +26,7 @@ describe("missing entities and Copilot failure recovery", () => {
     expect(result.answer).toContain("Bestway Cement");
     expect(result.answer).toContain("0 BAG");
     expect(result.answer).toContain("Hamdan Sahib");
-    expect(result.answer).toContain("outstanding 800");
+    expect(result.answer).toContain("بقایا 800");
     expect(result.answer).not.toMatch(/999|could not verify|was not found/);
   });
 
@@ -37,9 +37,9 @@ describe("missing entities and Copilot failure recovery", () => {
     f.script(call("query_inventory", { query: "cement" }), call("query_customer_ledger", { query: "Hamdan Sahib" }), final("Stock 999; balance 999"));
     const result = await f.core.run({ message: "Check cement stock and Hamdan Sahib ledger balance", conversationToken: writeBusinessState(f.state) }, scope);
     expect(result.status).toBe("completed");
-    expect(result.answer).toContain("Customer 'Hamdan Sahib' was not found");
-    expect(result.answer).toContain("Current customers: Qasim sahib");
-    expect(result.answer).toContain("Product 'cement' was not found");
+    expect(result.answer).toContain("'Hamdan Sahib' نام کا گاہک اس ادارے میں نہیں ملا");
+    expect(result.answer).toContain("موجودہ گاہک: Qasim sahib");
+    expect(result.answer).toContain("'cement' کا درست آئٹم نہیں ملا");
     expect(result.answer).not.toMatch(/999|0 bags|could not verify/);
     expect(f.business.erp.listCustomers).toHaveBeenCalledWith({ limit: 5 }, scope.organizationId);
     expect(f.business.repository.customerLedger).not.toHaveBeenCalled();
@@ -57,7 +57,7 @@ describe("missing entities and Copilot failure recovery", () => {
     f.script(call("query_customer_ledger", { query: "Hamdan Sahib" }), call("query_inventory", { query: "Popular pipe" }), final("made up"));
     const result = await f.core.run({ message: "stock and Hamdan ledger" }, scope);
     expect(result.status).toBe("completed");
-    expect(result.answer).toContain("was not found");
+    expect(result.answer).toContain("نام کا گاہک اس ادارے میں نہیں ملا");
     expect(result.answer).toContain("0 MTR");
     expect(result.businessFacts?.map(fact => fact.kind)).toEqual(["entity_not_found", "inventory"]);
   });
@@ -67,7 +67,7 @@ describe("missing entities and Copilot failure recovery", () => {
     vi.mocked(f.services.search.searchCustomers).mockResolvedValue(resolveCandidates([], 5));
     f.script(call("lookup_customers", { query: "Hamdan Sahib" }), final("Balance 999"));
     const result = await f.core.run({ message: "Hamdan Sahib ledger" }, scope);
-    expect(result.answer).toContain("Current customers: Qasim sahib");
+    expect(result.answer).toContain("موجودہ گاہک: Qasim sahib");
     expect(result.answer).not.toContain("999");
   });
 
@@ -77,7 +77,7 @@ describe("missing entities and Copilot failure recovery", () => {
     vi.mocked(f.business.erp.listCustomers).mockRejectedValue(new Error("private connection string"));
     f.script(call("query_customer_ledger", { query: "Hamdan Sahib" }), final("done"));
     const result = await f.core.run({ message: "Hamdan Sahib ledger" }, scope);
-    expect(result.answer).toContain("current customer list is unavailable");
+    expect(result.answer).toContain("موجودہ گاہکوں کی فہرست دستیاب نہیں");
     expect(result.answer).not.toContain("private connection");
   });
 

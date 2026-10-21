@@ -37,8 +37,8 @@ describe("Copilot HTTP missing-entity regression", () => {
     expect(result.status).toBe(200);
     expect(result.headers["cache-control"]).toBe("no-store");
     const answer = result.body.data.answer ?? result.body.data.message;
-    expect(answer).toContain("Customer 'Hamdan Sahib' was not found");
-    expect(answer).toContain("Product 'cement' was not found");
+    expect(answer).toContain("'Hamdan Sahib' نام کا گاہک اس ادارے میں نہیں ملا");
+    expect(answer).toContain("'cement' کا درست آئٹم نہیں ملا");
     expect(answer).not.toMatch(/could not verify|999/);
     expect(result.body.requiresConfirmation).toBe(false);
     expect(f.business.erp.listCustomers).toHaveBeenCalledWith({ limit: 5 }, scope.organizationId);

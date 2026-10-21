@@ -19,8 +19,8 @@ describe("provider-independent authoritative inventory", () => {
     const f = businessFixture();
     vi.mocked(f.services.search.searchProducts).mockResolvedValue(resolveCandidates([], 5));
     const result = await new UnifiedCopilotAgent(new BasicInventoryModel(), f.tools).run({ message: "Check cement stock" }, scope);
-    expect(result.answer).toContain("Product 'cement' was not found");
-    expect(result.answer).toContain("no quantity has been assumed");
+    expect(result.answer).toContain("'cement' کا درست آئٹم نہیں ملا");
+    expect(result.answer).not.toMatch(/999/);
     expect(f.business.erp.listInventory).not.toHaveBeenCalled();
   });
   it("continues a signed ambiguous-product selection without requiring an AI key or repeating the search", async () => {

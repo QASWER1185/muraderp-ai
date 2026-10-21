@@ -7,6 +7,34 @@ import { icon } from "./icons.js";
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
 const MEDIA_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","audio/webm","audio/mp4","audio/mpeg","audio/wav","audio/ogg"]);
+export function erpActionReviewMarkup(review) {
+  const preview=review.preview;
+  const lines=preview.lines??[];
+  const quotation=preview.quotation;
+  const grouped=quotation?.sections?.map(section=>`<section><h4>${escapeHtml(section.brand)}</h4>${section.lines.map(line=>`<p>${escapeHtml(line.name)} · ${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} · نرخ ${escapeHtml(line.rate)} · رقم ${escapeHtml(line.amount)}</p>`).join("")}<p>برانڈ رعایت: PKR ${escapeHtml(section.savings)} · رقم: PKR ${escapeHtml(section.total)}</p></section>`).join("");
+  return `<article class="review-card confirmation-card" dir="auto"><h3>منظوری کے لیے پری ویو</h3><p>${escapeHtml(preview.summary)}</p><div class="review-lines">${grouped??lines.map((line,index)=>`<div class="review-line"><strong>${index+1}. ${escapeHtml(line.productName??line.name??"")}</strong><p>${escapeHtml(line.quantity??line.qty??"")} ${escapeHtml(line.unit??"")} · نرخ ${escapeHtml(line.unit_price??line.list_price??"")} · رعایت ${escapeHtml(line.discountPercent??0)}%</p></div>`).join("")}</div>${preview.totals?`<p><strong>کل رقم: PKR ${escapeHtml(preview.totals.grand_total)}</strong></p>`:""}${preview.warnings?.length?`<p class="review-warning">${escapeHtml(preview.warnings.join(" "))}</p>`:""}${quotation?`<details><summary>گاہک کا واٹس ایپ کارڈ</summary><pre data-customer-quotation>${escapeHtml(quotation.text)}</pre><button type="button" class="button secondary" data-copy-quotation>متن کاپی کریں</button><button type="button" class="button secondary" data-download-card>کارڈ ڈاؤن لوڈ کریں</button></details>`:""}${preview.privateMargin?`<details class="merchant-scorecard"><summary>صرف دکاندار کے لیے مارجن</summary><p>${preview.privateMargin.costsKnown?`خرید لاگت: PKR ${escapeHtml(preview.privateMargin.cost)} · متوقع مجموعی منافع: PKR ${escapeHtml(preview.privateMargin.grossProfit)}`:"خرید لاگت کی مکمل تصدیق دستیاب نہیں؛ منافع کا اندازہ نہیں لگایا گیا۔"}</p></details>`:""}${preview.challan?`<details open><summary>بغیر نرخ کا ڈسپیچ چلّان</summary><pre data-customer-quotation>${escapeHtml(preview.challan.text)}</pre><button type="button" class="button secondary" data-download-card>چلّان ڈاؤن لوڈ کریں</button></details>`:""}<button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button><button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور محفوظ کریں</button></article>`;
+}
+export function depotReportMarkup(report){
+  if(!Array.isArray(report.issues))return "";
+  return `<article class="review-card" dir="auto"><h3>طلب اور وینڈر کوٹیشن کی پڑتال</h3>${report.issues.map(issue=>`<p class="${issue.negativeMargin?"negative-margin":"review-warning"}">${escapeHtml(issue.message)}</p>`).join("")}${Array.isArray(report.corrected)?`<details><summary>درست کوٹیشن کا پری ویو</summary>${report.corrected.map(line=>`<p>${escapeHtml(line.name)} · مقدار ${escapeHtml(line.quantity)} · معیار ${escapeHtml(line.specification)} · رعایت ${escapeHtml(line.discount)}%</p>`).join("")}</details>`:""}</article>`;
+}
+async function downloadCustomerCard(text) {
+  const rows=String(text).split("\n").flatMap(line=>{
+    const words=line.split(/\s+/u),chunks=[];let current="";
+    for(const word of words){if(current.length+word.length>65){chunks.push(current);current=word;}else current+=(current?" ":"")+word;}
+    chunks.push(current);return chunks;
+  });
+  const width=1000,height=100+rows.length*42;
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="white"/><g fill="#142c23" font-family="Arial,sans-serif" font-size="24" direction="rtl" text-anchor="end">${rows.map((row,index)=>`<text x="960" y="${55+index*42}" unicode-bidi="plaintext">${escapeHtml(row)}</text>`).join("")}</g></svg>`;
+  const source=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml;charset=utf-8"}));
+  try{
+    const image=new Image();await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=source;});
+    const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;canvas.getContext("2d").drawImage(image,0,0);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
+    if(!blob)throw new Error("کارڈ تیار نہیں ہو سکا۔");
+    const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="MuradERP-quotation.png";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }finally{URL.revokeObjectURL(source);}
+}
 export function customerDraftState(review, context, userId) {
   if (review?.intent !== "customer_create" || review.requiresConfirmation !== true ||
       [review.draftId, review.idempotencyKey, review.name, review.phone, review.city].some(value => typeof value !== "string" || !value.trim())) throw new Error("Customer draft is incomplete. No customer has been created.");
@@ -163,8 +191,9 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const sendButton = document.querySelector("#copilot-send");
   const micButton = document.querySelector("#copilot-mic");
   let attachment = null;
+  let attachments = [];
   let attachmentFromCamera = false;
-  let attachmentUrl = null;
+  let attachmentUrls = [];
   let review = null;
   let activeDraft = null;
   let customerPreparationScope = null;
@@ -204,15 +233,27 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     status.hidden = !busy; status.innerHTML = busy ? `<span class="spinner"></span>${escapeHtml(message)}` : "";
   }
   function clearAttachment() {
-    if (attachmentUrl) URL.revokeObjectURL(attachmentUrl);
-    attachmentUrl = null; attachment = null; attachmentFromCamera = false; fileInput.value = ""; cameraInput.value = ""; attachmentRoot.hidden = true; attachmentRoot.innerHTML = "";
+    attachmentUrls.forEach(url=>URL.revokeObjectURL(url));
+    attachmentUrls = []; attachments=[]; attachment = null; attachmentFromCamera = false; fileInput.value = ""; cameraInput.value = ""; attachmentRoot.hidden = true; attachmentRoot.innerHTML = "";
   }
   function showAttachment(file, fromCamera = false) {
+    showAttachments(fromCamera && attachments.length ? [...attachments,file] : [file],fromCamera);
+  }
+  function showAttachments(files,fromCamera=false) {
     clearAttachment();
-    try {validateAttachment(file);}catch(error){showError(error);return;}
-    attachment = file; attachmentFromCamera = fromCamera;
-    const imagePreview = file.type.startsWith("image/") ? `<img src="${(attachmentUrl = URL.createObjectURL(file))}" alt="Attachment preview" />` : `<span class="attachment-icon">${icon(file.type.startsWith("audio/") ? "mic" : "file")}</span>`;
-    attachmentRoot.innerHTML = `${imagePreview}<span><strong>${escapeHtml(file.name || "Voice recording")}</strong><small>${escapeHtml(attachmentLabel(file))}</small></span><button class="icon-button" type="button" data-remove-attachment aria-label="Remove attachment">${icon("close")}</button>`;
+    try {
+      files.forEach(validateAttachment);
+      if(files.length>10)throw new Error("ایک ساتھ زیادہ سے زیادہ 10 پرچیاں منتخب کریں۔");
+      if(files.reduce((sum,file)=>sum+file.size,0)>MAX_MEDIA_BYTES)throw new Error("تمام فائلوں کا مجموعی حجم 8 MB تک رکھیں۔");
+      if(files.length>1 && files.some(file=>file.type.startsWith("audio/")))throw new Error("صوتی پیغام الگ بھیجیں؛ پرچیوں کے ساتھ صرف تصاویر یا PDF شامل کریں۔");
+    }catch(error){showError(error);return;}
+    attachments=files;attachment=files[0]??null;attachmentFromCamera=fromCamera;
+    attachmentRoot.innerHTML=files.map((file,index)=>{
+      let imagePreview;
+      if(file.type.startsWith("image/")){const url=URL.createObjectURL(file);attachmentUrls.push(url);imagePreview=`<img src="${url}" alt="پرچی ${index+1}" />`;}
+      else imagePreview=`<span class="attachment-icon">${icon(file.type.startsWith("audio/")?"mic":"file")}</span>`;
+      return `<div class="attachment-file">${imagePreview}<span><strong>${escapeHtml(file.name||"صوتی پیغام")}</strong><small>${escapeHtml(attachmentLabel(file))}</small></span><button class="icon-button" type="button" data-remove-attachment="${index}" aria-label="فائل ہٹائیں">${icon("close")}</button></div>`;
+    }).join("");
     attachmentRoot.hidden = false;
   }
   function showError(error, action = null) {
@@ -336,19 +377,21 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const source = sourceForAttachment(attachment, attachmentFromCamera);
     if(recorder?.state==="recording") throw new Error("Stop recording before sending.");
     const display = text || (source === "voice" ? "Voice note" : fromCameraLabel(source));
-    appendMessage("user", `<p>${escapeHtml(display)}</p>${attachment ? `<small>${escapeHtml(attachmentLabel(attachment))}</small>` : ""}`);
+    appendMessage("user", `<p>${escapeHtml(display)}</p>${attachments.map(file=>`<small>${escapeHtml(attachmentLabel(file))}</small>`).join("")}`);
     const sentAttachment = attachment;
+    const sentAttachments=[...attachments];
     const version=++operationVersion;
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
       const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
+      const mediaInput=sentAttachments.length>1 ? {attachments:await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})))} : {media:payload.media,fileName:sentAttachment?.name};
       if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
         const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
         activeDraft = null; preparedConversation = null; customerPreparationScope = null;
         thread.querySelectorAll("[data-customer-preparation], [data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
-        const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,media:payload.media,fileName:sentAttachment.name,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
+        const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,...mediaInput,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
         if(version!==operationVersion) return;
         const current=getWorkspaceContext();
         if(getAuthenticatedUserId()!==userId || current?.organizationId!==context.organizationId || current?.branchId!==context.branchId) {conversation.clear();throw new Error("Workspace changed. Please resend in the active workspace.");}
@@ -364,6 +407,11 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
           activeDraft = customerDraftState(response.data.review, context, userId);
           appendMessage("assistant", customerDraftReviewMarkup(response.data.review));
         }
+        if(response.data.review?.intent==="erp_action" && response.data.status!=="rate_limited") {
+          const prepared=response.data.review;
+          activeDraft={id:prepared.draftId,idempotencyKey:prepared.idempotencyKey,intent:prepared.tool==="erp_create_estimate"?"estimate":prepared.tool,organizationId:context.organizationId,branchId:context.branchId,userId};
+          appendMessage("assistant",erpActionReviewMarkup(prepared));
+        }
         if(response.data.extraction) appendMessage("assistant",extractionMarkup(response.data.extraction,response.data.reviewText));
         if (response.data.catalogReview) {
           const catalog = response.data.catalogReview;
@@ -372,6 +420,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
           appendMessage("assistant", '<article class="confirmation-card review-card"><p>تصدیق کے بعد تمام آئٹمز ERP میں درج ہوں گے اور یہ ریٹ لسٹ فعال ہو جائے گی۔</p><button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button><button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور ریٹ لسٹ محفوظ کریں</button></article>');
         }
         if(response.data.clarification) appendMessage("assistant",ambiguityMarkup(response.data.clarification));
+        if(response.data.reports)response.data.reports.forEach(report=>{const markup=depotReportMarkup(report);if(markup)appendMessage("assistant",markup);});
         if(response.data.toolNames?.length) appendMessage("assistant",`<details><summary>ERP tools completed</summary><p>${response.data.toolNames.map(escapeHtml).join(" · ")}</p></details>`);
         if (response.data.draft) {
           appendMessage("assistant", conversationDraftMarkup(response.data.draft));
@@ -541,10 +590,17 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   document.querySelector("#copilot-attach").addEventListener("click", () => fileInput.click());
   document.querySelector("#copilot-camera-button").addEventListener("click", () => cameraInput.click());
   micButton.addEventListener("click", () => void run(toggleRecording));
-  fileInput.addEventListener("change", () => { if (fileInput.files?.[0]) showAttachment(fileInput.files[0]); });
+  fileInput.addEventListener("change", () => { if (fileInput.files?.length) showAttachments(Array.from(fileInput.files)); });
   cameraInput.addEventListener("change", () => { if (cameraInput.files?.[0]) showAttachment(cameraInput.files[0], true); });
-  attachmentRoot.addEventListener("click", (event) => { if (event.target.closest("[data-remove-attachment]")) clearAttachment(); });
+  attachmentRoot.addEventListener("click", (event) => { const button=event.target.closest("[data-remove-attachment]");if(button){const remaining=attachments.filter((_,index)=>index!==Number(button.dataset.removeAttachment??0));if(remaining.length)showAttachments(remaining,attachmentFromCamera);else clearAttachment();} });
   thread.addEventListener("click", (event) => {
+    const cardButton=event.target.closest("[data-copy-quotation], [data-download-card]");
+    if(cardButton){
+      const text=cardButton.closest("details").querySelector("[data-customer-quotation]").textContent;
+      if(cardButton.hasAttribute("data-download-card"))void run(()=>downloadCustomerCard(text));
+      else void run(async()=>{await navigator.clipboard.writeText(text);});
+      return;
+    }
     const candidate=event.target.closest("[data-agent-candidate]");
     if(candidate) {input.value="Continue the pending request using the selected ERP candidate.";void run(()=>analyze({kind:candidate.dataset.candidateKind,id:Number(candidate.dataset.agentCandidate)}));}
     if(event.target.closest("[data-use-reviewed-input]")) {

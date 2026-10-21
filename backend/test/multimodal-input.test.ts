@@ -36,7 +36,7 @@ describe("Part 4 concrete extraction and media validation",()=>{
     const f=fixture();await f.input.normalize({source:"image",media:pdf()},scope);
     const content=f.provider.generate.mock.calls[0]?.[2] as any;expect(content[0]).toMatchObject({type:"input_image",image_url:expect.stringMatching(/^data:image\/png;base64,/)});
   });
-  it("rejects PDFs over three pages before a provider call",async()=>{const f=fixture();await expect(f.input.normalize({source:"image",media:pdf(4)},scope)).rejects.toMatchObject({code:"PDF_PAGE_LIMIT"});expect(f.provider.generate).not.toHaveBeenCalled();});
+  it("rejects PDFs over ten pages before a provider call",async()=>{const f=fixture();await expect(f.input.normalize({source:"image",media:pdf(11)},scope)).rejects.toMatchObject({code:"PDF_PAGE_LIMIT"});expect(f.provider.generate).not.toHaveBeenCalled();});
   it("rejects a corrupt PDF before sending anything to vision",async()=>{const media={mimeType:"application/pdf",base64:Buffer.from("%PDF-1.7\ncorrupt document with fake EOF\n%%EOF").toString("base64")};await expect(visionContent(await validateAgentMedia(media,"image"))).rejects.toMatchObject({code:"INVALID_MEDIA"});});
   it.each(["spoofed","truncated","oversized dimensions","empty audio","source mismatch","unsupported","invalid base64"])("rejects %s before the provider",async reason=>{
     const f=fixture();let media=png();let source:"image"|"voice"="image";
@@ -48,7 +48,7 @@ describe("Part 4 concrete extraction and media validation",()=>{
   });
   it.each(["empty","provider failure"])("fails closed on %s transcription",async kind=>{const f=fixture();if(kind==="empty")f.provider.transcribe.mockResolvedValue("");else f.provider.transcribe.mockRejectedValue(new Error("failure"));await expect(f.input.normalize({source:"voice",media:wav()},scope)).rejects.toThrow();expect(f.provider.generate).not.toHaveBeenCalled();});
   it("rejects provider-invented ERP IDs",async()=>{const f=fixture();f.provider.generate.mockResolvedValue({...document,customerId:19} as any);await expect(f.input.normalize({source:"image",media:png()},scope)).rejects.toThrow();});
-  it("bounds normalized input without truncating document lines",async()=>{const f=fixture();await expect(f.input.normalize({source:"image",media:png(),message:"x".repeat(4000)},scope)).rejects.toMatchObject({code:"INPUT_CONTEXT_LIMIT"});});
+  it("bounds model context without truncating structured document lines",async()=>{const f=fixture();const result=await f.input.normalize({source:"image",media:png(),message:"x".repeat(4000)},scope);expect(result.message.length).toBeLessThan(20_000);expect(result.estimateRequest?.items).toHaveLength(document.lines.length);});
 });
 describe("Part 4 Groq production transport",()=>{
   const config={provider:"groq" as const,apiKey:"fixture-key",model:"text-model",visionModel:"vision-model",speechModel:"speech-model"};

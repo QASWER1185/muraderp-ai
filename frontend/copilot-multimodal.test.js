@@ -16,13 +16,33 @@ function setup(){
   const controller=mountCopilot({getAuthenticatedUserId:()=>"user"});query("#copilot-action").value="auto";
   const idle=()=>vi.waitFor(()=>expect(query("#copilot-send").disabled).toBe(false));
   const send=async(text="")=>{query("#copilot-input").value=text;query("#copilot-send").listeners.get("click")();await idle();};
-  const attach=(file,camera=false)=>{const input=query(camera?"#copilot-camera":"#copilot-file");input.files=[file];input.listeners.get("change")();};
+  const attach=(file,camera=false)=>{const input=query(camera?"#copilot-camera":"#copilot-file");input.files=Array.isArray(file)?file:[file];input.listeners.get("change")();};
   const click=async(selector,target={dataset:{},remove:vi.fn()})=>{thread.listeners.get("click")({target:{closest:requested=>requested===selector?target:null}});await idle();};
   return {query,controller,send,attach,click,idle,markup:()=>messages.map(message=>message.innerHTML).join("\n")};
 }
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it("sends three slip previews in ONE request and preserves all attachments for retry",async()=>{
+    const f=setup(),files=[1,2,3].map(index=>new File(["slip-"+index],"slip-"+index+".png",{type:"image/png"}));
+    f.attach(files);expect(f.query("#copilot-attachment").innerHTML).toContain("slip-3.png");
+    mocks.media.mockRejectedValueOnce(new Error("retry"));
+    await f.send("Waseem Mazhar Bhai, Ittehad Town Lahore, Dura Max 50% estimate");
+    expect(f.query("#copilot-attachment").hidden).toBe(false);
+    expect(mocks.media.mock.calls[0][0].attachments).toHaveLength(3);
+    expect(mocks.media.mock.calls[0][0]).not.toHaveProperty("media");
+    await f.click("[data-copilot-retry]");
+    expect(mocks.media.mock.calls[1][0].attachments).toHaveLength(3);expect(f.query("#copilot-attachment").hidden).toBe(true);
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
+  });
+  it("renders and confirms a combined customer/estimate with one click",async()=>{
+    const f=setup();mocks.media.mockResolvedValue({data:{answer:"وسیم مظہر بھائی کا مکمل ایسٹیمیٹ تیار ہے۔",conversationToken:"signed",conversationId:"id",status:"review",
+      review:{intent:"erp_action",tool:"erp_create_estimate",draftId:"quote-action",idempotencyKey:"quote-key",preview:{summary:"نیا گاہک اور ایسٹیمیٹ",lines:[{productName:"Dura Max Elbow 25mm",quantity:3,unit:"pcs",unit_price:100,discountPercent:50}],totals:{grand_total:150}}}}});
+    f.attach([image(),image(),image()]);await f.send("estimate");
+    expect(f.markup()).toContain("Dura Max Elbow 25mm");expect(f.markup()).toContain("150");
+    await f.click("[data-confirm-draft]");expect(mocks.confirm).toHaveBeenCalledOnce();
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({id:"quote-action",intent:"estimate"}));
+  });
   it("routes a catalog attachment automatically and confirms all rows inside Copilot",async()=>{
     const f=setup();
     const catalog={name:"Dura Flow PPRC",standardDiscountPercent:50,warnings:[],items:Array.from({length:132},(_,i)=>({brand:"Dura Flow",category:"Fittings",name:"Socket",size:i+"mm",unit:"pcs",list_price:43}))};

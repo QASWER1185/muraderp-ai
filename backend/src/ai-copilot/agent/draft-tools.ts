@@ -213,7 +213,7 @@ export class ConversationalDraftService {
 }
 
 export function draftAnswer(view: DraftView, message = ""): string {
-  const urdu = /[\u0600-\u06ff]/u.test(message);
+  const urdu = !/reply in english|answer in english/iu.test(message);
   const rows = view.lines.map(line => `${line.productName}: ${line.quantity} ${line.unit}, discount ${line.discountPercent}% — ${line.amount == null ? line.error : view.currencyCode + " " + line.amount.toFixed(2)}`);
   return [view.customer ? (urdu ? "گاہک: " : "Customer: ") + view.customer.name : (urdu ? "براہ کرم گاہک کی شناخت واضح کریں۔" : "Please identify the customer."),
     ...rows, view.totals ? `${urdu ? "کل رقم" : "Total"}: ${view.currencyCode} ${view.totals.grand_total.toFixed(2)}` : (urdu ? "تمام ریٹس کی تصدیق تک کل رقم دستیاب نہیں۔" : "Total unavailable until all rates are verified."),

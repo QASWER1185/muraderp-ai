@@ -100,3 +100,9 @@ label{display:grid;gap:6px;color:#465467;font-size:12px;font-weight:650}input,te
 .sales-trend{min-height:220px;padding:18px 8px 2px}.sales-trend-bars{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px;height:210px;align-items:end}.sales-trend-month{display:grid;grid-template-rows:auto 1fr auto;min-width:0;height:100%;gap:7px;text-align:center}.sales-trend-month strong{overflow:hidden;color:#34445a;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.sales-trend-month small{color:#69778a;font-size:10px}.sales-trend-track{display:flex;align-items:end;border-radius:5px;background:#f1f5fa;overflow:hidden}.sales-trend-track>span{display:block;width:100%;min-height:2px;border-radius:5px 5px 0 0;background:#3f79db}
 #workspace-button{max-width:240px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}#workspace-button span{overflow:hidden;text-overflow:ellipsis}
 @media(max-width:420px){.topbar{flex-wrap:wrap}.topbar-leading{width:100%}.topbar-actions{width:100%;justify-content:flex-end}.topbar-actions #workspace-button{margin-right:auto;max-width:calc(100% - 120px)}}
+.attachment-preview { flex-wrap: wrap; }
+.attachment-file { display:flex; align-items:center; gap:.6rem; max-width:100%; padding:.4rem; }
+.attachment-file img { width:56px; height:64px; object-fit:contain; }
+.negative-margin { color:#b42318; background:#fff1f0; border-inline-start:3px solid #b42318; padding:.6rem; }
+.merchant-scorecard { border:1px dashed #9c7a25; padding:.5rem; }
+[data-customer-quotation] { white-space:pre-wrap; font-family:inherit; line-height:1.8; }

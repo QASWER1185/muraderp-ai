@@ -90,7 +90,7 @@ describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=
     const first=await f.post("agent/input",{source,media:source==="voice"?voice():media()});
     expect(first.status).toBe(200);expect(first.headers["cache-control"]).toBe("no-store");
     expect(first.body.data).toMatchObject({draft:{prepared:true,totals:{grand_total:source==="voice"?6000:3600}},requiresConfirmation:true});
-    expect(f.services.search.searchProducts).toHaveBeenCalledWith(source==="voice"?"Popular pipe":"EBOW FEMALE 25*1/2",10,scope);
+    expect(f.services.search.searchProducts).toHaveBeenCalledWith(source==="voice"?"Popular pipe":"EBOW FEMALE 25*1/2",10,scope,"Popular");
     expect(f.services.catalog.getCatalog).not.toHaveBeenCalled();expect(f.erpWrite).not.toHaveBeenCalled();expect(f.runtime.createConversationDraft).not.toHaveBeenCalled();expect(f.runtime.confirmAndExecute).not.toHaveBeenCalled();
     const token=first.body.data.conversationToken,id=first.body.data.conversationId,state=readBusinessState(token,scope,id);
     expect(state.inputSource).toBe(source);expect(token).not.toContain(media().base64);

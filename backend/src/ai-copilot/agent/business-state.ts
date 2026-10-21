@@ -36,6 +36,8 @@ export const businessStateSchema = z.strictObject({
   customerAmbiguous: z.boolean().optional(), productUnresolved: z.boolean().optional(),
   clarification: z.strictObject({kind:z.enum(["product","customer","vendor"]),candidates:z.array(z.strictObject({id,name:z.string().max(160),sku:z.string().max(100).optional(),unit:z.string().max(30).optional(),city:z.string().max(120).optional()})).min(1).max(5)}).optional(),
   brandHint: z.string().max(120).optional(), rateListId: id.optional(),
+  workingActionId:z.string().uuid().optional(),
+  workingAuditId:z.string().uuid().optional(),
   draft: z.strictObject({
     id: z.string().uuid(), revision: z.number().int().nonnegative(),
     lines: z.array(draftLineSchema).max(20),

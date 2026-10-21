@@ -2,9 +2,8 @@ import type { BusinessFact } from "./business-tools.js";
 
 // Render authoritative facts outside the model. The model chooses the tools and
 // their sequence, but cannot change verified values or invent a missing value.
-export function businessAnswer(facts: BusinessFact[], message: string): string {
-  const urdu = /[\u0600-\u06ff]/.test(message);
-  const label = (english: string, translated: string) => urdu ? translated : english;
+export function businessAnswer(facts: BusinessFact[], _message: string): string {
+  const label = (_english: string, translated: string) => translated;
   const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Number(value.toFixed(2)).toString() : label("unavailable", "دستیاب نہیں");
   const name = (value: unknown) => value && typeof value === "object" && "name" in value ? String(value.name) : "";
   const rendered: string[] = [];
@@ -45,11 +44,11 @@ export function businessAnswer(facts: BusinessFact[], message: string): string {
     } else if (fact.kind === "entity_not_found") {
       if (fact.entity === "customer") {
         const customers = fact.currentCustomers as string[] | undefined;
-        rendered.push(`Customer '${fact.query}' was not found in this organization.` +
-          (customers ? customers.length ? ` Current customers${fact.hasMore ? " (first 5)" : ""}: ${customers.join("; ")}.` : " No customers are registered in this organization." : " The current customer list is unavailable.") +
-          " No ledger balance has been assumed.");
-      } else rendered.push(`Product '${fact.query}' was not found in this organization. Stock is unavailable; no quantity has been assumed.`);
-    } else if (fact.kind === "unavailable") rendered.push(String(fact.message));
+        rendered.push(`جناب، '${fact.query}' نام کا گاہک اس ادارے میں نہیں ملا۔` +
+          (customers ? customers.length ? ` موجودہ گاہک${fact.hasMore ? " (پہلے 5)" : ""}: ${customers.join("؛ ")}۔` : " ابھی کوئی گاہک درج نہیں۔" : " موجودہ گاہکوں کی فہرست دستیاب نہیں۔") +
+          " کوئی فرضی بقایا نہیں بتایا گیا۔");
+      } else rendered.push(`جناب، '${fact.query}' کا درست آئٹم نہیں ملا۔ براہِ کرم برانڈ، سائز یا قسم واضح کر دیں۔`);
+    } else if (fact.kind === "unavailable") rendered.push("جناب، متعلقہ ERP معلومات اس وقت دستیاب نہیں؛ تفصیل واضح کر دیں یا دوبارہ کوشش کریں۔");
   }
   return rendered.join("\n\n");
 }

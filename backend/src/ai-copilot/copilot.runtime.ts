@@ -10,6 +10,8 @@ import { SupabaseErpService, type ErpService } from "../services/erp.service.js"
 import { DefaultEstimateService, type EstimateService } from "../services/estimate.service.js";
 import { CustomerMemoryStore } from "./customerMemoryStore.js";
 import { SlipLearningStore } from "./slipLearningStore.js";
+import { CompanionLearningStore } from "./companionLearningStore.js";
+import { DepotIntelligenceStore } from "./depotIntelligenceStore.js";
 import { SupabaseEstimateRepository } from "../repositories/estimate.repository.js";
 import { SupabaseCustomerPaymentBrowserRepository } from "../repositories/customer-payment-browser.repository.js";
 import { SupabaseVendorPaymentBrowserRepository } from "../repositories/vendor-payment-browser.repository.js";
@@ -32,7 +34,7 @@ import type { CopilotActionPlan } from "./copilot.types.js";
 import { createCopilotPlanFromDraft, assertCopilotDraftExecution } from "./copilot.service.js";
 import type { BusinessState } from "./agent/business-state.js";
 import { DefaultErpOperations, ACTION_TARGETS, type ErpOperations } from "./tools/operations.js";
-import { ERP_ACTION_PERMISSIONS, type ErpActionName } from "./tools/registry.js";
+import { ERP_ACTION_PERMISSIONS, type ErpWriteName, type ErpReadName } from "./tools/registry.js";
 import { SupabaseEntitySearchService } from "../services/entity-search.service.js";
 import { SupabaseInvoiceBrowserRepository } from "../repositories/invoice-browser.repository.js";
 import type { DraftView } from "./agent/draft-tools.js";
@@ -51,6 +53,7 @@ import {
 } from "./copilot-review.js";
 
 const PERMISSION_BY_INTENT: Record<CopilotActionPlan["target"], PermissionCode> = {
+  depot_action:"sales.create",
   estimate: "sales.create",
   invoice: "sales.create",
   customer_create: "customers.write",
@@ -219,7 +222,8 @@ function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContra
   dependencies.operations = new DefaultErpOperations({ erp,search:new SupabaseEntitySearchService(),pricing,
     rateLists:dependencies.rateLists as RateListService,rates:rateListRepository,estimates:estimateRepository,
     invoices:new SupabaseInvoiceBrowserRepository(),payments:dependencies.customerPayments!,paymentReader:new SupabaseCustomerPaymentBrowserRepository(),
-    database:client,principal:servicePrincipalId,memory:dependencies.memory!,returns:dependencies.returns });
+    database:client,principal:servicePrincipalId,memory:dependencies.memory!,returns:dependencies.returns,
+    companions:new CompanionLearningStore(client),intelligence:new DepotIntelligenceStore(client) });
   return dependencies;
 }
 
@@ -238,7 +242,7 @@ export class CopilotRuntime {
     await this.dependencies.authorization.assertPermission(
       plan.userId,
       plan.organizationId,
-      PERMISSION_BY_INTENT[plan.target],
+      plan.unifiedAction?ERP_ACTION_PERMISSIONS[plan.unifiedAction.tool]:PERMISSION_BY_INTENT[plan.target],
     );
     await this.dependencies.branchAccess.assertBranchAccess(
       { userId: plan.userId, organizationId: plan.organizationId },
@@ -248,23 +252,32 @@ export class CopilotRuntime {
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"accounting.post");
     if (plan.unifiedAction?.tool === "erp_create_invoice" && plan.unifiedAction.input.paidAmount > 0)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"payments.create");
+    if (plan.unifiedAction?.data.newCustomer)
+      await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"customers.write");
   }
 
-  async createUnifiedDraft(tool: Exclude<ErpActionName,"erp_get_business_report">, input: unknown,
+  async createUnifiedDraft(tool: ErpWriteName, input: unknown,
     scope: {userId:string;organizationId:string;branchId:string}, source: CopilotActionPlan["source"] = "text") {
     await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[tool]);
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
     if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
     const prepared = await this.dependencies.operations.prepare(tool,input,scope);
+    if(prepared.data.newCustomer)await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"customers.write");
     const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
-    return {intent:"erp_action" as const,tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:true as const};
+    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:true as const};
   }
   async getBusinessReport(input:unknown,scope:{userId:string;organizationId:string;branchId:string}) {
     await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"reports.view");
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
     if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP reporting services are not configured.");
     return this.dependencies.operations.report(input,scope);
+  }
+  async getDepotReport(tool:ErpReadName,input:unknown,scope:{userId:string;organizationId:string;branchId:string}) {
+    await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[tool]);
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    if(!this.dependencies.operations?.read)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","کاروباری معلومات اس وقت دستیاب نہیں۔");
+    return this.dependencies.operations.read(tool,input,scope);
   }
 
   private async assertPlanReferences(plan: CopilotActionPlan): Promise<void> {

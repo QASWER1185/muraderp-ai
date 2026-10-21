@@ -89,11 +89,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for test in database_foundation accounting_ledger_foundation_v2 p0_8_authoritative_accounting_posting products_final_gate estimate_conversion copilot_institutional_memory; do
+          for test in database_foundation accounting_ledger_foundation_v2 p0_8_authoritative_accounting_posting products_final_gate estimate_conversion copilot_institutional_memory depot_v9; do
             psql -X -v ON_ERROR_STOP=1 -f "supabase/tests/$test.sql"
             echo "PASS $test"
           done
-          echo 'Database regressions: 6/6 PASS'
+          echo 'Database regressions: 7/7 PASS'
 
   image:
     needs: [verify, database]

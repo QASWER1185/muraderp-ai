@@ -64,7 +64,7 @@ export class GeminiAdapter implements AiProviderContract {
     const proposal=z.strictObject({proposal:schema});
     const result=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],
       tools:[{functionDeclarations:[{name:"erp_proposal",description:"Return extraction observations only. No ERP action is executed.",parametersJsonSchema:z.toJSONSchema(proposal)}]}],
-      toolConfig:{functionCallingConfig:{mode:"ANY",allowedFunctionNames:["erp_proposal"]}},generationConfig:{maxOutputTokens:8000}},undefined,!!options?.recoverIncomplete);
+      toolConfig:{functionCallingConfig:{mode:"ANY",allowedFunctionNames:["erp_proposal"]}},generationConfig:{maxOutputTokens:options?.maxOutputTokens??8000}},undefined,!!options?.recoverIncomplete);
     const calls=result.parts.filter(part=>part.functionCall);
     if(calls.length!==1 || calls[0].functionCall.name!=="erp_proposal")throw invalidOutput();
     if(options?.recoverIncomplete){

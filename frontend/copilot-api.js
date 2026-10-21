@@ -5,7 +5,7 @@ function newIdempotencyKey(prefix) { return `${prefix}-${crypto.randomUUID()}`; 
 
 async function api(path, options = {}) {
   const apiKey = getCopilotApiKey();
-  const response = await boundedFetch(path, { credentials: "include", ...options, headers: { "Content-Type": "application/json", ...(apiKey ? { "X-Api-Key": apiKey, "X-AI-Provider": "gemini" } : {}), ...(options.headers ?? {}) } }, path.endsWith("/settings") ? 15000 : path.endsWith("/agent/input") ? 300000 : 65000);
+  const response = await boundedFetch(path, { credentials: "include", ...options, headers: { "Content-Type": "application/json", ...(apiKey ? { "X-Api-Key": apiKey, "X-AI-Provider": "gemini" } : {}), ...(options.headers ?? {}) } }, path.endsWith("/settings") ? 15000 : path.endsWith("/agent/input") || path==="/api/copilot/chat" ? 300000 : 65000);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(body.error?.message ?? "Copilot request failed");
@@ -49,7 +49,7 @@ export async function askCopilot(message, organizationId, branchId, conversation
 }
 
 export async function askCopilotMedia(input, organizationId, branchId) {
-  return api("/api/v1/ai/copilot/agent/input", {
+  return api(input.attachments ? "/api/copilot/chat" : "/api/v1/ai/copilot/agent/input", {
     method:"POST",headers:{"X-Organization-Id":organizationId,"X-Branch-Id":branchId},body:JSON.stringify(input),
   });
 }

@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../types/database.types.js";
 import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
+import { canonicalBrand, explicitBrand, sameBrand } from "../ai-copilot/productResolver.js";
+import { canonicalSlipWords } from "../ai-copilot/conversationalMunshi.js";
 
 export type SearchScope = { userId: string; organizationId: string; branchId: string };
 export type RankedEntity = { id: number; name: string; confidence: number; match_kind: string };
@@ -38,7 +40,7 @@ export function normalizeProductSearchQuery(query: string): string {
 }
 
 export interface EntitySearchService {
-  searchProducts(query: string, limit: number, scope: SearchScope): Promise<EntityResolution<ProductCandidate>>;
+  searchProducts(query: string, limit: number, scope: SearchScope, brand?: string): Promise<EntityResolution<ProductCandidate>>;
   searchCustomers(query: string, limit: number, scope: SearchScope): Promise<EntityResolution<CustomerCandidate>>;
   getProductBrand(brandId: number, organizationId: string): Promise<string | null>;
 }
@@ -46,14 +48,15 @@ export interface EntitySearchService {
 export class SupabaseEntitySearchService implements EntitySearchService {
   constructor(private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseServiceRoleClient) {}
 
-  private async search(name: "search_products_fuzzy" | "search_customers_fuzzy", query: string, limit: number, scope: SearchScope) {
+  private async search(name: "search_products_fuzzy" | "search_customers_fuzzy", query: string, limit: number, scope: SearchScope, brand?: string) {
     if (!scope.userId || !scope.organizationId || !scope.branchId) throw new ApiError(401,"TENANT_CONTEXT_REQUIRED","Authenticated tenant context required");
     if (!query.trim() || query.length > 120 || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new ApiError(400,"INVALID_ENTITY_SEARCH","Invalid search query or result limit");
-    const searchQuery = name === "search_products_fuzzy" ? normalizeProductSearchQuery(query) : query;
+    const searchQuery = name === "search_products_fuzzy" ? canonicalSlipWords(normalizeProductSearchQuery(query)) : query.replace(/\bbhai\b|بھائی/giu,"").replace(/\s+/g," ").trim();
     if (!searchQuery) throw new ApiError(400,"INVALID_ENTITY_SEARCH","Invalid search query or result limit");
-    const { data, error } = await this.clientFactory().rpc(name, {
+    const { data, error } = await (this.clientFactory() as any).rpc(brand ? "search_catalog_products" : name, {
       p_user_id: scope.userId, p_organization_id: scope.organizationId, p_branch_id: scope.branchId,
       p_query: searchQuery, p_limit: Math.max(2, limit),
+      ...(brand ? {p_brand:canonicalBrand(brand)} : {}),
     }) as unknown as { data: Array<Record<string, unknown>> | null; error: { code: string } | null };
     if (error) {
       if (error.code === "42501") throw new ApiError(403,"ENTITY_SEARCH_ACCESS_DENIED","Entity search access denied");
@@ -70,9 +73,10 @@ export class SupabaseEntitySearchService implements EntitySearchService {
     return rows;
   }
 
-  async searchProducts(query: string, limit: number, scope: SearchScope) {
-    const rows = await this.search("search_products_fuzzy",query,limit,scope);
-    return resolveCandidates(rows.map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
+  async searchProducts(query: string, limit: number, scope: SearchScope, brand?: string) {
+    const restriction=brand ?? explicitBrand(query);
+    const rows = await this.search("search_products_fuzzy",query,limit,scope,restriction);
+    return resolveCandidates(rows.filter(r=>!restriction || sameBrand(r.brand_name as string|null,restriction)).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
       sku: String(r.sku), unit: String(r.unit), category: String(r.category),
       brandName: r.brand_name == null ? null : String(r.brand_name), confidence: Number(r.confidence), match_kind: String(r.match_kind) })),limit);
   }

@@ -15,7 +15,7 @@ const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name))
 const MAX_ITERATIONS = 10;
 const MAX_CALLS = 12;
 const TIMEOUT_MS = 40_000;
-const FALLBACK = "I could not verify that request right now. Please clarify or try again.";
+const FALLBACK = "جناب، اس وقت ERP سے درخواست کی تصدیق نہیں ہو سکی۔ آپ کی تفصیل محفوظ ہے؛ براہِ کرم دوبارہ کوشش کریں۔";
 const CLARIFY_PRODUCT = "Which product do you mean? Please provide its name or SKU.";
 export type AgentLogger = { info: (fields: Record<string, unknown>, message: string) => void; warn: (fields: Record<string, unknown>, message: string) => void };
 export interface AgentToolExecutor {
@@ -30,6 +30,7 @@ export interface AgentResult {
   execution?:any; draft?:DraftView; review?:unknown; businessFacts?:BusinessFact[];
   paymentPreparation?:BusinessState["paymentPreparation"]; clarification?:BusinessState["clarification"];
   preparation?:{intent:string;requiredFields:string[]};
+  reports?:unknown[];
 }
 
 function canonical(value: unknown): unknown {
@@ -76,6 +77,17 @@ export class UnifiedCopilotAgent {
       return { answer: "The conversation context is invalid or expired. Please identify the customer and products again.",
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
     }
+    if(state.workingActionId && /^(?:جی[، ]*|ہاں[، ]*)?(?:یہ بھی |سب |سامان )?(?:ڈال دو|شامل کر دو|شامل کر دیں|ہاں ڈال دو)[۔.!]*$/u.test(request.message.trim())){
+      const prepared:any=await this.tools.execute("erp_accept_companions",{draftId:state.workingActionId},scope,state,request.message);
+      const review=prepared.review;const answer=review.preview.summary;
+      state.workingActionId=review.draftId;
+      state.pendingAction={draftId:review.draftId,idempotencyKey:review.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
+      return {answer,status:"review",review,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:true,toolNames:["erp_accept_companions"]};
+    }
+    if(state.workingActionId && /نہیں.*(?:گاہک|پاس|ہے)|ساتھ.*سامان.*نہیں/u.test(request.message)){
+      return {answer:"جی حاجی صاحب، اضافی سامان شامل نہیں کروں گا۔ اصل ایسٹیمیٹ کا پری ویو تیار ہے؛ محفوظ کرنے کے لیے تصدیق کر دیں۔",
+        status:"completed",conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:!!state.pendingAction,toolNames:[]};
+    }
     if(isAffirmation(request.message)) {
       return confirmConversationAction(state,scope,this.tools.confirmPendingAction?.bind(this.tools),traceId);
     }
@@ -99,7 +111,7 @@ export class UnifiedCopilotAgent {
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
     input.push({ role: "assistant", content: "Server-validated business context (references and user choices only; current prices must be obtained from tools):" + JSON.stringify({
       conversationId: state.conversationId, customer: state.customer, customerAmbiguous, vendor: state.vendor, vendorAmbiguous: state.vendorAmbiguous,
-      comparison: state.comparison, comparisonAnalysis: state.comparisonAnalysis, analysis: state.analysis, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,
+      comparison: state.comparison, comparisonAnalysis: state.comparisonAnalysis, analysis: state.analysis, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,workingActionId:state.workingActionId,workingAuditId:state.workingAuditId,
     }) });
     input.push({ role: "user", content: request.message });
     const controller = new AbortController();
@@ -110,6 +122,7 @@ export class UnifiedCopilotAgent {
     let draftView: DraftView | undefined;
     let review: unknown;
     const businessFacts: BusinessFact[] = [];
+    const reports:unknown[]=[];
     let verifiedResults = 0;
     let productContext: ProductContext | undefined = priorProducts;
     let productSearches = 0;
@@ -133,7 +146,9 @@ export class UnifiedCopilotAgent {
     try {
       for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
         if (controller.signal.aborted) { status = "timeout"; break; }
-        const step = await withinDeadline(this.model.respond(input, this.tools.definitions(), controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
+        const estimateRequest=/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن/iu.test(request.message);
+        const availableTools=this.tools.definitions().filter(tool=>!estimateRequest || (tool as {name?:string}).name!=="query_inventory");
+        const step = await withinDeadline(this.model.respond(input, availableTools, controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
           if (verifiedResults === 0 && customerRequest) {
@@ -175,6 +190,10 @@ export class UnifiedCopilotAgent {
           let args: unknown;
           try { args = JSON.parse(call.arguments); } catch { status = "malformed"; break; }
           const key = `${call.name}:${JSON.stringify(canonical(args))}`;
+          if(estimateRequest && call.name==="query_inventory") {
+            input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify({notRequired:true,message:"ایسٹیمیٹ کے لیے اسٹاک درکار نہیں۔ فعال ریٹ لسٹ سے erp_create_estimate تیار کریں۔"})});
+            continue;
+          }
           if (seen.has(key)) { status = "duplicate"; break; }
           if (call.name === "lookup_current_sale_rate" && args && typeof args === "object" &&
               ((uniqueSearchThisTurn && "product_id" in args && args.product_id !== productContext?.candidates[0]?.id) ||
@@ -197,6 +216,10 @@ export class UnifiedCopilotAgent {
             const result = await withinDeadline(this.tools.execute(call.name, args, scope, state, request.message, controller.signal), controller.signal);
             verifiedResults++;
             toolNames.push(call.name);
+            if(result && typeof result==="object" && "report" in result){
+              reports.push(result.report);const report=result.report as any;
+              if(typeof report.auditId==="string")state.workingAuditId=report.auditId;
+            }
             if (BUSINESS_TOOLS.has(call.name)) {
               productContext = state.productContext;
               productUnresolved = state.productUnresolved === true;
@@ -216,6 +239,7 @@ export class UnifiedCopilotAgent {
               const prepared=result.review as {draftId?:string;idempotencyKey?:string;preview?:{summary?:string}};
               answer=prepared.preview?.summary??"Review the prepared ERP action and confirm it explicitly before execution.";
               if(prepared.draftId&&prepared.idempotencyKey)state.pendingAction={draftId:prepared.draftId,idempotencyKey:prepared.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
+              if((result.review as any).tool==="erp_create_estimate")state.workingActionId=prepared.draftId;
               status = "completed"; break;
             }
             if(call.name==="erp_get_business_report"&&result&&typeof result==="object"&&"answer" in result&&typeof result.answer==="string") {
@@ -362,6 +386,7 @@ export class UnifiedCopilotAgent {
       ...(draftView ? { draft: draftView } : {}), ...(review ? { review } : {}),
       ...(businessFacts.length ? { businessFacts } : {}), ...(state.paymentPreparation ? { paymentPreparation: state.paymentPreparation } : {}),
       ...(state.clarification ? {clarification:state.clarification}:{}),
+      ...(reports.length?{reports}:{}),
       requiresConfirmation: Boolean(review || draftView?.prepared || state.paymentPreparation) };
   }
 }

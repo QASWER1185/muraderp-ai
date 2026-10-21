@@ -62,7 +62,7 @@ describe("Part 3 unified sequential business reasoning",()=>{
     const f=businessFixture();vi.mocked(f.business.repository.customerLedger).mockRejectedValue(new Error("db unavailable"));
     f.script(call("lookup_customers",{query:"Qasim"}),call("query_customer_ledger"),final("Outstanding zero"));
     const result=await f.core.run({message:"ledger"},scope);
-    expect(result.answer).toContain("authoritative result unavailable");expect(result.answer).not.toContain("Outstanding zero");
+    expect(result.answer).toContain("متعلقہ ERP معلومات اس وقت دستیاب نہیں");expect(result.answer).not.toContain("Outstanding zero");
   });
   it("invalidates ambiguous product context and refuses a follow-up without selecting a candidate",async()=>{
     const f=businessFixture();vi.mocked(f.services.search.searchProducts).mockResolvedValue(resolveCandidates([{...pipe,confidence:1,match_kind:"exact_name",category:"Pipe",brandName:"Popular"},{...dura,confidence:1,match_kind:"exact_name",category:"Pipe",brandName:"Dura"}],5));
@@ -106,7 +106,7 @@ describe("Part 3 unified sequential business reasoning",()=>{
     const f=businessFixture();f.script(call("lookup_customers",{query:"Qasim"}),call("list_payment_documents",{party_type:"customer"}),call("prepare_customer_payment",customerPayment),final("paid"));
     const first=await f.core.run({message:"Qasim se 200 CASH receive karo invoice 501 pe 2026-10-05"},scope);
     expect(first.paymentPreparation).toMatchObject({intent:"customer_payment",payment:{amount:200}});expect(first.requiresConfirmation).toBe(true);
-    expect(first.answer).toContain("Nothing executed");expect(f.erpWrite).not.toHaveBeenCalled();
+    expect(first.answer).toContain("کچھ اجرا نہیں ہوا");expect(f.erpWrite).not.toHaveBeenCalled();
     f.script(call("query_customer_ledger"),final("ledger"));
     const follow=await f.core.run({message:"ledger",conversationToken:first.conversationToken},scope);
     expect(follow.paymentPreparation).toBeUndefined();expect(follow.requiresConfirmation).toBe(false);

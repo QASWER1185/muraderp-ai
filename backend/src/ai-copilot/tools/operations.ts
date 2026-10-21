@@ -13,11 +13,19 @@ import type { SupabaseCustomerPaymentBrowserRepository } from "../../repositorie
 import { DefaultEstimateService, calculateEstimateTotals } from "../../services/estimate.service.js";
 import { SalesTransactionService } from "../../services/sales-transaction.service.js";
 import { SupabaseReportingGateway } from "../../reports/supabase-reporting.gateway.js";
-import { ERP_ACTION_SCHEMAS, type ErpActionName, type PreparedErpAction } from "./registry.js";
+import { ERP_ACTION_SCHEMAS, type ErpWriteName, type ErpReadName, type PreparedErpAction } from "./registry.js";
 import type { CopilotTarget } from "../copilot.types.js";
 import { RateListCatalogSchema } from "../rate-list-catalog.js";
 import { CustomerMemoryStore, rememberedDiscount, returnMemoryMessage, type CustomerMemory } from "../customerMemoryStore.js";
 import { SupabaseSalesReturnService, type SalesReturnService } from "../../services/sales-return.service.js";
+import { explicitBrand, sameBrand, canonicalBrand } from "../productResolver.js";
+import { InstallationCompletenessService } from "../installationCompletenessService.js";
+import { applyHybridRules, groupQuotation, quotationCard, classifyMaterial } from "../hybridQuotationEngine.js";
+import { reconcileVendorQuote } from "../vendorQuoteAudit.js";
+import { landedCost,canonicalUnit } from "../conversationalMunshi.js";
+import { SiteTransferService, DEPOT_WRITES } from "../siteTransferService.js";
+import type { CompanionLearningStore } from "../companionLearningStore.js";
+import type { DepotIntelligenceStore } from "../depotIntelligenceStore.js";
 
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const amount=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
@@ -26,7 +34,10 @@ function requireChoice(message:string):never { throw new ApiError(422,"ERP_ACTIO
 function equal(actual:unknown,expected:unknown,label:string) {
   if (JSON.stringify(actual)!==JSON.stringify(expected)) throw new ApiError(409,"ERP_APPROVAL_CHANGED",label+" changed. Prepare a fresh preview before confirming.");
 }
-export const ACTION_TARGETS:Record<Exclude<ErpActionName,"erp_get_business_report">,CopilotTarget>={
+export const ACTION_TARGETS:Record<ErpWriteName,CopilotTarget>={
+  erp_amend_estimate:"estimate",erp_accept_companions:"estimate",erp_create_site:"depot_action",erp_prepare_site_return:"depot_action",
+  erp_transfer_site_material:"depot_action",erp_deliver_site_transfer:"depot_action",erp_create_dispatch:"depot_action",erp_record_dispatch:"depot_action",
+  erp_log_expense:"depot_action",erp_update_commodity_rates:"depot_action",
   erp_import_rate_list:"rate_list_update",erp_update_product_price:"product_price_update",
   erp_create_customer:"customer_create",erp_update_customer:"customer_update",erp_record_payment:"customer_payment",
   erp_create_estimate:"estimate",erp_create_invoice:"invoice",erp_convert_estimate_to_invoice:"estimate_convert_invoice",
@@ -39,17 +50,24 @@ export interface OperationsDependencies {
   database:()=>any; principal:string;
   memory?: CustomerMemory;
   returns?: SalesReturnService;
+  companions?:CompanionLearningStore;
+  intelligence?:DepotIntelligenceStore;
 }
 export interface ErpOperations {
-  prepare(tool:Exclude<ErpActionName,"erp_get_business_report">,raw:unknown,scope:AgentScope):Promise<PreparedErpAction>;
+  prepare(tool:ErpWriteName,raw:unknown,scope:AgentScope):Promise<PreparedErpAction>;
   execute(action:PreparedErpAction,scope:AgentScope,key:string):Promise<any>;
   verify(action:PreparedErpAction,scope:AgentScope,result:any):Promise<void>;
   report(raw:unknown,scope:AgentScope):Promise<unknown>;
+  read?(tool:ErpReadName,raw:unknown,scope:AgentScope):Promise<unknown>;
 }
 /** Preparation performs scoped reads only. The runtime owns approval/claiming. */
 export class DefaultErpOperations implements ErpOperations {
   private readonly memory: CustomerMemory;
-  constructor(private readonly deps:OperationsDependencies) { this.memory = deps.memory ?? new CustomerMemoryStore(deps.database); }
+  private readonly depot:SiteTransferService;
+  constructor(private readonly deps:OperationsDependencies) {
+    this.memory = deps.memory ?? new CustomerMemoryStore(deps.database);
+    this.depot=new SiteTransferService({...deps,memory:this.memory},(input,scope)=>this.prepare("erp_convert_estimate_to_invoice",input,scope));
+  }
   private async rpc(name:string,args:Record<string,unknown>) {
     const {data,error}=await this.deps.database().rpc(name,args);
     if(error) throw new ApiError(error.code==="42501"?403:error.code==="40001"?409:422,"ERP_TRANSACTION_REJECTED",error.message??"ERP transaction was rejected.");
@@ -58,16 +76,19 @@ export class DefaultErpOperations implements ErpOperations {
   private async rows(table:string,select:string,filter:(query:any)=>any) {
     const rows:any[]=[];
     for(let offset=0;;offset+=500) {
-      const {data,error}=await filter(this.deps.database().from(table).select(select)).order("id").range(offset,offset+499);
+      const {data,error}=await filter(this.deps.database().from(table).select(select)).order(table==="dispatch_items"?"line_number":"id").range(offset,offset+499);
       if(error) throw new ApiError(502,"ERP_READ_FAILED","Authoritative "+table+" records could not be read.");
       rows.push(...(data??[]));if((data??[]).length<500)return rows;
     }
   }
-  private async customer(input:any,scope:AgentScope) {
+  private async customer(input:any,scope:AgentScope,allowNew=false):Promise<any> {
     const id=input.customerId;
     if(id) { const row=await this.deps.erp.getCustomer(id,scope.organizationId);if(!row)requireChoice("Customer was not found in this organization.");return row; }
     if(!input.customerName)requireChoice("Please provide the customer name or Customer ID.");
     const match=await this.deps.search.searchCustomers(input.customerName,5,scope);
+    if(allowNew && match.resolution==="no_match") return {
+      name:input.customerName,city:input.customerAddress??"",newCustomer:{name:input.customerName,city:input.customerAddress??"",phone:""},
+    };
     if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("Please clarify the customer: "+match.items.map(row=>row.name+" (ID "+row.id+")").join("; "));
     return (await this.deps.erp.getCustomer(match.bestCandidate.id,scope.organizationId))!;
   }
@@ -93,37 +114,56 @@ export class DefaultErpOperations implements ErpOperations {
     if(available<=0||Math.abs(quantity-available)>.000001||value<0)requireChoice("Reconciled inventory cost is unavailable for Product "+productId+". Provide its verified unitCost.");
     return {unitCost:value/available,available,costSource:"reconciled stock movement valuation"};
   }
-  private async quote(input:any,scope:AgentScope,invoice=false,asOf=today()) {
-    const customer=await this.customer(input,scope);
-    const profile=await this.memory.recall(scope,customer.id,customer.name);
+  private async quote(input:any,scope:AgentScope,invoice=false,asOf=today(),approvedCustomer?:any) {
+    const customer=approvedCustomer ? {name:approvedCustomer.name,city:approvedCustomer.city,newCustomer:approvedCustomer} : await this.customer(input,scope,!invoice);
+    const profile=customer.id ? await this.memory.recall(scope,customer.id,customer.name) :
+      {history:[],preferredBrands:[],transactionCount:0,averageTransactionVolume:0,averageOrderIntervalDays:null,context:"",customerId:0};
     const warehouseId=invoice?await this.warehouse(input.warehouseId,scope):undefined;
     const lines:any[]=[];
-    for(const item of input.items) {
+    for(let offset=0;offset<input.items.length;offset+=8) {
+      const batch=await Promise.all(input.items.slice(offset,offset+8).map(async(original:any,index:number)=>{
+      const item=applyHybridRules<any>(original,input.pricingRules??[]);
+      const brand=input.brand ?? item.brand ?? explicitBrand(item.name??"");
+      if(input.brand && item.brand && !sameBrand(item.brand,input.brand))requireChoice("اس پرچی کے تمام آئٹمز صرف "+canonicalBrand(input.brand)+" میں تیار ہوں گے۔ مختلف برانڈ کے لیے الگ درخواست دیں۔");
       let product=item.productId?await this.deps.erp.getProduct(item.productId,scope.organizationId):null;
       if(!item.productId) {
         if(!item.name)requireChoice("Each item needs a product name or Product ID.");
-        let match=await this.deps.search.searchProducts([item.name,item.size].filter(Boolean).join(" "),5,scope);
-        if(match.resolution!=="resolved") {
+        const query=[item.name,item.size].filter(Boolean).join(" ");
+        let match=brand ? await this.deps.search.searchProducts(query,5,scope,brand) : await this.deps.search.searchProducts(query,5,scope);
+        if(brand) {
+          match={...match,items:match.items.filter(row=>sameBrand(row.brandName,brand))};
+          if(!match.bestCandidate || !sameBrand(match.bestCandidate.brandName,brand))match={...match,resolution:"no_match",bestCandidate:null};
+        }
+        if(!brand && match.resolution!=="resolved") {
           const preferred=profile.preferredBrands.filter(brand=>match.items.some(row=>row.category===brand.category && row.brandName===brand.brandName));
           if(preferred.length===1) match=await this.deps.search.searchProducts([preferred[0]!.brandName,item.name,item.size].filter(Boolean).join(" "),5,scope);
         }
-        if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("Please clarify product "+item.name+": "+match.items.map(row=>row.name+" (ID "+row.id+")").join("; "));
+        if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("Product was not found in this organization.");
-      if(item.unit&&item.unit.toLowerCase()!==product.unit.toLowerCase())requireChoice("Unit for "+product.name+" must be "+product.unit+"; confirm a supported conversion.");
-      const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,customer_id:customer.id,
+      if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
+        requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
+      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit))requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔");
+      const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
       if(!rate||rate.unit!==product.unit)requireChoice("No unambiguous active sale rate is available for "+product.name+". Choose its Rate List.");
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
+      if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
       const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code);
       const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
+      const merchantCost=!invoice && this.deps.intelligence?await this.deps.intelligence.purchaseFloor(scope,product.id,rate.unit_price,product.unit,rate.currency_code):null;
       const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
       await this.memory.assertFloor(scope,product.id,rate.unit_price,item.qty*rate.unit_price===0?0:discountAmount/(item.qty*rate.unit_price)*100,product.unit,rate.currency_code,cost?.unitCost);
-      lines.push({line_number:lines.length+1,product_id:product.id,productName:product.name,quantity:item.qty,unit:product.unit,unit_price:rate.unit_price,
+      if(classifyMaterial([brand,product.name].join(" "))==="GI" && /brass|براس|پیتل/iu.test(product.name))
+        requireChoice("HE China صرف G.I. فٹنگ ہے؛ اسے پیتل یا Brass کے طور پر شامل نہیں کیا جا سکتا۔");
+      return {line_number:offset+index+1,product_id:product.id,productName:product.name,brandName:brand??explicitBrand(product.name)??"دیگر سامان",quantity:item.qty,unit:product.unit,unit_price:rate.unit_price,
         discount_amount:discountAmount,discountPercent:discount,pricing_source:"RESOLVED_RATE",
         rate_list_id:rate.rate_list_id,rate_list_version_id:rate.rate_list_version_id,resolved_price:rate,
-        ...(cost??{})});
+        ...(merchantCost!=null?{merchantUnitCost:merchantCost}:{}),
+        ...(cost??{})};
+      }));
+      lines.push(...batch);
     }
     if(invoice) {
       const required=new Map<number,number>();
@@ -132,10 +172,28 @@ export class DefaultErpOperations implements ErpOperations {
     }
     const totals=calculateEstimateTotals(lines,input.carriageCharges??0);
     if((input.paidAmount??0)>totals.customer_payable_total)requireChoice("Paid amount exceeds the invoice payable amount.");
-    return {customerId:customer.id,customerName:customer.name,...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf};
+    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf};
   }
-  async prepare(tool:Exclude<ErpActionName,"erp_get_business_report">,raw:unknown,scope:AgentScope):Promise<PreparedErpAction> {
+  async prepare(tool:ErpWriteName,raw:unknown,scope:AgentScope):Promise<PreparedErpAction> {
     const input:any=ERP_ACTION_SCHEMAS[tool].parse(raw);
+    if(DEPOT_WRITES.has(tool))return this.depot.prepare(tool,input,scope);
+    if(tool==="erp_amend_estimate"||tool==="erp_accept_companions"){
+      if(!input.draftId)requireChoice("جناب، پہلے ایسٹیمیٹ کا پری ویو تیار کر لیں تاکہ اسی میں سامان شامل کروں۔");
+      const source=(await this.rows("ai_copilot_actions","id,user_id,status,action_plan",q=>q.eq("organization_id",scope.organizationId).eq("id",input.draftId)))[0];
+      if(!source || source.user_id!==scope.userId || source.action_plan.branchId!==scope.branchId ||
+        source.status!=="DRAFT" || source.action_plan.unifiedAction?.tool!=="erp_create_estimate")
+        requireChoice("اس گفتگو کا فعال ایسٹیمیٹ پری ویو دستیاب نہیں؛ نیا پری ویو تیار کریں۔");
+      const previous=source.action_plan.unifiedAction;
+      const additions:any[]=input.addItems??[],warnings:string[]=[];
+      if(tool==="erp_accept_companions")for(const item of previous.data.companions??[]){
+        const match=previous.input.brand?await this.deps.search.searchProducts(item.query,5,scope,previous.input.brand):await this.deps.search.searchProducts(item.query,5,scope);
+        if(match.resolution==="resolved" && match.bestCandidate)additions.push({productId:match.bestCandidate.id,qty:item.quantity});
+        else warnings.push(item.name+" کا مناسب برانڈ، سائز یا نرخ واضح نہیں؛ اسے خود سے شامل نہیں کیا گیا۔");
+      }
+      const kept=previous.input.items.filter((item:any)=>!(input.removeProductIds??[]).includes(item.productId));
+      const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.discountScheme?{discountScheme:input.discountScheme}:{})},scope);
+      next.preview.warnings=[...(next.preview.warnings??[]),...warnings];return next;
+    }
     let data:any={},title=tool.replace(/^erp_/,"").replaceAll("_"," ");
     if(tool==="erp_import_rate_list") {
       data.catalog=RateListCatalogSchema.parse({documentType:"rate_list",name:[input.brand,input.category].join(" "),effectiveDate:input.effectiveDate,
@@ -185,17 +243,35 @@ export class DefaultErpOperations implements ErpOperations {
         sourceEstimateId:input.estimateId,sourceFingerprint:digest(source),date:today()};
     }
     data.documentNumber="AI-"+randomUUID().slice(0,18);
+    if(tool==="erp_create_estimate"){
+      const installation=new InstallationCompletenessService();
+      data.companions=installation.audit(data.lines.map((line:any)=>({name:line.productName,quantity:line.quantity})));
+      if(this.deps.companions){
+        const learned=await this.deps.companions.suggestions(scope,data.lines.map((line:any)=>line.product_id),input.brand);
+        data.companions.push(...learned.filter(item=>!data.companions.some((known:any)=>known.query.toLowerCase()===item.query.toLowerCase())));
+      }
+      data.creditWarnings=data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
+      const grouped=groupQuotation(data.lines.map((line:any)=>({...line,...(line.merchantUnitCost!=null?{unitCost:line.merchantUnitCost}:{})})));
+      data.quotation=quotationCard(data.customerName,grouped);data.privateMargin=grouped.privateMargin;
+    }
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
-    const summary="میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
+    const summary=tool==="erp_create_estimate" ?
+      "میں "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کر کے":" کے لیے")+
+      (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
+      " "+count+" آئٹمز کا مکمل ایسٹیمیٹ تیار کر رہا ہوں۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ براہِ کرم پری ویو دیکھ کر منظوری دیں۔" :
+      "میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
     return {tool,input,data,preview:{title,summary,
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
       ...(data.totals?{totals:data.totals}:{}),
+      ...(tool==="erp_create_estimate"?{companions:data.companions,quotation:data.quotation,privateMargin:data.privateMargin,
+        warnings:[...data.creditWarnings,new InstallationCompletenessService().prompt(data.companions)].filter(Boolean)}:{}),
       ...(tool==="erp_record_payment"&&!data.allocations.length?{warnings:["یہ غیر مختص پیشگی وصولی ہے؛ کسی مخصوص invoice کو ادا شدہ نہیں کیا جائے گا۔"]}:{})}};
   }
   async execute(action:PreparedErpAction,scope:AgentScope,key:string) {
     const {tool,input,data}=action;
+    if(DEPOT_WRITES.has(tool))return this.depot.execute(action,scope,key);
     if(tool==="erp_customer_return") {
       // Revalidate the exact approved source, never silently rebind to a newer sale.
       const sale=await this.memory.latestSale(scope,input.customerId,input.productId,data.sale.document_id);
@@ -218,12 +294,19 @@ export class DefaultErpOperations implements ErpOperations {
     },{organizationId:scope.organizationId,branchId:scope.branchId,actorUserId:scope.userId,servicePrincipalId:this.deps.principal,
       operation:"customer-payment.create",idempotencyKey:key,requestFingerprint:digest(action)});
     if(tool==="erp_create_estimate"||tool==="erp_create_invoice") {
-      const current=await this.quote(input,scope,tool==="erp_create_invoice",data.date);
+      const current=await this.quote(input,scope,tool==="erp_create_invoice",data.date,data.newCustomer);
       equal(current,dataWithoutNumber(data),"Authoritative prices, units, costs or totals");
     } else {
       const source=await this.deps.estimates.getEstimateAggregate(data.sourceEstimateId,scope.organizationId);
       equal(digest(source),data.sourceFingerprint,"Source estimate");
       for(const line of data.lines) await this.memory.assertFloor(scope,line.product_id,line.unit_price,line.quantity*line.unit_price===0?0:(line.discount_amount??0)/(line.quantity*line.unit_price)*100,line.unit,source!.record.currency_code,line.unitCost);
+    }
+    if(tool==="erp_create_estimate" && data.newCustomer) {
+      const saved=await this.rpc("create_copilot_customer_estimate",{
+        p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_idempotency_key:key,
+        p_customer:data.newCustomer,p_definition:{estimate_number:data.documentNumber,issue_date:data.date,currency_code:"PKR"},p_lines:data.lines,
+      });
+      return {id:saved.estimate.id,customerId:saved.estimate.customer_id,status:saved.estimate.status,lines:data.lines,totals:data.totals};
     }
     if(tool==="erp_create_estimate") return new DefaultEstimateService(this.deps.estimates).createDraft({
       definition:{organization_id:scope.organizationId,branch_id:scope.branchId,customer_id:data.customerId,estimate_number:data.documentNumber,issue_date:data.date,currency_code:"PKR"},
@@ -247,6 +330,7 @@ export class DefaultErpOperations implements ErpOperations {
   }
   async verify(action:PreparedErpAction,scope:AgentScope,result:any) {
     const {tool,input,data}=action;
+    if(DEPOT_WRITES.has(tool))return this.depot.verify(action,scope,result);
     if(tool==="erp_customer_return") {
       const notes=await this.rows("credit_notes","id,customer_id,invoice_id,status,grand_total",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("id",result.credit_note?.id));
       const note=notes[0];if(!note||note.status!=="POSTED")throw new Error("Posted return was not found.");
@@ -300,7 +384,12 @@ export class DefaultErpOperations implements ErpOperations {
     } else if(tool==="erp_create_estimate") {
       const saved=await this.deps.estimates.getEstimateAggregate(result.id,scope.organizationId);
       if(!saved||saved.record.branch_id!==scope.branchId)throw new Error("Estimate was not found in this branch.");
-      equal(Number(saved.record.customer_id),data.customerId,"Estimate customer");
+      equal(Number(saved.record.customer_id),data.customerId??result.customerId,"Estimate customer");
+      if(data.newCustomer) {
+        const customer=await this.deps.erp.getCustomer(saved.record.customer_id,scope.organizationId);
+        if(!customer)throw new Error("Estimate customer was not found.");
+        equal([customer.name,customer.city],[data.newCustomer.name,data.newCustomer.city],"New estimate customer");
+      }
       equal(projectLines(saved.items),projectLines(data.lines),"Estimate lines");
     } else {
       const saved=await this.deps.invoices.getById(scope.organizationId,scope.branchId,result.invoice_id);
@@ -339,6 +428,39 @@ export class DefaultErpOperations implements ErpOperations {
     }
     return {answer:JSON.stringify(result),report:result,reportType:input.reportType};
   }
+  async read(tool:ErpReadName,raw:any,scope:AgentScope):Promise<unknown> {
+    const input:any=ERP_ACTION_SCHEMAS[tool].parse(raw);
+    if(tool==="erp_get_business_report")return this.report(raw,scope);
+    if(tool==="erp_find_site_records"){
+      const table=({sites:"customer_sites",returns:"site_return_memos",transfers:"site_transfers",dispatches:"dispatch_orders"} as Record<string,string>)[input.kind]!;
+      let query=this.deps.database().from(table).select("*").eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId);
+      if(input.customerId && ["sites","returns"].includes(input.kind))query=query.eq("customer_id",input.customerId);
+      if(input.query && input.kind==="sites")query=query.ilike("name","%"+input.query.replace(/[%_\\]/g,"\\$&")+"%");
+      const {data,error}=await query.order("created_at",{ascending:false}).limit(input.limit);
+      if(error)throw new ApiError(502,"ERP_READ_FAILED","سائٹ کی تفصیل نہیں پڑھی جا سکی۔");
+      return {answer:"اس برانچ میں "+(data??[]).length+" متعلقہ ریکارڈ ملے ہیں۔",report:{kind:input.kind,records:data??[]}};
+    }
+    if(tool==="erp_get_dispatch_status"){
+      const order=(await this.rows("dispatch_orders","id,status,estimate_id,invoice_id,challan",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("id",input.dispatchId)))[0];
+      if(!order)requireChoice("اس برانچ کا درست ڈسپیچ منتخب کریں۔");
+      const rows=await this.rows("dispatch_items","dispatch_id,line_number,product_id,unit,quantity,dispatched,delivered",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("dispatch_id",input.dispatchId));
+      return {answer:"ڈسپیچ کی تازہ مقداریں حاضر ہیں؛ اصل ایسٹیمیٹ کی رقم تبدیل نہیں ہوئی۔",report:{...order,lines:rows.map(row=>({...row,pending:Number(row.quantity)-Number(row.delivered)}))}};
+    }
+    if(tool==="erp_reconcile_vendor_quote"){
+      const report=reconcileVendorQuote(input.demand,input.vendor),auditId=randomUUID();
+      const {error}=await this.deps.database().from("vendor_quote_reviews").insert({id:auditId,organization_id:scope.organizationId,branch_id:scope.branchId,actor_user_id:scope.userId,observations:input,audit:report});
+      if(error)throw new ApiError(502,"AUDIT_CONTEXT_UNAVAILABLE","کوٹیشن کی پڑتال محفوظ نہیں ہو سکی؛ دوبارہ کوشش کریں۔");
+      return {answer:report.issues.length?report.issues.map(issue=>issue.message).join("\n"):"حاجی صاحب، طلب اور وینڈر کوٹیشن میں مقدار، معیار اور رعایت مطابق ہیں۔",report:{...report,auditId}};
+    }
+    if(tool==="erp_correct_vendor_quote"){
+      if(!input.auditId)requireChoice("پہلے طلب اور وینڈر کوٹیشن کی پڑتال کر لیں۔");
+      const row=(await this.rows("vendor_quote_reviews","id,actor_user_id,audit",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("id",input.auditId)))[0];
+      if(!row||row.actor_user_id!==scope.userId)requireChoice("اسی گفتگو کی وینڈر کوٹیشن کی پڑتال منتخب کریں۔");
+      return {answer:"مقدار، معیار اور طے شدہ رعایت کے مطابق درست کوٹیشن کا پری ویو تیار ہے۔ کوئی سپلائر بل پوسٹ نہیں ہوا۔",report:{auditId:row.id,corrected:row.audit.corrected,issues:row.audit.issues}};
+    }
+    const report=tool==="erp_calculate_landed_cost"?landedCost(input):await this.rpc("depot_intelligence_report",{p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_request:input});
+    return {answer:JSON.stringify(report),report};
+  }
 }
-function dataWithoutNumber(data:Record<string,any>) {const {documentNumber,...value}=data;return value;}
+function dataWithoutNumber(data:Record<string,any>) {const {documentNumber,companions,quotation,privateMargin,creditWarnings,...value}=data;return value;}
 function projectLines(lines:any[],discount=true) {return lines.map(line=>[line.product_id,Number(line.quantity),line.unit,Number(line.unit_price),...(discount?[Number(line.discount_amount??0)]:[])]);}

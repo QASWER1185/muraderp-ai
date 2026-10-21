@@ -13,8 +13,9 @@ import { touchDraft } from "./business-state.js";
 import { BusinessIntelligenceTools, BUSINESS_TOOL_DEFINITIONS, type BusinessServices } from "./business-tools.js";
 import type { CopilotRuntime } from "../copilot.runtime.js";
 import { randomUUID } from "node:crypto";
-import { ERP_ACTION_DEFINITIONS, ERP_ACTION_SCHEMAS, ERP_ACTION_PERMISSIONS, isErpActionName } from "../tools/registry.js";
+import { ERP_ACTION_DEFINITIONS, ERP_ACTION_SCHEMAS, ERP_ACTION_PERMISSIONS, ERP_READ_ACTIONS, isErpActionName, type ErpReadName, type ErpWriteName } from "../tools/registry.js";
 import type { CustomerMemory } from "../customerMemoryStore.js";
+import { explicitBrand,brandsInText } from "../productResolver.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -25,7 +26,7 @@ export type ToolServices = {
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
-  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"getBusinessReport"|"confirmAndExecute">>;
+  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -67,8 +68,8 @@ export const ERP_TOOLS = [
     // A bounded model context; complete history remains available to the server.
     return {...profile,history:profile.history.slice(0,30)};
   }}),
-  defineTool({ name: "search_products", description: "Search ERP products with typo-tolerant database matching by name, SKU, brand, category, dimensions, PN rating or unit. Returns ranked candidates and resolution. Use bestCandidate only when resolved; otherwise ask for clarification.", schema: lookup, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit }, scope, { search }) => {
-    return search.searchProducts(query, limit, scope);
+  defineTool({ name: "search_products", description: "Search products by name, dimensions and brand. An explicit brand is a HARD filter against active sale catalog items; never substitute another brand. Use bestCandidate only when resolved.", schema:lookup.extend({brand:query.optional()}), permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ query, limit, brand }, scope, { search }) => {
+    return brand ? search.searchProducts(query,limit,scope,brand) : search.searchProducts(query, limit, scope);
   } }),
   defineTool({ name: "lookup_product", description: "Get one product by ID after finding it. Does not return purchase cost or an authoritative sale rate.", schema: productId, permission: "products.read", authentication: "required", scope: "organization_and_branch", classification: "read", execute: async ({ product_id }, scope, { erp, search }) => {
     const product = await erp.getProduct(product_id, scope.organizationId);
@@ -154,6 +155,12 @@ export class ErpToolRegistry {
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    const mixed=brandsInText(_originalMessage??"").length>1;
+    if(mixed && state)delete state.brandHint;
+    const brand=mixed?undefined:explicitBrand(_originalMessage??"")??state?.brandHint;
+    if(state && explicitBrand(_originalMessage??""))state.brandHint=explicitBrand(_originalMessage!);
+    if(brand && raw && typeof raw==="object" && !Array.isArray(raw) && ["search_products","erp_create_estimate","erp_create_invoice"].includes(name))
+      raw={...raw,brand};
     if(isErpActionName(name)) {
       if(!this.services.runtime?.createUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
       await this.services.tenant.assertPermission(scope,ERP_ACTION_PERMISSIONS[name]);await this.assertScope(scope);signal?.throwIfAborted();
@@ -163,7 +170,15 @@ export class ErpToolRegistry {
         if(!this.services.runtime.getBusinessReport)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Reporting is not configured.");
         return this.services.runtime.getBusinessReport(parsed.data,scope);
       }
-      return {review:await this.services.runtime.createUnifiedDraft(name,parsed.data,scope,state?.inputSource??"text")};
+      if(ERP_READ_ACTIONS.has(name)) {
+        if(!this.services.runtime.getDepotReport)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","کاروباری رپورٹ دستیاب نہیں۔");
+        const choices:any=parsed.data;
+        if(name==="erp_correct_vendor_quote"&&!choices.auditId)choices.auditId=state?.workingAuditId;
+        return this.services.runtime.getDepotReport(name as ErpReadName,choices,scope);
+      }
+      const choices:any=parsed.data;
+      if(["erp_amend_estimate","erp_accept_companions"].includes(name) && !choices.draftId)choices.draftId=state?.workingActionId;
+      return {review:await this.services.runtime.createUnifiedDraft(name as ErpWriteName,choices,scope,state?.inputSource??"text")};
     }
     if (this.business?.handles(name)) {
       if (!state) throw new ApiError(400, "CONVERSATION_CONTEXT_REQUIRED", "Validated conversation state is required.");

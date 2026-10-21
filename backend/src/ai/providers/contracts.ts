@@ -14,6 +14,7 @@ export interface StructuredAiProvider {
   transcribe(media: NonNullable<AiInputRequest["media"]>): Promise<string>;
 }
 export type StructuredGenerationOptions = {
+  maxOutputTokens?:number;
   /** Opt-in observation recovery only. Never enabled for tool execution or
    * transactional documents. The callback must still satisfy the schema. */
   recoverIncomplete?: (raw: unknown) => unknown;
