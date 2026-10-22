@@ -53,7 +53,9 @@ describe("Phase 23 Stage 5 — deterministic pricing regression", () => {
 
   it("rejects ambiguous winning-scope pricing instead of silently choosing one list", async () => {
     const ambiguousCustomer = { ...rateLists[2], id: 4, name: "Customer Sale 2", code: "CUSTOMER-30-B" };
-    const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: [...rateLists, ambiguousCustomer], rate_list_versions: versions, rate_list_items: items }) as never);
+    const competingVersion = { ...versions[3], id: 401, rate_list_id: 4 };
+    const competingItem = { ...items[3], id: 4001, rate_list_version_id: 401, unit_price: 102 };
+    const repository = new SupabaseRateListRepository(() => clientFor({ rate_lists: [...rateLists, ambiguousCustomer], rate_list_versions: [...versions, competingVersion], rate_list_items: [...items, competingItem] }) as never);
     await expect(repository.findBestRateListItem({ organization_id: ORGANIZATION_ID, price_type: "SALE", product_id: 500, quantity: 1, as_of: "2026-08-16T12:00:00Z", customer_id: 30 })).rejects.toThrow("Ambiguous pricing");
   });
 
