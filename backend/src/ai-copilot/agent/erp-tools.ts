@@ -177,6 +177,10 @@ export class ErpToolRegistry {
         return this.services.runtime.getDepotReport(name as ErpReadName,choices,scope);
       }
       const choices:any=parsed.data;
+      if(name==="erp_create_estimate" && !choices.customerId && !choices.customerName){
+        if(state?.customer && !state.customerAmbiguous)choices.customerId=state.customer.id;
+        else if(state?.estimateCustomerChoice){choices.customerName=state.estimateCustomerChoice.name;choices.customerAddress=state.estimateCustomerChoice.address;}
+      }
       if(["erp_amend_estimate","erp_accept_companions"].includes(name) && !choices.draftId)choices.draftId=state?.workingActionId;
       return {review:await this.services.runtime.createUnifiedDraft(name as ErpWriteName,choices,scope,state?.inputSource??"text")};
     }

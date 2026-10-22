@@ -1,4 +1,5 @@
 import { ApiError } from "../../errors/api-error.js";
+import { parseMediaDataUrl } from "../media.js";
 
 /** Trim copy/paste padding, but reject embedded whitespace or header controls. */
 export function normalizeGeminiApiKey(value: unknown): string {
@@ -46,14 +47,11 @@ export async function providerJson(fetcher: typeof fetch, url: string, key: stri
 export const invalidOutput=()=>new ApiError(422,"AI_INVALID_OUTPUT","The AI result could not be validated. Please clarify or use manual entry.");
 export function inlineMedia(value:unknown):{mimeType:string;data:string} {
   if(typeof value!=="string")throw invalidOutput();
-  const comma=value.indexOf(",");
-  if(comma<0)throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The provider requires inline image or PDF content.");
-  const match=/^data:(image\/(?:png|jpe?g|webp)|application\/pdf);base64$/i.exec(value.slice(0,comma).trim());
-  if(!match)throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The provider requires inline image or PDF content.");
-  const data=value.slice(comma+1).trim();
-  if(!/^[A-Za-z0-9+/]+={0,2}$/.test(data))throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The provider requires inline image or PDF content.");
-  const mimeType=match[1]!.toLowerCase()==="image/jpg"?"image/jpeg":match[1]!.toLowerCase();
-  return {mimeType,data};
+  const media=parseMediaDataUrl(value);
+  if(!media || !/^(?:image\/(?:png|jpeg|webp)|application\/pdf)$/.test(media.mimeType) ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(media.data) || !media.data)
+    throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The provider requires inline image or PDF content.");
+  return media;
 }
 export function appendMessage(messages:any[],role:string,block:any,field="content") {
   const previous=messages.at(-1);

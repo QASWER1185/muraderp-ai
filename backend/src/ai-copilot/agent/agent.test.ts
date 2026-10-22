@@ -155,7 +155,7 @@ describe("read-only ERP agent", () => {
     const deps = services();
     const registry = new ErpToolRegistry(deps);
     const missing = await new ReadOnlyCopilotAgent(sequence(step(call("search_products", { query: "ABC XYZ 9999" })), final("No matching ERP product is available.")).model, registry).run({ message: "ABC XYZ 9999" }, scope);
-    expect(missing).toMatchObject({ status: "completed", answer: "No matching ERP product is available. Please clarify its name or SKU." });
+    expect(missing).toMatchObject({ status: "completed", answer: "جناب، مطلوبہ آئٹم نہیں ملا؛ نام، برانڈ یا سائز واضح کر دیں۔" });
     vi.mocked(deps.pricing.resolvePrice).mockResolvedValueOnce(null);
     const rate = await new ReadOnlyCopilotAgent(sequence(step(call("lookup_current_sale_rate", { product_id: 7 })), final("No authorized current sale rate is available.")).model, registry).run({ message: "Current rate" }, scope);
     expect(rate).toMatchObject({ status: "completed", answer: "No authorized current sale rate is available." });

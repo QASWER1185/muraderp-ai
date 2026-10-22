@@ -23,6 +23,12 @@ function setup(){
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it("sends all ten JPEG/JPG images together with canonical MIME types",async()=>{
+    const f=setup(),files=Array.from({length:10},(_,index)=>new File(["slip-"+index],`WhatsApp-${index}.jpg`,{type:index%2?"image/jpg":"image/jpeg"}));
+    f.attach(files);await f.send("Arslan Shahnawaz Sb, Ittehad Town, Dura Max 50% estimate");
+    expect(mocks.media).toHaveBeenCalledOnce();expect(mocks.media.mock.calls[0][0].attachments).toHaveLength(10);
+    expect(mocks.media.mock.calls[0][0].attachments.every(file=>file.media.mimeType==="image/jpeg" && !file.media.base64.startsWith("data:"))).toBe(true);
+  });
   it("sends three slip previews in ONE request and preserves all attachments for retry",async()=>{
     const f=setup(),files=[1,2,3].map(index=>new File(["slip-"+index],"slip-"+index+".png",{type:"image/png"}));
     f.attach(files);expect(f.query("#copilot-attachment").innerHTML).toContain("slip-3.png");
@@ -50,7 +56,7 @@ describe("Part 4 multimodal browser workflow",()=>{
     f.attach(new File(["pdf"],"DuraFlow PPRC Price List.pdf",{type:"application/pdf"}));
     await f.send("Dura Flow PPRC darj ker lein");
     expect(mocks.media).toHaveBeenCalledWith(expect.objectContaining({task:"auto",fileName:"DuraFlow PPRC Price List.pdf"}),"org","branch");
-    expect(f.markup()).toContain("132 catalog items");expect(f.markup()).not.toContain("Quantity unclear");expect(f.markup()).not.toContain("Customer:");
+    expect(f.markup()).toContain("132 کیٹلاگ آئٹمز");expect(f.markup()).not.toContain("Quantity unclear");expect(f.markup()).not.toContain("Customer:");
     expect(f.query("#copilot-action").value).toBe("rate_list_update");expect(mocks.confirm).not.toHaveBeenCalled();
     await f.click("[data-confirm-draft]");expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({id:"catalog-action",idempotencyKey:"catalog-key"}));
     expect(f.markup()).toContain("132 آئٹمز ERP میں کامیابی سے درج");
@@ -58,7 +64,7 @@ describe("Part 4 multimodal browser workflow",()=>{
   it.each(["image","camera","voice"])("sends %s to the same signed conversation and keeps confirmation separate",async source=>{
     const f=setup();await f.send("Qasim estimate");f.attach(source==="voice"?new File(["audio"],"note.webm",{type:"audio/webm;codecs=opus"}):image(),source==="camera");await f.send("continue");
     expect(mocks.media).toHaveBeenCalledWith(expect.objectContaining({source,conversationToken:"signed",conversationId:"id",media:{mimeType:source==="voice"?"audio/webm":"image/png",base64:expect.any(String)}}),"org","branch");
-    expect(f.markup()).toContain("Subtotal: PKR 4000.00");expect(f.markup()).toContain("Discount: PKR 400.00");expect(f.markup()).toContain("ERP tools completed");expect(mocks.confirm).not.toHaveBeenCalled();expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(f.markup()).toContain("ابتدائی رقم: PKR 4000.00");expect(f.markup()).toContain("رعایت: PKR 400.00");expect(f.markup()).not.toContain("ERP tools completed");expect(mocks.confirm).not.toHaveBeenCalled();expect(mocks.prepare).not.toHaveBeenCalled();
     await f.click("[data-prepare-conversation-draft]");expect(mocks.prepare).toHaveBeenCalledWith("signed","id","org","branch");expect(mocks.confirm).not.toHaveBeenCalled();await f.click("[data-confirm-draft]");expect(mocks.confirm).toHaveBeenCalledOnce();
   });
   it("offers a signed candidate and returns it with the conversation identity",async()=>{
@@ -81,7 +87,7 @@ describe("Part 4 multimodal browser workflow",()=>{
     await f.send("change discount");
     expect(f.query("#copilot-input").value).toBe("change discount");
     expect(f.query("#copilot-attachment").hidden).toBe(false);
-    expect(f.markup()).toContain("temporarily rate limited");
+    expect(f.markup()).toContain("عارضی حد");
     expect(f.markup()).not.toContain("data-prepare-conversation-draft");
     expect(mocks.prepare).not.toHaveBeenCalled();expect(mocks.confirm).not.toHaveBeenCalled();
     await f.click("[data-copilot-retry]");
@@ -103,11 +109,11 @@ describe("Part 4 multimodal browser workflow",()=>{
   });
   it("rejects a late response from a changed workspace",async()=>{
     const f=setup();mocks.media.mockImplementation(async()=>{mocks.context={organizationId:"other",branchId:"other"};return {data:{answer:"PRIVATE RESULT",conversationToken:"private",conversationId:"id"}};});f.attach(image());await f.send();
-    expect(f.markup()).not.toContain("PRIVATE RESULT");expect(f.markup()).toContain("Workspace changed");
+    expect(f.markup()).not.toContain("PRIVATE RESULT");expect(f.markup()).toContain("ورک اسپیس بدل گیا");
   });
   it("blocks empty and unsupported attachments before sending",async()=>{
-    const f=setup();f.attach(new File([],"empty.wav",{type:"audio/wav"}));await f.send();expect(mocks.media).not.toHaveBeenCalled();expect(f.markup()).toContain("attachment is empty");
-    f.attach(new File(["svg"],"bad.svg",{type:"image/svg+xml"}));expect(f.markup()).toContain("supported audio file");
+    const f=setup();f.attach(new File([],"empty.wav",{type:"audio/wav"}));await f.send();expect(mocks.media).not.toHaveBeenCalled();expect(f.markup()).toContain("فائل خالی ہے");
+    f.attach(new File(["svg"],"bad.svg",{type:"image/svg+xml"}));expect(f.markup()).toContain("JPEG، PNG");
   });
 });
 describe("Part 4 untrusted display and bounded attachments",()=>{
@@ -117,7 +123,7 @@ describe("Part 4 untrusted display and bounded attachments",()=>{
     expect(extractionMarkup({document:{customerName:"<svg>",confidence:.5,lines:[],warnings:[],total:9999}},'<script>')).toContain("&lt;script&gt;");
   });
   it("shows absent optional totals as unavailable without fabricating zero",()=>{
-    const text=conversationDraftMarkup({lines:[],currencyCode:"PKR",totals:{grand_total:40}});expect(text).toContain("Subtotal: PKR unavailable");expect(text).toContain("Discount: PKR unavailable");
+    const text=conversationDraftMarkup({lines:[],currencyCode:"PKR",totals:{grand_total:40}});expect(text).toContain("ابتدائی رقم: PKR دستیاب نہیں");expect(text).toContain("رعایت: PKR دستیاب نہیں");
   });
   it("normalizes recorder MIME parameters and enforces size",()=>{
     expect(validateAttachment({type:"audio/webm;codecs=opus",size:12})).toBe("audio/webm");expect(()=>validateAttachment({type:"image/png",size:8*1024*1024+1})).toThrow("8 MB");
@@ -138,6 +144,6 @@ describe("Part 4 microphone cleanup",()=>{
   });
   it("cleans up when recorder construction fails",async()=>{
     const f=setup(),stop=vi.fn();navigator.mediaDevices={getUserMedia:vi.fn(async()=>({getTracks:()=>[{stop}]}))};vi.stubGlobal("MediaRecorder",class {static isTypeSupported=()=>false;constructor(){throw new Error("codec unavailable");}});
-    f.query("#copilot-mic").listeners.get("click")();await f.idle();expect(stop).toHaveBeenCalled();expect(f.markup()).toContain("codec unavailable");
+    f.query("#copilot-mic").listeners.get("click")();await f.idle();expect(stop).toHaveBeenCalled();expect(f.markup()).toContain("صوتی ریکارڈنگ شروع نہیں ہو سکی");
   });
 });

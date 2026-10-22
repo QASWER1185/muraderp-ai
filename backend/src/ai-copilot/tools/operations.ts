@@ -18,7 +18,7 @@ import type { CopilotTarget } from "../copilot.types.js";
 import { RateListCatalogSchema } from "../rate-list-catalog.js";
 import { CustomerMemoryStore, rememberedDiscount, returnMemoryMessage, type CustomerMemory } from "../customerMemoryStore.js";
 import { SupabaseSalesReturnService, type SalesReturnService } from "../../services/sales-return.service.js";
-import { explicitBrand, sameBrand, canonicalBrand } from "../productResolver.js";
+import { explicitBrand, sameBrand, canonicalBrand, matchesProductSpecification } from "../productResolver.js";
 import { InstallationCompletenessService } from "../installationCompletenessService.js";
 import { applyHybridRules, groupQuotation, quotationCard, classifyMaterial } from "../hybridQuotationEngine.js";
 import { reconcileVendorQuote } from "../vendorQuoteAudit.js";
@@ -84,7 +84,7 @@ export class DefaultErpOperations implements ErpOperations {
   private async customer(input:any,scope:AgentScope,allowNew=false):Promise<any> {
     const id=input.customerId;
     if(id) { const row=await this.deps.erp.getCustomer(id,scope.organizationId);if(!row)requireChoice("Customer was not found in this organization.");return row; }
-    if(!input.customerName)requireChoice("Please provide the customer name or Customer ID.");
+    if(!input.customerName)requireChoice("جناب، اس ایسٹیمیٹ کے لیے صرف گاہک کا نام بتا دیں۔");
     const match=await this.deps.search.searchCustomers(input.customerName,5,scope);
     if(allowNew && match.resolution==="no_match") return {
       name:input.customerName,city:input.customerAddress??"",newCustomer:{name:input.customerName,city:input.customerAddress??"",phone:""},
@@ -141,13 +141,15 @@ export class DefaultErpOperations implements ErpOperations {
         if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
-      if(!product)requireChoice("Product was not found in this organization.");
+      if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
+      if(!matchesProductSpecification([item.name,item.size].filter(Boolean).join(" "),product.name))
+        requireChoice(item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
       if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit))requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔");
       const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
-      if(!rate||rate.unit!==product.unit)requireChoice("No unambiguous active sale rate is available for "+product.name+". Choose its Rate List.");
+      if(!rate||rate.unit!==product.unit)requireChoice(product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔");
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
       const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code);
@@ -257,9 +259,9 @@ export class DefaultErpOperations implements ErpOperations {
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
     const summary=tool==="erp_create_estimate" ?
-      "میں "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کر کے":" کے لیے")+
+      "حاجی صاحب! "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
       (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
-      " "+count+" آئٹمز کا مکمل ایسٹیمیٹ تیار کر رہا ہوں۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ براہِ کرم پری ویو دیکھ کر منظوری دیں۔" :
+      " "+count+" آئٹمز کا مکمل ایسٹیمیٹ پری ویو تیار کر دیا گیا ہے۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ تفصیل دیکھ لیں؛ ERP میں محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
       "میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
     return {tool,input,data,preview:{title,summary,

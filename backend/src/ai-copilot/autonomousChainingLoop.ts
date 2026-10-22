@@ -8,6 +8,7 @@ export class AutonomousChainingLoop {
     else delete state.brandHint;
     const result=await this.tools.execute("erp_create_estimate",choices,scope,state,userMessage) as any;
     const review=result.review;
+    if(typeof choices.customerName==="string")state.estimateCustomerChoice={name:choices.customerName,...(typeof choices.customerAddress==="string"?{address:choices.customerAddress}:{})};
     const answer=review.preview.summary;
     state.pendingAction={draftId:review.draftId,idempotencyKey:review.idempotencyKey,summary:answer.slice(0,1000),expires:Math.min(state.expires,Date.now()+10*60_000)};
     state.workingActionId=review.draftId;

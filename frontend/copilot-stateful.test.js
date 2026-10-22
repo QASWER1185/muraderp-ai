@@ -4,6 +4,15 @@ import { conversationDraftMarkup, createCopilotConversation } from "./copilot-ui
 
 afterEach(() => vi.unstubAllGlobals());
 describe("stateful estimate conversation", () => {
+  it("restores only scoped signed context across reloads without extending its expiry",()=>{
+    let now=0;const entries=new Map();const storage={getItem:key=>entries.get(key),setItem:(key,value)=>entries.set(key,value),removeItem:key=>entries.delete(key)};
+    createCopilotConversation(()=>now,storage).accept("signed","user","org","branch","conversation-id");
+    now=10*60_000;const restored=createCopilotConversation(()=>now,storage);
+    expect(restored.tokenFor("user","org","branch")).toBe("signed");expect(restored.idFor("user","org","branch")).toBe("conversation-id");
+    expect(restored.tokenFor("another-user","org","branch")).toBeNull();expect(entries.size).toBe(0);
+    createCopilotConversation(()=>now,storage).accept("signed","user","org","branch","conversation-id");
+    now=40*60_000;expect(createCopilotConversation(()=>now,storage).tokenFor("user","org","branch")).toBeNull();expect(entries.size).toBe(0);
+  });
   it("prepares with signed context only and browser credentials", async () => {
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: { status: "DRAFT" } }) }));
     vi.stubGlobal("fetch", fetch);
@@ -37,15 +46,15 @@ describe("stateful estimate conversation", () => {
       lines: [{ productName: "Pipe <script>", quantity: 20, unit: "MTR", discountPercent: 10, amount: 8586, rate: { currency_code: "PKR", unit_price: 477, unit: "MTR" } }] });
     expect(markup).toContain("PKR 477 / MTR");
     expect(markup).toContain("PKR 8586.00");
-    expect(markup).toContain("10% discount");
+    expect(markup).toContain("رعایت 10%");
     expect(markup).toContain("Pipe &lt;script&gt;");
     expect(markup).toContain("data-prepare-conversation-draft");
     expect(markup).not.toContain("data-confirm-draft");
   });
   it("keeps missing rates and totals unavailable and does not offer preparation", () => {
     const markup = conversationDraftMarkup({ prepared: false, totals: null, lines: [{ productName: "Pipe", quantity: 20, unit: "MTR", discountPercent: 0, rate: null, amount: null }] });
-    expect(markup).toContain("Current rate unavailable");
-    expect(markup).toContain("Total unavailable");
+    expect(markup).toContain("فعال نرخ واضح کر دیں");
+    expect(markup).toContain("تمام لائنوں کے درست نرخ");
     expect(markup).not.toContain("data-prepare-conversation-draft");
   });
 });

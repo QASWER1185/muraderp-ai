@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
+import { normalizeMediaInput } from "../ai/media.js";
 
 const name = z.string().trim().min(1).max(200);
 const confidence = z.number().finite().min(0).max(1);
@@ -29,10 +30,10 @@ export type DocumentExtraction = z.infer<typeof documentExtractionSchema>;
 export type ExtractedLine = z.infer<typeof extractedLineSchema>;
 
 export const MEDIA_LIMIT = 8 * 1024 * 1024;
-export const mediaSchema = z.strictObject({
+export const mediaSchema = z.preprocess(normalizeMediaInput, z.strictObject({
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf", "audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg"]),
   base64: z.string().min(4).max(Math.ceil(MEDIA_LIMIT / 3) * 4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
-});
+}));
 
 export function decodeMedia(input: unknown) {
   const media = mediaSchema.parse(input);

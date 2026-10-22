@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { askCopilot, confirmCopilotDraft, createCopilotDraft, createCopilotFinancialDraft, createCopilotMasterDataDraft, createCopilotRateListDraft, extractInvoiceDocument, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js";
 import { clearCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
+import { readFileSync } from "node:fs";
 
 afterEach(() => { vi.unstubAllGlobals(); clearCopilotApiKey(); });
 
@@ -9,6 +10,13 @@ function response(body = {}) {
 }
 
 describe("Copilot browser API tenant context", () => {
+  it("proxies both Copilot URL namespaces to Cloud Run in production",()=>{
+    const config=JSON.parse(readFileSync(new URL("./vercel.json",import.meta.url),"utf8"));
+    for(const prefix of ["/api/copilot/","/api/v1/"]){
+      const rewrite=config.rewrites.find(rule=>rule.source===prefix+":path*");
+      expect(rewrite?.destination).toBe("https://muraderp-api-jy6eophhla-el.a.run.app"+prefix+":path*");
+    }
+  });
   it("verifies a provider with a POST and propagates an actionable key error", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({error:{code:"AI_API_KEY_REJECTED",message:"The provider rejected this key."}}) });
     vi.stubGlobal("fetch", fetch);

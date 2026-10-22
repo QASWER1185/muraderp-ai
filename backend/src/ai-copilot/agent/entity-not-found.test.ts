@@ -95,7 +95,7 @@ describe("missing entities and Copilot failure recovery", () => {
     const model = { respond: vi.fn(async () => { throw new ApiError(503, "AI_NOT_CONFIGURED", "private secret"); }) };
     const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "cement stock" }, scope, logger);
     expect(result.status).toBe("error");
-    expect(result.answer).toContain("Copilot API key settings");
+    expect(result.answer).toContain("Gemini کی API کلید");
     expect(result.answer).not.toContain("private secret");
     expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ errorCode: "AI_NOT_CONFIGURED" }), "Copilot reasoning failed");
   });
@@ -104,8 +104,8 @@ describe("missing entities and Copilot failure recovery", () => {
     const f = businessFixture();
     const model = { respond: vi.fn(async () => { throw new ApiError(502, "AI_PROVIDER_BAD_REQUEST", "Safe settings guidance"); }) };
     const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "hello" }, scope);
-    expect(result.answer).toContain("Safe settings guidance");
-    expect(result.answer).toContain("No ERP action was performed.");
+    expect(result.answer).toContain("فارمیٹ قبول نہیں ہوا");
+    expect(result.answer).not.toContain("Safe settings guidance");
   });
 
   it("retains authoritative results if the next model turn fails", async () => {
@@ -113,7 +113,7 @@ describe("missing entities and Copilot failure recovery", () => {
     f.respond.mockResolvedValueOnce(call("query_inventory", { query: "Popular pipe" })).mockRejectedValueOnce(new ApiError(502, "AI_PROVIDER_ERROR", "private upstream response"));
     const result = await f.core.run({ message: "pipe stock and Hamdan ledger" }, scope);
     expect(result.answer).toContain("100 MTR");
-    expect(result.answer).toContain("verified results available so far");
+    expect(result.answer).toContain("اب تک حاصل شدہ تفصیل");
     expect(result.answer).not.toMatch(/private upstream|could not verify/);
   });
 });

@@ -103,6 +103,19 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
   });
 });
 
+describe("Gemini extraction compatibility",()=>{
+  it("retries one rejected function-proposal format as validated JSON without changing image bytes",async()=>{
+    const fetcher=fetchResult({error:{message:"unsupported proposal schema"}},400);
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({error:{message:"unsupported proposal schema"}}),{status:400}));
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify(native("gemini",[{text:'{"value":"observed"}'}]))));
+    const result=await createAiProvider(config("gemini"),fetcher).generate(schema,"extract",[{type:"input_image",image_url:"data:IMAGE/JPG;base64,YQ=="}]);
+    expect(result).toEqual({value:"observed"});expect(fetcher).toHaveBeenCalledTimes(2);
+    const bodies=fetcher.mock.calls.map(([,init])=>JSON.parse(String(init!.body)));
+    expect(bodies.map(body=>body.contents[0].parts[0].inlineData)).toEqual([{mimeType:"image/jpeg",data:"YQ=="},{mimeType:"image/jpeg",data:"YQ=="}]);
+    expect(bodies[1].generationConfig.responseMimeType).toBe("application/json");expect(bodies[1]).not.toHaveProperty("tools");
+  });
+});
+
 describe("provider configuration and speech capabilities",()=>{
   it("normalizes Google's outbound authentication even if given browser-hop headers", async () => {
     const key = "test-only-gemini-key-123456789";

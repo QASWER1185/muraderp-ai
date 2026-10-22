@@ -42,7 +42,9 @@ export async function validateAgentMedia(input: unknown, source: AiInputSource) 
     try {
       const { loadImage } = await import("@napi-rs/canvas");
       const image = await loadImage(b);
-      if (image.width !== width || image.height !== height) invalid();
+      // JPEG EXIF orientation can rotate the decoded image by 90 degrees.
+      if ((image.width !== width || image.height !== height) &&
+        !(media.mimeType === "image/jpeg" && image.width === height && image.height === width)) invalid();
     } catch { invalid(); }
   } else if (media.mimeType === "audio/wav") {
     if (b.readUInt32LE(4) + 8 !== b.length) invalid();

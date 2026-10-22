@@ -27,6 +27,8 @@ export const businessStateSchema = z.strictObject({
   inputSource:z.enum(["text","image","camera","voice"]).optional(),
   productContext: z.strictObject({ candidates: z.array(product).max(5), ambiguous: z.boolean() }).optional(),
   customer: z.strictObject({ id, name: z.string().max(160) }).optional(),
+  // User choice for an unposted estimate, never a verified ERP customer ID.
+  estimateCustomerChoice:z.strictObject({name:z.string().min(1).max(200),address:z.string().max(200).optional()}).optional(),
   vendor: z.strictObject({ id, name: z.string().max(160) }).optional(),
   vendorAmbiguous: z.boolean().optional(),
   comparison: z.array(product).min(2).max(5).optional(),

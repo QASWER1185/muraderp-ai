@@ -16,7 +16,7 @@ export function erpActionReviewMarkup(review) {
 }
 export function depotReportMarkup(report){
   if(!Array.isArray(report.issues))return "";
-  return `<article class="review-card" dir="auto"><h3>طلب اور وینڈر کوٹیشن کی پڑتال</h3>${report.issues.map(issue=>`<p class="${issue.negativeMargin?"negative-margin":"review-warning"}">${escapeHtml(issue.message)}</p>`).join("")}${Array.isArray(report.corrected)?`<details><summary>درست کوٹیشن کا پری ویو</summary>${report.corrected.map(line=>`<p>${escapeHtml(line.name)} · مقدار ${escapeHtml(line.quantity)} · معیار ${escapeHtml(line.specification)} · رعایت ${escapeHtml(line.discount)}%</p>`).join("")}</details>`:""}</article>`;
+  return `<article class="review-card" dir="auto"><h3>طلب اور وینڈر کوٹیشن کی پڑتال</h3>${report.issues.map(issue=>`<p class="${issue.negativeMargin||["quantity","specification","negative_margin"].includes(issue.kind)?"negative-margin":"review-warning"}">${escapeHtml(issue.message)}</p>`).join("")}${Array.isArray(report.corrected)?`<details><summary>درست کوٹیشن کا پری ویو</summary>${report.corrected.map(line=>`<p>${escapeHtml(line.name)} · مقدار ${escapeHtml(line.quantity)} · معیار ${escapeHtml(line.specification)} · رعایت ${escapeHtml(line.discount)}%</p>`).join("")}</details>`:""}</article>`;
 }
 async function downloadCustomerCard(text) {
   const rows=String(text).split("\n").flatMap(line=>{
@@ -47,36 +47,47 @@ export function customerPreparationMarkup() {
   return '<article class="review-card" data-customer-preparation><span class="status-pill review">Details required</span><h3>Prepare new customer</h3><div class="review-fields"><label>Name<input name="name" type="text" maxlength="200" required /></label><label>Phone<input name="phone" type="tel" maxlength="50" required /></label><label>City/address<input name="city" type="text" maxlength="120" required /></label></div><p>Customer creation requires a separate explicit confirmation.</p><button class="button primary" type="button" data-prepare-customer>Prepare customer review</button></article>';
 }
 export function validateAttachment(file) {
-  const mimeType=String(file.type).split(";")[0].trim().toLowerCase();
+  const suppliedMime=String(file.type).split(";")[0].trim().toLowerCase();
+  const mimeType=suppliedMime==="image/jpg"?"image/jpeg":suppliedMime;
   if(!MEDIA_TYPES.has(mimeType)) throw new Error("Use a JPEG, PNG, WebP, PDF, or supported audio file.");
   if(!file.size) throw new Error("The attachment is empty.");
   if(file.size>MAX_MEDIA_BYTES) throw new Error("Attachments must be 8 MB or smaller.");
   return mimeType;
 }
 export function ambiguityMarkup(clarification) {
-  return `<article class="review-card" data-agent-ambiguity><h3>Choose the ${escapeHtml(clarification.kind)}</h3><p>Select an ERP candidate to continue the same conversation.</p>${clarification.candidates.map(row=>`<button class="button secondary" type="button" data-agent-candidate="${escapeHtml(row.id)}" data-candidate-kind="${escapeHtml(clarification.kind)}">${escapeHtml(row.name)}${row.city?" · "+escapeHtml(row.city):""}${row.sku?" · "+escapeHtml(row.sku):""}</button>`).join("")}</article>`;
+  return `<article class="review-card" data-agent-ambiguity><h3>درست ${clarification.kind==="product"?"آئٹم":clarification.kind==="vendor"?"فراہم کنندہ":"گاہک"} منتخب کر لیں</h3><p>اسی گفتگو کو آگے بڑھانے کے لیے درست ریکارڈ منتخب کریں۔</p>${clarification.candidates.map(row=>`<button class="button secondary" type="button" data-agent-candidate="${escapeHtml(row.id)}" data-candidate-kind="${escapeHtml(clarification.kind)}">${escapeHtml(row.name)}${row.city?" · "+escapeHtml(row.city):""}${row.sku?" · "+escapeHtml(row.sku):""}</button>`).join("")}</article>`;
 }
 export function extractionMarkup(extraction,reviewText) {
   if (extraction.catalog) {
     const catalog = extraction.catalog;
-    return `<article class="review-card" data-input-review><h3>${escapeHtml(catalog.name)}</h3><p>${catalog.items.length} catalog items · standard discount ${escapeHtml(catalog.standardDiscountPercent ?? "not specified")}%</p><details><summary>تمام نکالے گئے آئٹمز دیکھیں</summary>${catalog.items.map(item => `<p>${escapeHtml(item.brand)} · ${escapeHtml(item.category)} · ${escapeHtml(item.name)} · ${escapeHtml(item.size)} · ${escapeHtml(item.unit)} · printed PKR ${escapeHtml(item.list_price)}</p>`).join("")}</details>${catalog.warnings.length ? `<p class="review-warning">${escapeHtml(catalog.warnings.join(" "))}</p>` : ""}</article>`;
+    return `<article class="review-card" data-input-review><h3>${escapeHtml(catalog.name)}</h3><p>${catalog.items.length} کیٹلاگ آئٹمز · عمومی رعایت ${escapeHtml(catalog.standardDiscountPercent ?? "درج نہیں")}%</p><details><summary>تمام نکالے گئے آئٹمز دیکھیں</summary>${catalog.items.map(item => `<p>${escapeHtml(item.brand)} · ${escapeHtml(item.category)} · ${escapeHtml(item.name)} · ${escapeHtml(item.size)} · ${escapeHtml(item.unit)} · چھپا ہوا نرخ PKR ${escapeHtml(item.list_price)}</p>`).join("")}</details>${catalog.warnings.length ? `<p class="review-warning">${escapeHtml(catalog.warnings.join(" "))}</p>` : ""}</article>`;
   }
-  if(extraction.transcript) return `<article class="review-card"><h3>Voice transcript</h3><p>${escapeHtml(extraction.transcript)}</p><p>Transcription is proposed wording; ERP tools verify business values.</p></article>`;
+  if(extraction.transcript) return `<article class="review-card"><h3>صوتی پیغام کی عبارت</h3><p>${escapeHtml(extraction.transcript)}</p><p>گاہک اور سامان کی شناخت کے بعد موجودہ ERP نرخ استعمال ہوں گے۔</p></article>`;
   const doc=extraction.document;
   if(!doc) return "";
-  return `<article class="review-card" data-input-review><h3>Document observations</h3><p>Customer: ${escapeHtml(doc.customerName??"Unclear")}. ${Math.round(doc.confidence*100)}% extraction confidence.</p>${doc.lines.map(line=>`<p>${escapeHtml(line.productName)} · ${escapeHtml(line.quantity??"Quantity unclear")} ${escapeHtml(line.unit??"Unit unclear")} · observed rate ${escapeHtml(line.unitRate??"unavailable")} · discount ${escapeHtml(line.discountPercent??doc.discountPercent??"unclear")}%</p>`).join("")}<p>Observed subtotal: ${escapeHtml(doc.subtotal??"unavailable")}; total: ${escapeHtml(doc.total??"unavailable")}. Current ERP rates determine the draft.</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>Correct or confirm the extracted wording<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>Continue with reviewed text</button>`:""}</article>`;
+  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3><p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p>${escapeHtml(line.productName)} · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")} · پرچی کا نرخ ${escapeHtml(line.unitRate??"درج نہیں")} · رعایت ${escapeHtml(line.discountPercent??doc.discountPercent??"درج نہیں")}%</p>`).join("")}<p>پرچی کی ابتدائی رقم: ${escapeHtml(doc.subtotal??"درج نہیں")}؛ کل: ${escapeHtml(doc.total??"درج نہیں")}۔ ایسٹیمیٹ کی قیمت فعال ERP ریٹ لسٹ سے لی گئی ہے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
 }
 
-export function createCopilotConversation(now = Date.now) {
+function conversationStorage(){try{return globalThis.sessionStorage;}catch{return null;}}
+export function createCopilotConversation(now = Date.now, storage = conversationStorage()) {
   let token = null;
   let scope = null;
   let expiresAt = 0;
   let conversationId = null;
+  const storageKey="muraderp-copilot-conversation-v1";
+  const forget=()=>{try{storage?.removeItem(storageKey);}catch{}};
+  try {
+    const saved=JSON.parse(storage?.getItem(storageKey)??"null");
+    if(saved && typeof saved.token==="string" && saved.token.length<=9000 && typeof saved.scope==="string" &&
+      typeof saved.conversationId==="string" && saved.expiresAt>now() && saved.expiresAt<=now()+CONVERSATION_MAX_AGE_MS){
+      token=saved.token;scope=saved.scope;conversationId=saved.conversationId;expiresAt=saved.expiresAt;
+    }else forget();
+  }catch{forget();}
   const key = (userId, organizationId, branchId) => JSON.stringify([userId, organizationId, branchId]);
   return {
     tokenFor(userId, organizationId, branchId) {
       const current = key(userId, organizationId, branchId);
-      if (scope !== current || now() >= expiresAt) { token = null; conversationId = null; scope = current; }
+      if (scope !== current || now() >= expiresAt) { token = null; conversationId = null; scope = current; forget(); }
       return token;
     },
     idFor(userId, organizationId, branchId) { this.tokenFor(userId, organizationId, branchId); return conversationId; },
@@ -85,8 +96,9 @@ export function createCopilotConversation(now = Date.now) {
       token = typeof value === "string" && value.length > 0 && value.length <= 9000 ? value : null;
       expiresAt = token ? now() + CONVERSATION_MAX_AGE_MS : 0;
       conversationId = token && typeof id === "string" ? id : null;
+      try{if(token && conversationId)storage?.setItem(storageKey,JSON.stringify({token,scope,conversationId,expiresAt}));else forget();}catch{}
     },
-    clear() { token = null; conversationId = null; scope = null; expiresAt = 0; },
+    clear() { token = null; conversationId = null; scope = null; expiresAt = 0; forget(); },
   };
 }
 function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
@@ -95,13 +107,13 @@ function fieldValue(field) { return field && typeof field === "object" && "value
 function humanIntent(intent) { return ({ estimate: "Estimate", supplier_bill: "Supplier bill", customer_return: "Customer return", inventory_adjustment: "Stock adjustment", rate_list_update: "Rate list update", invoice: "Invoice" })[intent] ?? "ERP action"; }
 
 export function conversationDraftMarkup(draft) {
-  return `<article class="review-card" data-conversation-draft><div class="review-heading"><h3>Estimate in progress</h3><span class="status-pill review">${draft.prepared ? "Review required" : "Conversation draft"}</span></div>
-    <p>Customer: ${escapeHtml(draft.customer?.name ?? "Please identify the customer")}</p>
-    <div class="review-lines">${(draft.lines ?? []).map(line => `<div class="review-line"><strong>${escapeHtml(line.productName)}</strong><p>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} · ${escapeHtml(line.discountPercent)}% discount</p><p>${line.rate ? escapeHtml(line.rate.currency_code) + " " + escapeHtml(line.rate.unit_price) + " / " + escapeHtml(line.rate.unit) : "Current rate unavailable"}</p><p>${line.amount == null ? escapeHtml(line.error ?? "Needs verification") : escapeHtml(draft.currencyCode) + " " + escapeHtml(line.amount.toFixed(2))}</p></div>`).join("")}</div>
-    ${draft.totals?`<p>Subtotal: ${escapeHtml(draft.currencyCode)} ${escapeHtml(draft.totals.subtotal?.toFixed(2) ?? "unavailable")} · Discount: ${escapeHtml(draft.currencyCode)} ${escapeHtml(draft.totals.discount_total?.toFixed(2) ?? "unavailable")}</p>`:""}
-    <p><strong>${draft.totals ? "Total: " + escapeHtml(draft.currencyCode) + " " + escapeHtml(draft.totals.grand_total.toFixed(2)) : "Total unavailable until all rates are verified."}</strong></p>
-    <p>Continue this conversation to add, remove or correct items. Nothing is executed without your explicit confirmation.</p>
-    ${draft.prepared && draft.totals ? '<button class="button primary" type="button" data-prepare-conversation-draft>Prepare draft</button>' : ""}</article>`;
+  return `<article class="review-card" data-conversation-draft><div class="review-heading"><h3>ایسٹیمیٹ کا مسودہ</h3><span class="status-pill review">${draft.prepared ? "مکمل پری ویو" : "جاری مسودہ"}</span></div>
+    <p>گاہک: ${escapeHtml(draft.customer?.name ?? "گاہک کا نام بتا دیں")}</p>
+    <div class="review-lines">${(draft.lines ?? []).map(line => `<div class="review-line"><strong>${escapeHtml(line.productName)}</strong><p>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} · رعایت ${escapeHtml(line.discountPercent)}%</p><p>${line.rate ? escapeHtml(line.rate.currency_code) + " " + escapeHtml(line.rate.unit_price) + " / " + escapeHtml(line.rate.unit) : "فعال نرخ واضح کر دیں"}</p><p>${line.amount == null ? "اس لائن کا نرخ یا یونٹ واضح کر دیں۔" : escapeHtml(draft.currencyCode) + " " + escapeHtml(line.amount.toFixed(2))}</p></div>`).join("")}</div>
+    ${draft.totals?`<p>ابتدائی رقم: ${escapeHtml(draft.currencyCode)} ${escapeHtml(draft.totals.subtotal?.toFixed(2) ?? "دستیاب نہیں")} · رعایت: ${escapeHtml(draft.currencyCode)} ${escapeHtml(draft.totals.discount_total?.toFixed(2) ?? "دستیاب نہیں")}</p>`:""}
+    <p><strong>${draft.totals ? "کل رقم: " + escapeHtml(draft.currencyCode) + " " + escapeHtml(draft.totals.grand_total.toFixed(2)) : "تمام لائنوں کے درست نرخ آنے پر کل رقم تیار ہو جائے گی۔"}</strong></p>
+    <p>اسی گفتگو میں سامان شامل، کم یا درست کر سکتے ہیں۔ آخر میں منظوری کے بعد ریکارڈ محفوظ ہوگا۔</p>
+    ${draft.prepared && draft.totals ? '<button class="button primary" type="button" data-prepare-conversation-draft>مسودہ تیار کریں</button>' : ""}</article>`;
 }
 
 export function conversationPaymentMarkup(preparation, ready = false) {
@@ -223,7 +235,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
   function welcome() {
     thread.innerHTML = "";
-    appendMessage("assistant", `<p><strong>Ask about your ERP data or prepare an action.</strong></p><p>I can look up products and current Rate List prices, or prepare an estimate, supplier bill, or return for your review. Select a task to prepare an action or analyze an image, PDF, or voice note.</p><div class="prompt-chips"><button type="button" data-prompt="What is the current rate of 25mm PPRC pipe?">Check a rate</button><button type="button" data-task="estimate" data-prompt="Prepare an estimate for 50 pieces of 25mm Popular pipe">New estimate</button><button type="button" data-task="purchase" data-prompt="Review this supplier bill">Supplier bill</button></div>`);
+    appendMessage("assistant", `<p><strong>حاجی صاحب، گاہک کی پرچی بھیج دیں۔</strong></p><p>گاہک کا نام، برانڈ اور رعایت ساتھ بتا دیں؛ فعال ریٹ لسٹ کے مطابق مکمل ایسٹیمیٹ کا پری ویو تیار کر دوں گا۔ ایک ساتھ 10 تصاویر یا PDF بھیج سکتے ہیں۔</p><div class="prompt-chips"><button type="button" data-prompt="Dura Max PPR-C Pipe 25mm کا موجودہ نرخ بتائیں">موجودہ نرخ</button><button type="button" data-task="estimate" data-prompt="Dura Max کی پرچی کا مکمل ایسٹیمیٹ تیار کریں">نیا ایسٹیمیٹ</button><button type="button" data-task="purchase" data-prompt="اس سپلائر بل کی پڑتال کریں">سپلائر بل</button></div>`);
   }
   function setBusy(busy, message = "") {
     operationBusy = busy;
@@ -257,9 +269,24 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     attachmentRoot.hidden = false;
   }
   function showError(error, action = null) {
-    const message = error instanceof Error ? error.message : "Copilot could not complete that request.";
+    const original=error?.message??"";
+    const message = /[\u0600-\u06ff]/u.test(error?.message??"") ? error.message :
+      error?.code==="AI_API_KEY_REJECTED"?"جناب، Gemini کی کلید قبول نہیں ہوئی؛ API ترتیبات میں درست کلید درج کر دیں۔":
+      error?.code==="AI_PROVIDER_RATE_LIMITED"||/rate limit|quota/iu.test(original)?"جناب، AI کی عارضی حد پوری ہے؛ گفتگو اور فائلیں برقرار ہیں، کچھ دیر بعد دوبارہ کوشش کریں۔":
+      /workspace changed/iu.test(original)?"جناب، فعال ورک اسپیس بدل گیا ہے؛ اسی ورک اسپیس میں دوبارہ درخواست بھیج دیں۔":
+      /original user and workspace/iu.test(original)?"جناب، یہ مسودہ اسی اصل صارف اور ورک اسپیس سے منظور کریں جہاں تیار ہوا تھا۔":
+      /draft.s workspace/iu.test(original)?"جناب، منظوری سے پہلے اس مسودے کی اصل ورک اسپیس اور برانچ پر واپس آ جائیں۔":
+      /name.*phone.*city.*required/iu.test(original)?"جناب، نئے گاہک کے لیے نام، فون نمبر اور شہر یا پتہ درج کر دیں۔":
+      /go online/iu.test(original)?"جناب، ریکارڈ محفوظ کرنے سے پہلے انٹرنیٹ سے رابطہ بحال کر لیں۔":
+      /attachment is empty/iu.test(original)?"جناب، منتخب فائل خالی ہے؛ درست پرچی یا صوتی پیغام منتخب کر لیں۔":
+      /use a jpeg|unsupported.*file/iu.test(original)?"جناب، تصویر JPEG، PNG، WebP یا PDF میں بھیج دیں؛ صوتی فائل الگ بھیجیں۔":
+      /8 MB/iu.test(original)?"جناب، فائلوں کا مجموعی حجم 8 MB تک رکھیں۔":
+      /codec|microphone|recording/iu.test(original)?"جناب، صوتی ریکارڈنگ شروع نہیں ہو سکی؛ مائیک کی اجازت اور معاون صوتی فارمیٹ دیکھ لیں۔":
+      /sign in/iu.test(original)?"جناب، ERP تک رسائی کے لیے پہلے لاگ اِن کر لیں۔":
+      /choose.*workspace/iu.test(original)?"جناب، پہلے اپنی فعال ورک اسپیس منتخب کر لیں۔":
+      "جناب، درخواست مکمل نہیں ہو سکی۔ گفتگو اور فائلیں برقرار ہیں؛ تفصیل دیکھ کر دوبارہ کوشش کریں۔";
     retryAction = action;
-    appendMessage("assistant", `<div class="message-error">${icon("alert")}<span><strong>Request not completed</strong><p>${escapeHtml(message)}</p>${action ? '<button class="button secondary compact" type="button" data-copilot-retry>Try again</button>' : ""}</span></div>`, "error");
+    appendMessage("assistant", `<div class="message-error">${icon("alert")}<span><strong>جناب، یہ تفصیل دوبارہ دیکھ لیں</strong><p>${escapeHtml(message)}</p>${action ? '<button class="button secondary compact" type="button" data-copilot-retry>دوبارہ کوشش کریں</button>' : ""}</span></div>`, "error");
     if (error?.code === "AI_API_KEY_REJECTED" || error?.code === "AI_NOT_CONFIGURED") void openKeySettings();
   }
   function contextOrThrow() {
@@ -383,8 +410,9 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const version=++operationVersion;
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
-      const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(sentAttachment ? { media: await readFileAsBase64(sentAttachment) } : {}) };
-      const mediaInput=sentAttachments.length>1 ? {attachments:await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})))} : {media:payload.media,fileName:sentAttachment?.name};
+      const encodedAttachments=await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})));
+      const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(encodedAttachments[0] ? { media: encodedAttachments[0].media } : {}) };
+      const mediaInput=sentAttachments.length>1 ? {attachments:encodedAttachments} : {media:payload.media,fileName:sentAttachment?.name};
       if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
@@ -421,7 +449,6 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         }
         if(response.data.clarification) appendMessage("assistant",ambiguityMarkup(response.data.clarification));
         if(response.data.reports)response.data.reports.forEach(report=>{const markup=depotReportMarkup(report);if(markup)appendMessage("assistant",markup);});
-        if(response.data.toolNames?.length) appendMessage("assistant",`<details><summary>ERP tools completed</summary><p>${response.data.toolNames.map(escapeHtml).join(" · ")}</p></details>`);
         if (response.data.draft) {
           appendMessage("assistant", conversationDraftMarkup(response.data.draft));
           if (response.data.status!=="rate_limited" && response.data.draft.prepared) preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId };

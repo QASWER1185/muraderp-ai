@@ -1,0 +1,10 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: [DOCKER_BUILDKIT=1]
+    args: [build, --tag, '${_IMAGE}', --label, 'org.opencontainers.image.revision=${_COMMIT}', .]
+images: ['${_IMAGE}']
+substitutions:
+  _IMAGE: asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api:manual
+  _COMMIT: manual
+options:
+  logging: CLOUD_LOGGING_ONLY

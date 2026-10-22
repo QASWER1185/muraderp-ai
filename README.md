@@ -115,6 +115,29 @@ cd backend
 npm run check
 ```
 
+## Copilot slip estimates
+
+Copilot accepts 1–10 images/PDFs in one message (8 MB combined). JPEG/JPG MIME
+aliases and data URLs are normalized before content validation and Gemini requests.
+Typed customer/address, brand and discount choices override OCR. A complete slip
+produces one Urdu preview, including a new customer when needed, using active
+Rate List prices without reading inventory. Brand, size, pressure and class remain
+strict constraints; unclear quantities or unreadable lines require correction.
+Only the final approved preview is persisted. Costs and accounting posting retain
+their existing checks. Browser session storage keeps signed, scoped conversation
+context across reloads until expiry; raw attachments and provider keys are not included.
+
+Apply `20261022010000_catalog_heading_resolution.sql` before releasing this flow.
+It searches active imported catalog headings for material context while preserving
+brand, numeric-size, organization and branch restrictions. Database regression
+coverage is in `supabase/tests/depot_v9.sql` (`npm run test:database` in `backend`).
+
+Cloud Run images use `cloudbuild.cloudrun.yaml` to enable the Dockerfile's BuildKit
+cache mounts. Set `_IMAGE` to a commit-tagged Artifact Registry image and `_COMMIT`
+to the deployed Git SHA when submitting the build, then deploy that image and
+route traffic to its ready revision. Vercel proxies both `/api/v1/*` and
+`/api/copilot/*`; its project root directory is `frontend`.
+
 ## Architecture decision
 
 MuradERP starts as a modular monolith. This keeps transactions and deployment simple while the core

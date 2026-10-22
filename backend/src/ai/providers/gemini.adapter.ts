@@ -62,9 +62,20 @@ export class GeminiAdapter implements AiProviderContract {
     // Extraction is a proposal, never an ERP tool execution. Native function
     // arguments support the full document shape that JSON-output mode rejects.
     const proposal=z.strictObject({proposal:schema});
-    const result=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],
-      tools:[{functionDeclarations:[{name:"erp_proposal",description:"Return extraction observations only. No ERP action is executed.",parametersJsonSchema:z.toJSONSchema(proposal)}]}],
-      toolConfig:{functionCallingConfig:{mode:"ANY",allowedFunctionNames:["erp_proposal"]}},generationConfig:{maxOutputTokens:options?.maxOutputTokens??8000}},undefined,!!options?.recoverIncomplete);
+    let result;
+    try {
+      result=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],
+        tools:[{functionDeclarations:[{name:"erp_proposal",description:"Return extraction observations only. No ERP action is executed.",parametersJsonSchema:z.toJSONSchema(proposal)}]}],
+        toolConfig:{functionCallingConfig:{mode:"ANY",allowedFunctionNames:["erp_proposal"]}},generationConfig:{maxOutputTokens:options?.maxOutputTokens??8000}},undefined,!!options?.recoverIncomplete);
+    } catch(error) {
+      if(!(error instanceof ApiError) || error.code!=="AI_PROVIDER_BAD_REQUEST")throw error;
+      // Some model versions reject nested function-proposal schemas. Retry this
+      // read-only extraction once using JSON output; full local validation stays.
+      const fallback=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],
+        generationConfig:{maxOutputTokens:8000,responseMimeType:"application/json",responseJsonSchema:z.toJSONSchema(schema)}},undefined,!!options?.recoverIncomplete);
+      const raw=fallback.parts.filter(part=>!part.thought&&typeof part.text==="string").map(part=>part.text).join("");
+      return parseStructuredOutput(schema,raw,options,fallback.incomplete);
+    }
     const calls=result.parts.filter(part=>part.functionCall);
     if(calls.length!==1 || calls[0].functionCall.name!=="erp_proposal")throw invalidOutput();
     if(options?.recoverIncomplete){

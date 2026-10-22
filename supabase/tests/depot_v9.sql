@@ -7,6 +7,7 @@ do $$
 declare
   org uuid:=gen_random_uuid();foreign_org uuid:=gen_random_uuid();actor uuid:=gen_random_uuid();branch uuid:=gen_random_uuid();
   brand bigint;other_brand bigint;pipe bigint;elbow bigint;other_size bigint;popular bigint;list bigint;version bigint;warehouse bigint;customer bigint;
+  heading_product bigint;heading_list bigint;heading_version bigint;
   result jsonb;replay jsonb;definition jsonb;lines jsonb;payload jsonb;snapshot jsonb;receipt jsonb;invoice bigint;invoice_item bigint;
   dispatch uuid:=gen_random_uuid();site_a uuid:=gen_random_uuid();site_b uuid:=gen_random_uuid();memo uuid:=gen_random_uuid();transfer uuid:=gen_random_uuid();expense uuid:=gen_random_uuid();
   expense_account uuid;cash_account uuid;new_version bigint;before_stock numeric;count_before bigint;i integer;line jsonb;sale jsonb;
@@ -29,6 +30,12 @@ begin
   insert into public.rate_lists(organization_id,name,code,price_type,scope_type,currency_code,is_active) values(org,'Dura Max V9','V9-'||org,'SALE','GLOBAL','PKR',true) returning id into list;
   insert into public.rate_list_versions(rate_list_id,version_number,status,effective_from) values(list,1,'ACTIVE',now()-interval '1 day') returning id into version;
   insert into public.rate_list_items(rate_list_version_id,product_id,minimum_quantity,unit_price,unit) values(version,pipe,1,100,'pcs'),(version,elbow,1,200,'pcs'),(version,other_size,1,200,'pcs'),(version,popular,1,190,'pcs');
+  insert into public.products(organization_id,brand_id,name,sku,category,unit,purchase_price,sale_price)
+    values(org,brand,'Dura Max Elbow 40mm','HEADING-ELBOW','Fittings','pcs',40,200) returning id into heading_product;
+  insert into public.rate_lists(organization_id,name,code,price_type,scope_type,currency_code,is_active)
+    values(org,'Dura Max PPR-C Price List 25.10.2026','HEADING-'||org,'SALE','GLOBAL','PKR',true) returning id into heading_list;
+  insert into public.rate_list_versions(rate_list_id,version_number,status,effective_from) values(heading_list,1,'ACTIVE',now()-interval '1 day') returning id into heading_version;
+  insert into public.rate_list_items(rate_list_version_id,product_id,minimum_quantity,unit_price,unit) values(heading_version,heading_product,1,200,'pcs');
   insert into public.warehouses(organization_id,name,location) values(org,'V9 warehouse','Fixture') returning id into warehouse;
   insert into public.inventory(organization_id,product_id,warehouse_id,quantity) values(org,pipe,warehouse,0),(org,elbow,warehouse,0);
   insert into public.accounts(code,name,account_type,normal_balance) values('6199','V9 operating expense','EXPENSE','DEBIT') on conflict(code) do nothing;
@@ -36,6 +43,9 @@ begin
   set local role service_role;
   perform pg_temp.depot_check((select count(*)=1 from public.search_catalog_products(actor,org,branch,'PPR-C Elbow 25mm','Dura Max',20)),'brand and 25mm filter exclude Popular and 32mm');
   perform pg_temp.depot_check((select id=elbow from public.search_catalog_products(actor,org,branch,'PPR-C Elbow 25mm','Dura Max',20)),'exact sized Dura candidate');
+  perform pg_temp.depot_check((select id=heading_product from public.search_catalog_products(actor,org,branch,'PPR-C Elbow 40mm','Dura Max',20)),'active imported catalog heading supplies missing material context');
+  perform pg_temp.depot_check((select count(*)=0 from public.search_catalog_products(actor,org,branch,'U-PVC Elbow 40mm','Dura Max',20)),'catalog material cannot cross-map PPR-C to U-PVC');
+  perform pg_temp.depot_check(not exists(select 1 from public.search_catalog_products(actor,org,branch,'PPR-C Elbow 25mm','Dura Max',20) where id=heading_product),'catalog date 25 cannot authorize a 40mm size');
   begin perform public.search_catalog_products(actor,foreign_org,branch,'Elbow 25mm','Dura Max',20);raise exception 'Expected foreign search rejection';exception when insufficient_privilege then null;end;
   definition:=jsonb_build_object('estimate_number','V9-EST-'||org,'issue_date',current_date,'currency_code','PKR');
   lines:=jsonb_build_array(

@@ -16,6 +16,32 @@ export function canonicalUnit(value:string):string {
   if(/^(?:length|lengths|pipe length|لمبائی)$/u.test(unit))return "length";
   return unit;
 }
+
+export function munshiErrorMessage(code:string,message:string):string {
+  if(/[\u0600-\u06ff]/u.test(message))return message;
+  const messages:Record<string,string>={
+    AI_PROVIDER_BAD_REQUEST:"جناب، تصویر کے لیے AI کی درخواست کا فارمیٹ قبول نہیں ہوا۔ تصویر JPEG یا PNG میں دوبارہ بھیج دیں؛ مسئلہ برقرار رہے تو منتخب ماڈل کی ترتیبات دیکھ لیں۔",
+    AI_NOT_CONFIGURED:"جناب، Copilot کی ترتیبات میں Gemini کی API کلید درج کر دیں تاکہ پرچی پڑھ سکوں۔",
+    AI_API_KEY_REJECTED:"جناب، Gemini کی API کلید قبول نہیں ہوئی؛ Copilot کی ترتیبات میں درست کلید درج کر دیں۔",
+    AI_PROVIDER_RATE_LIMITED:"جناب، AI کی عارضی حد پوری ہو گئی ہے۔ گفتگو کی تفصیل برقرار ہے؛ کچھ دیر بعد دوبارہ کوشش کریں۔",
+    AI_PROVIDER_PAYMENT_REQUIRED:"جناب، AI فراہم کنندہ کے اکاؤنٹ میں بلنگ یا کریڈٹ درکار ہے؛ اس کی ترتیبات دیکھ لیں۔",
+    AI_MODEL_UNAVAILABLE:"جناب، منتخب AI ماڈل دستیاب نہیں؛ Copilot کی ماڈل ترتیبات درست کر دیں۔",
+    AI_PROVIDER_UNAVAILABLE:"جناب، AI سے رابطہ نہیں ہو سکا۔ آپ کی گفتگو برقرار ہے؛ دوبارہ کوشش کریں۔",
+    CONVERSATION_CONTEXT_INVALID:"جناب، اس گفتگو کی مدت ختم ہو گئی ہے۔ گاہک کا نام اور مطلوبہ سامان دوبارہ بتا دیں۔",
+    VALIDATION_ERROR:"جناب، درخواست کی چند تفصیلات درست نہیں۔ گاہک کا نام، مقدار اور منسلک فائل دوبارہ دیکھ لیں۔",
+    INVALID_MEDIA:"جناب، یہ فائل واضح طور پر نہیں پڑھی جا سکی۔ JPEG، PNG، WebP یا PDF میں دوبارہ بھیج دیں۔",
+    AI_INPUT_UNSUPPORTED:"جناب، تصویر JPEG، PNG، WebP یا PDF میں بھیج دیں۔",
+    AI_INVALID_OUTPUT:"جناب، AI سے مکمل قابلِ استعمال تفصیل نہیں آئی۔ اصل پرچی دوبارہ بھیج دیں؛ کوئی مقدار یا نرخ خود سے شامل نہیں کیا گیا۔",
+    AI_INCOMPLETE:"جناب، پرچی کی پوری تفصیل نہیں پڑھی جا سکی۔ واضح تصویر یا چھوٹے حصوں میں دوبارہ بھیج دیں۔",
+    MEDIA_TOO_LARGE:"جناب، تمام فائلوں کا مجموعی حجم 8 MB تک رکھیں۔",
+    MEDIA_DIMENSIONS_LIMIT:"جناب، تصویر کا سائز 16 megapixels تک کر کے دوبارہ بھیج دیں۔",
+    PDF_PAGE_LIMIT:"جناب، پرچی کے PDF میں زیادہ سے زیادہ 10 صفحات رکھیں؛ بڑی ریٹ لسٹ الگ بھیجیں۔",
+    DISCOUNT_BELOW_COST:"جناب، یہ رعایت خرید لاگت سے کم نرخ بنا رہی ہے۔ مناسب رعایت بتا دیں؛ نقصان والی قیمت شامل نہیں کی گئی۔",
+    PURCHASE_BASELINE_REQUIRED:"جناب، اس آئٹم کی خرید لاگت کی تصدیق درکار ہے تاکہ رعایت کے بعد نقصان نہ ہو۔",
+    ERP_APPROVAL_CHANGED:"جناب، پری ویو کے بعد نرخ یا تفصیل بدل گئی ہے۔ تازہ پری ویو دیکھ کر دوبارہ منظوری دے دیں۔",
+  };
+  return messages[code]??"جناب، اس تفصیل پر کام مکمل نہیں ہو سکا۔ مطلوبہ گاہک، برانڈ، سائز یا مقدار واضح کر دیں؛ موجودہ گفتگو برقرار ہے۔";
+}
 export function landedCost(input:{quantity:number;baseUnitCost:number;carriage:number;unloadingPerUnit:number}) {
   if(input.quantity<=0 || [input.quantity,input.baseUnitCost,input.carriage,input.unloadingPerUnit].some(value=>!Number.isFinite(value)||value<0))throw new Error("Invalid landed cost inputs");
   const total=input.quantity*(input.baseUnitCost+input.unloadingPerUnit)+input.carriage;

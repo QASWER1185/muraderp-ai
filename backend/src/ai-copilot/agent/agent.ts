@@ -9,6 +9,7 @@ import type { RankedEntity, EntityResolution } from "../../services/entity-searc
 import { businessAnswer } from "./business-answer.js";
 import { BUSINESS_TOOL_DEFINITIONS, entityNotFoundSchema, type BusinessFact } from "./business-tools.js";
 import { isAffirmation, confirmConversationAction } from "../tools/confirmation.js";
+import { munshiErrorMessage } from "../conversationalMunshi.js";
 
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
@@ -16,7 +17,8 @@ const MAX_ITERATIONS = 10;
 const MAX_CALLS = 12;
 const TIMEOUT_MS = 40_000;
 const FALLBACK = "جناب، اس وقت ERP سے درخواست کی تصدیق نہیں ہو سکی۔ آپ کی تفصیل محفوظ ہے؛ براہِ کرم دوبارہ کوشش کریں۔";
-const CLARIFY_PRODUCT = "Which product do you mean? Please provide its name or SKU.";
+const CLARIFY_PRODUCT = "جناب، مطلوبہ آئٹم کا نام، سائز یا کیٹلاگ کوڈ واضح کر دیں۔";
+const ESTIMATE_UNNEEDED_TOOLS=new Set(["query_inventory","prepare_customer_create","erp_create_customer"]);
 export type AgentLogger = { info: (fields: Record<string, unknown>, message: string) => void; warn: (fields: Record<string, unknown>, message: string) => void };
 export interface AgentToolExecutor {
   confirmPendingAction?(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope):Promise<any>;
@@ -74,7 +76,7 @@ export class UnifiedCopilotAgent {
     try { state = readBusinessState(request.conversationToken, scope, request.conversationId); }
     catch {
       const fresh = newBusinessState(scope);
-      return { answer: "The conversation context is invalid or expired. Please identify the customer and products again.",
+      return { answer: munshiErrorMessage("CONVERSATION_CONTEXT_INVALID",""),
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
     }
     if(state.workingActionId && /^(?:جی[، ]*|ہاں[، ]*)?(?:یہ بھی |سب |سامان )?(?:ڈال دو|شامل کر دو|شامل کر دیں|ہاں ڈال دو)[۔.!]*$/u.test(request.message.trim())){
@@ -110,7 +112,7 @@ export class UnifiedCopilotAgent {
     let resolvedCustomerId: number | undefined = state.customer?.id;
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
     input.push({ role: "assistant", content: "Server-validated business context (references and user choices only; current prices must be obtained from tools):" + JSON.stringify({
-      conversationId: state.conversationId, customer: state.customer, customerAmbiguous, vendor: state.vendor, vendorAmbiguous: state.vendorAmbiguous,
+      conversationId: state.conversationId, customer: state.customer, estimateCustomerChoice:state.estimateCustomerChoice, customerAmbiguous, vendor: state.vendor, vendorAmbiguous: state.vendorAmbiguous,
       comparison: state.comparison, comparisonAnalysis: state.comparisonAnalysis, analysis: state.analysis, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,workingActionId:state.workingActionId,workingAuditId:state.workingAuditId,
     }) });
     input.push({ role: "user", content: request.message });
@@ -137,22 +139,28 @@ export class UnifiedCopilotAgent {
         const row = r as RankedEntity & { city?: string; sku?: string };
         return `${row.name}${row.city ? `, ${row.city}` : ""}${row.sku ? `, SKU ${row.sku}` : ""} (ID ${row.id})`;
       });
-      return `Please clarify which ${kind} you mean${candidates.length ? ": " + candidates.join("; ") : " by name, SKU or location"}.`;
+      return `جناب، ${kind==="product"?"آئٹم کا درست سائز یا قسم":"گاہک کا نام یا علاقہ"} واضح کر دیں${candidates.length ? ": " + candidates.join("؛ ") : ""}۔`;
     };
     let answer = FALLBACK;
     let status = "limit";
-    const customerRequest = /\b(?:new|naya)\s+customer\b|\bcustomer\s+(?:add|create)\b|نیا\s+کسٹمر|کسٹمر\s+ایڈ/i.test(request.message)
+    const estimateRequest=/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message);
+    let missingEstimateCustomer=false,estimateRecoveryUsed=false;
+    const customerRequest = !estimateRequest && /\b(?:new|naya)\s+customer\b|\bcustomer\s+(?:add|create)\b|نیا\s+کسٹمر|کسٹمر\s+ایڈ/i.test(request.message)
       && this.tools.definitions().some(tool => tool && typeof tool === "object" && "name" in tool && tool.name === "prepare_customer_create");
     try {
       for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
         if (controller.signal.aborted) { status = "timeout"; break; }
-        const estimateRequest=/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن/iu.test(request.message);
-        const availableTools=this.tools.definitions().filter(tool=>!estimateRequest || (tool as {name?:string}).name!=="query_inventory");
+        const availableTools=this.tools.definitions().filter(tool=>!estimateRequest || !ESTIMATE_UNNEEDED_TOOLS.has((tool as {name:string}).name));
         const step = await withinDeadline(this.model.respond(input, availableTools, controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
+          if(missingEstimateCustomer && !estimateRecoveryUsed){
+            estimateRecoveryUsed=true;requiredToolRetry=true;
+            input.push({role:"user",content:"Continue the original estimate request now with erp_create_estimate, using the supplied customerName/address. Attach the new customer to that combined preview. No separate customer approval or stock lookup is needed."});
+            continue;
+          }
           if (verifiedResults === 0 && customerRequest) {
-            answer = "Please provide the new customer's name, phone number and city/address. Review and explicit confirmation are required before creation.";
+            answer = "جناب، نئے گاہک کا نام، فون اور شہر یا پتہ بتا دیں؛ ایک پری ویو تیار کر کے آخر میں منظوری لوں گا۔";
             status = "clarification"; break;
           }
           if (businessFacts.length) {
@@ -161,14 +169,14 @@ export class UnifiedCopilotAgent {
             status = "completed"; break;
           }
           if (state.vendorAmbiguous && toolNames.includes("lookup_vendors")) {
-            answer = "Please clarify which vendor you mean by name or location."; status = "clarification"; break;
+            answer = "جناب، فراہم کنندہ کا درست نام یا علاقہ واضح کر دیں۔"; status = "clarification"; break;
           }
           if (unresolvedProduct?.resolution === "no_match" || unresolvedCustomer?.resolution === "no_match") {
-            answer = unresolvedProduct?.resolution === "no_match" ? "No matching ERP product is available. Please clarify its name or SKU." : "No matching ERP customer is available. Please clarify the name or location.";
+            answer = unresolvedProduct?.resolution === "no_match" ? "جناب، مطلوبہ آئٹم نہیں ملا؛ نام، برانڈ یا سائز واضح کر دیں۔" : "جناب، اس نام کا گاہک نہیں ملا؛ درست نام یا علاقہ بتا دیں۔";
             status = "completed"; break;
           }
           if (unresolvedProduct || unresolvedCustomer || customerAmbiguous) {
-            answer = unresolvedProduct ? clarification(unresolvedProduct,"product") : unresolvedCustomer ? clarification(unresolvedCustomer,"customer") : "Please clarify which customer you mean by name or location.";
+            answer = unresolvedProduct ? clarification(unresolvedProduct,"product") : unresolvedCustomer ? clarification(unresolvedCustomer,"customer") : "جناب، گاہک کا درست نام یا علاقہ واضح کر دیں۔";
             status = "clarification"; break;
           }
           if (productUnresolved || productContext?.ambiguous) {
@@ -190,7 +198,7 @@ export class UnifiedCopilotAgent {
           let args: unknown;
           try { args = JSON.parse(call.arguments); } catch { status = "malformed"; break; }
           const key = `${call.name}:${JSON.stringify(canonical(args))}`;
-          if(estimateRequest && call.name==="query_inventory") {
+          if(estimateRequest && ESTIMATE_UNNEEDED_TOOLS.has(call.name)) {
             input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify({notRequired:true,message:"ایسٹیمیٹ کے لیے اسٹاک درکار نہیں۔ فعال ریٹ لسٹ سے erp_create_estimate تیار کریں۔"})});
             continue;
           }
@@ -198,12 +206,12 @@ export class UnifiedCopilotAgent {
           if (call.name === "lookup_current_sale_rate" && args && typeof args === "object" &&
               ((uniqueSearchThisTurn && "product_id" in args && args.product_id !== productContext?.candidates[0]?.id) ||
                (resolvedCustomerId !== undefined && "customer_id" in args && args.customer_id !== resolvedCustomerId))) {
-            answer = "Please clarify the entity selection; the requested ID does not match the resolved ERP candidate.";
+            answer = "جناب، منتخب ریکارڈ مطلوبہ آئٹم یا گاہک سے مختلف ہے؛ درست انتخاب واضح کر دیں۔";
             status = "clarification"; break;
           }
           if (call.name === "lookup_current_sale_rate" &&
               (unresolvedProduct || unresolvedCustomer || productUnresolved || customerAmbiguous || (priorProducts?.ambiguous && !uniqueSearchThisTurn))) {
-            answer = unresolvedProduct ? clarification(unresolvedProduct,"product") : unresolvedCustomer ? clarification(unresolvedCustomer,"customer") : customerAmbiguous ? "Please clarify which customer you mean by name or location." : CLARIFY_PRODUCT;
+            answer = unresolvedProduct ? clarification(unresolvedProduct,"product") : unresolvedCustomer ? clarification(unresolvedCustomer,"customer") : customerAmbiguous ? "جناب، گاہک کا نام یا علاقہ واضح کر دیں۔" : CLARIFY_PRODUCT;
             status = "clarification"; break;
           }
           seen.add(key);
@@ -237,15 +245,25 @@ export class UnifiedCopilotAgent {
             if (result && typeof result === "object" && "review" in result && result.review) {
               review = result.review;
               const prepared=result.review as {draftId?:string;idempotencyKey?:string;preview?:{summary?:string}};
-              answer=prepared.preview?.summary??"Review the prepared ERP action and confirm it explicitly before execution.";
+              answer=prepared.preview?.summary??"جناب، مکمل پری ویو تیار ہے۔ تفصیل دیکھ لیں اور محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔";
               if(prepared.draftId&&prepared.idempotencyKey)state.pendingAction={draftId:prepared.draftId,idempotencyKey:prepared.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
-              if((result.review as any).tool==="erp_create_estimate")state.workingActionId=prepared.draftId;
+              if((result.review as any).tool==="erp_create_estimate"){
+                state.workingActionId=prepared.draftId;
+                const choices=args as {customerName?:string;customerAddress?:string};
+                if(choices.customerName)state.estimateCustomerChoice={name:choices.customerName,...(choices.customerAddress?{address:choices.customerAddress}:{})};
+              }
               status = "completed"; break;
             }
             if(call.name==="erp_get_business_report"&&result&&typeof result==="object"&&"answer" in result&&typeof result.answer==="string") {
               answer=result.answer;status="completed";review=undefined;break;
             }
             if (result && typeof result === "object" && "requiresConfirmation" in result && "lines" in result && "totals" in result) draftView = result as DraftView;
+            if(estimateRequest && call.name==="lookup_customers" && (result as EntityResolution<RankedEntity>)?.resolution==="no_match"){
+              missingEstimateCustomer=true;customerAmbiguous=false;unresolvedCustomer=undefined;resolvedCustomerId=undefined;
+              delete state.customer;delete state.clarification;
+              input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify({...result as object,nextAction:"erp_create_estimate",newCustomerInCombinedPreview:true})});
+              continue;
+            }
             if (call.name === "search_products" || call.name === "lookup_customers") {
               const resolution = result as EntityResolution<RankedEntity>;
               if (resolution.resolution === "no_match" && this.tools.definitions().some(tool => tool && typeof tool === "object" && "name" in tool && tool.name === "query_inventory")) {
@@ -310,7 +328,7 @@ export class UnifiedCopilotAgent {
               const candidates = businessStateSchema.shape.clarification.safeParse(error.details);
               if (candidates.success && candidates.data) state.clarification = candidates.data;
               if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
-              answer = error.message; status = "clarification"; break;
+              answer = munshiErrorMessage(error.code,error.message); status = "clarification"; break;
             }
             if (error instanceof ApiError && error.code === "COPILOT_ENTITY_NOT_FOUND") {
               const missing = entityNotFoundSchema.safeParse(error.details);
@@ -336,7 +354,7 @@ export class UnifiedCopilotAgent {
       logger?.warn({ traceId, errorCode: error instanceof ApiError ? error.code : "UNEXPECTED_PROVIDER_ERROR" }, "Copilot reasoning failed");
       if (error instanceof ApiError && error.status === 429) {
         status = "rate_limited";
-        answer = "The configured AI provider rate limit was reached. Your conversation choices are preserved. Please wait before retrying.";
+        answer = munshiErrorMessage("AI_PROVIDER_RATE_LIMITED","");
         // Preserve choices, invalidate approval, and refresh the display only
         // through the same scoped read tool. A quota failure never prepares work.
         if (state.draft) {
@@ -352,20 +370,18 @@ export class UnifiedCopilotAgent {
       } else {
         status = controller.signal.aborted ? "timeout" : "error";
         if (error instanceof ApiError && ["AI_NOT_CONFIGURED", "COPILOT_NOT_CONFIGURED"].includes(error.code)) {
-          answer = error.code === "AI_NOT_CONFIGURED"
-            ? "Enter your Gemini API key in Copilot API key settings for conversational workflows. Basic stock inquiries remain available without a key."
-            : "ERP data access is not configured. Please contact your administrator. Manual ERP pages remain available.";
+          answer = munshiErrorMessage(error.code,error.message);
         } else if (error instanceof ApiError && ["AI_PROVIDER_BAD_REQUEST", "AI_MODEL_UNAVAILABLE", "AI_PROVIDER_PAYMENT_REQUIRED"].includes(error.code)) {
           // These messages are authored by this service and contain no provider
           // response body, so they can distinguish actionable setup failures.
-          answer = `${error.message} No ERP action was performed.`;
+          answer = munshiErrorMessage(error.code,error.message);
         } else if (error instanceof ApiError && error.code.startsWith("AI_PROVIDER_")) {
-          answer = "The configured AI provider could not complete this request. Please try again or use the Customers and Stock pages. No ERP action was performed.";
+          answer = munshiErrorMessage(error.code,error.message);
         }
       }
     } finally { clearTimeout(timer); }
     if (businessFacts.length && status !== "completed") {
-      answer = businessAnswer(businessFacts, request.message) + "\n\n" + (status === "clarification" ? answer : "These are the verified results available so far. Please retry any remaining part of the request.");
+      answer = businessAnswer(businessFacts, request.message) + "\n\n" + (status === "clarification" ? answer : "جناب، اب تک حاصل شدہ تفصیل یہ ہے۔ باقی حصے کے لیے دوبارہ کوشش کریں۔");
     }
     logger?.info({ traceId, status, calls }, "Copilot agent finished");
     state.productContext = productContext;

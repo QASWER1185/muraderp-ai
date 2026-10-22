@@ -212,11 +212,10 @@ export class ConversationalDraftService {
   }
 }
 
-export function draftAnswer(view: DraftView, message = ""): string {
-  const urdu = !/reply in english|answer in english/iu.test(message);
-  const rows = view.lines.map(line => `${line.productName}: ${line.quantity} ${line.unit}, discount ${line.discountPercent}% — ${line.amount == null ? line.error : view.currencyCode + " " + line.amount.toFixed(2)}`);
-  return [view.customer ? (urdu ? "گاہک: " : "Customer: ") + view.customer.name : (urdu ? "براہ کرم گاہک کی شناخت واضح کریں۔" : "Please identify the customer."),
-    ...rows, view.totals ? `${urdu ? "کل رقم" : "Total"}: ${view.currencyCode} ${view.totals.grand_total.toFixed(2)}` : (urdu ? "تمام ریٹس کی تصدیق تک کل رقم دستیاب نہیں۔" : "Total unavailable until all rates are verified."),
-    view.prepared ? (urdu ? "اسٹیمیٹ جائزے کے لیے تیار ہے۔ Prepare draft کے بعد واضح تصدیق ضروری ہے۔" : "Estimate prepared for review. Use Prepare draft, then explicitly confirm before execution.") :
-      (urdu ? "اسی گفتگو کا مسودہ اپ ڈیٹ ہوگیا ہے؛ ERP میں کوئی ریکارڈ نہیں لکھا گیا۔" : "Conversation draft updated; no ERP record has been written.")].join("\n");
+export function draftAnswer(view: DraftView, _message = ""): string {
+  const rows = view.lines.map(line => `${line.productName}: ${line.quantity} ${line.unit}، رعایت ${line.discountPercent}% — ${line.amount == null ? "اس لائن کا درست نرخ یا یونٹ واضح کر دیں۔" : view.currencyCode + " " + line.amount.toFixed(2)}`);
+  return [view.customer ? "گاہک: " + view.customer.name : "براہ کرم گاہک کی شناخت واضح کریں۔",
+    ...rows, view.totals ? `کل رقم: ${view.currencyCode} ${view.totals.grand_total.toFixed(2)}` : "تمام ریٹس کی تصدیق تک کل رقم دستیاب نہیں۔",
+    view.prepared ? "ایسٹیمیٹ کا مکمل پری ویو تیار ہے؛ محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
+      "اسی گفتگو کا مسودہ اپ ڈیٹ ہوگیا ہے؛ ERP میں کوئی ریکارڈ نہیں لکھا گیا۔"].join("\n");
 }

@@ -25,12 +25,17 @@ describe("Part 4 concrete extraction and media validation",()=>{
     const f=fixture();const result=await f.input.normalize({source:"voice",media:wav()},scope);
     expect(result.message).toContain("قاسم");expect(result.message).not.toContain("quantity");expect(f.provider.generate).not.toHaveBeenCalled();expect(f.provider.transcribe).toHaveBeenCalledOnce();
   });
-  it.each(["confidence","line confidence","warning","missing quantity","missing unit","empty lines"])("requires review for %s without inventing a field",async reason=>{
+  it.each(["confidence","line confidence","warning","missing quantity","empty lines"])("requires review for %s without inventing a field",async reason=>{
     const f=fixture(),doc=structuredClone(document);
     if(reason==="confidence")doc.confidence=.4;if(reason==="line confidence")doc.lines[0]!.confidence=.4;
-    if(reason==="warning")doc.warnings=["Unreadable line"];if(reason==="missing quantity")doc.lines[0]!.quantity=null;if(reason==="missing unit")doc.lines[0]!.unit=null;if(reason==="empty lines")doc.lines=[];
+    if(reason==="warning")doc.warnings=["Unreadable line"];if(reason==="missing quantity")doc.lines[0]!.quantity=null;if(reason==="empty lines")doc.lines=[];
     f.provider.generate.mockResolvedValue(doc);const result=await f.input.normalize({source:"image",media:png()},scope);
     expect(result.reviewRequired).toBe(true);if(reason==="missing quantity")expect(result.message).toContain('"quantity":null');
+  });
+  it("uses the catalog unit rather than halting a complete slip for an unprinted unit",async()=>{
+    const f=fixture(),doc=structuredClone(document);doc.lines[0]!.unit=null;doc.warnings=["Printed rates ignored; current ERP rates apply."];
+    f.provider.generate.mockResolvedValue(doc);const result=await f.input.normalize({source:"image",media:png()},scope);
+    expect(result.reviewRequired).toBe(false);expect((result.estimateRequest?.items as any[])[0]).not.toHaveProperty("unit");
   });
   it("rasterizes a real PDF locally before provider extraction",async()=>{
     const f=fixture();await f.input.normalize({source:"image",media:pdf()},scope);

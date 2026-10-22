@@ -137,7 +137,7 @@ describe("verified product context for follow-up pricing", () => {
     const { registry, resolvePrice } = setup([product, other]);
     const first = await new ReadOnlyCopilotAgent(firstTurnModel("Popular 25MM"), registry).run({ message: "Popular 25MM pipes" }, scope);
     const second = await new ReadOnlyCopilotAgent(followupModel(1), registry).run({ message: "What's its rate?", conversationToken: first.conversationToken }, scope);
-    expect(second.answer).toMatch(/which product/i);
+    expect(second.answer).toContain("مطلوبہ آئٹم کا نام");
     expect(resolvePrice).not.toHaveBeenCalled();
   });
 
@@ -148,7 +148,7 @@ describe("verified product context for follow-up pricing", () => {
     const second = await new ReadOnlyCopilotAgent({ respond: async () => toolCall("lookup_current_sale_rate", { product_id: 26, quantity: 1 }, "guessed") }, registry)
       .run({ message: "What's its rate?", conversationToken: first.conversationToken }, scope);
     expect(second).toMatchObject({ status: "clarification" });
-    expect(second.answer).toMatch(/which product/i);
+    expect(second.answer).toContain("مطلوبہ آئٹم کا نام");
     expect(resolvePrice).not.toHaveBeenCalled();
   });
 });

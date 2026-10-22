@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../types/database.types.js";
 import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
-import { canonicalBrand, explicitBrand, sameBrand } from "../ai-copilot/productResolver.js";
+import { canonicalBrand, explicitBrand, sameBrand, matchesProductSpecification } from "../ai-copilot/productResolver.js";
 import { canonicalSlipWords } from "../ai-copilot/conversationalMunshi.js";
 
 export type SearchScope = { userId: string; organizationId: string; branchId: string };
@@ -76,7 +76,7 @@ export class SupabaseEntitySearchService implements EntitySearchService {
   async searchProducts(query: string, limit: number, scope: SearchScope, brand?: string) {
     const restriction=brand ?? explicitBrand(query);
     const rows = await this.search("search_products_fuzzy",query,limit,scope,restriction);
-    return resolveCandidates(rows.filter(r=>!restriction || sameBrand(r.brand_name as string|null,restriction)).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
+    return resolveCandidates(rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(query,String(r.name)+" "+String(r.sku))).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
       sku: String(r.sku), unit: String(r.unit), category: String(r.category),
       brandName: r.brand_name == null ? null : String(r.brand_name), confidence: Number(r.confidence), match_kind: String(r.match_kind) })),limit);
   }

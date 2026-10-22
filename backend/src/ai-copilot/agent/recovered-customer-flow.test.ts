@@ -4,6 +4,7 @@ import { UnifiedCopilotAgent } from "./agent.js";
 import { ErpToolRegistry } from "./erp-tools.js";
 import { ApiError } from "../../errors/api-error.js";
 import type { CopilotRuntime } from "../copilot.runtime.js";
+import { resolveCandidates } from "../../services/entity-search.service.js";
 
 const details = { name: "Saleem Sb", phone: "03001234567", city: "Lake City" };
 function setup() {
@@ -14,6 +15,17 @@ function setup() {
 }
 
 describe("recovered customer creation preparation", () => {
+  it("continues an unknown customer's estimate into a combined preview without a separate customer or stock step",async()=>{
+    const f=fixture();vi.mocked(f.services.search.searchCustomers).mockResolvedValue(resolveCandidates([],5));
+    const createMasterDataDraft=vi.fn(),createUnifiedDraft=vi.fn(async()=>({intent:"erp_action",tool:"erp_create_estimate",draftId:"55555555-5555-4555-8555-555555555555",idempotencyKey:"combined",preview:{summary:"ارسلان صاحب کا مکمل ایسٹیمیٹ پری ویو تیار ہے۔"}}));
+    const tools=new ErpToolRegistry({...f.services,runtime:{createMasterDataDraft,createUnifiedDraft} as any},true);
+    const agent=new UnifiedCopilotAgent({respond:f.respond},tools);
+    f.script(call("lookup_customers",{query:"Arslan Shahnawaz"}),final("Customer not found"),call("erp_create_estimate",{customerName:"Arslan Shahnawaz",customerAddress:"Ittehad Town",brand:"Dura Max",discountScheme:{percent:50},items:[{name:"Elbow 25mm",qty:3}]}));
+    const result=await agent.run({message:"Arslan Shahnawaz, Ittehad Town, Dura Max 50% estimate"},scope);
+    expect(result).toMatchObject({status:"completed",requiresConfirmation:true,review:{tool:"erp_create_estimate"}});
+    expect(result.answer).not.toContain("Customer not found");expect(createMasterDataDraft).not.toHaveBeenCalled();expect(createUnifiedDraft).toHaveBeenCalledOnce();
+    for(const [,definitions] of f.respond.mock.calls)expect((definitions as any[]).map(tool=>tool.name)).not.toContain("prepare_customer_create");
+  });
   it("collects required details without preparing or creating a customer", async () => {
     const f = setup(); f.script(final("Need more details"));
     const result = await f.agent.run({ message: "Saleem ko new customer add karo" }, scope);

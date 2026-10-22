@@ -18,6 +18,7 @@ import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
 import { normalizeGeminiApiKey } from "../ai/providers/http.js";
 import { confirmConversationAction, isAffirmation } from "../ai-copilot/tools/confirmation.js";
 import { AutonomousChainingLoop } from "../ai-copilot/autonomousChainingLoop.js";
+import { munshiErrorMessage } from "../ai-copilot/conversationalMunshi.js";
 
 const idSchema = z.coerce.number().int().positive();
 const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
@@ -239,12 +240,19 @@ export function createAiCopilotRouter(
     if("estimateRequest" in normalized && normalized.estimateRequest &&
       getConversationalTools().definitions().some(tool=>tool.name==="erp_create_estimate")) {
       try {
-        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(normalized.estimateRequest,scope,state,input.message);
+        const choices={...normalized.estimateRequest};
+        if(!choices.brand && state.brandHint && (choices.items as Array<{brand?:string}>).every(item=>!item.brand))choices.brand=state.brandHint;
+        if(!choices.customerName && !choices.customerId && state.customer && !state.customerAmbiguous)choices.customerId=state.customer.id;
+        if(!choices.customerName && !choices.customerId && state.estimateCustomerChoice){
+          choices.customerName=state.estimateCustomerChoice.name;
+          if(state.estimateCustomerChoice.address)choices.customerAddress=state.estimateCustomerChoice.address;
+        }
+        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,input.message);
         response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
           conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:true,toolNames:["erp_create_estimate"]}});
       } catch(error) {
         if(!(error instanceof ApiError) || !["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code))throw error;
-        response.json({data:{answer:error.message,status:"clarification",extraction:normalized.extraction,reviewText:normalized.message,
+        response.json({data:{answer:munshiErrorMessage(error.code,error.message),status:"clarification",extraction:normalized.extraction,reviewText:normalized.message,
           conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:false,toolNames:[]}});
       }
       return;

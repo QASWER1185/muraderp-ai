@@ -50,7 +50,7 @@ describe("conversational customer confirmation integration", () => {
     const ui = setup(); ui.send("Add a new customer");
     await vi.waitFor(() => expect(ui.markup()).toContain("Prepare customer review"));
     ui.prepare({ name: "ALI HASSAN", phone: "", city: "LAHORE" });
-    await vi.waitFor(() => expect(ui.markup()).toContain("Name, phone number, and city are required"));
+    await vi.waitFor(() => expect(ui.markup()).toContain("نام، فون نمبر اور شہر"));
     expect(api.askCopilot).toHaveBeenCalledOnce();
     expect(api.confirmCopilotDraft).not.toHaveBeenCalled();
   });
@@ -59,7 +59,7 @@ describe("conversational customer confirmation integration", () => {
     const ui = setup(); ui.send("Add a new customer");
     await vi.waitFor(() => expect(ui.markup()).toContain("Prepare customer review"));
     ui.changeUser("user-b"); ui.prepare({ name: "ALI HASSAN", phone: "03216175000", city: "LAHORE" });
-    await vi.waitFor(() => expect(ui.markup()).toContain("original user and workspace"));
+    await vi.waitFor(() => expect(ui.markup()).toContain("اصل صارف اور ورک اسپیس"));
     expect(api.askCopilot).toHaveBeenCalledOnce();
     expect(api.confirmCopilotDraft).not.toHaveBeenCalled();
   });
@@ -89,7 +89,7 @@ describe("conversational customer confirmation integration", () => {
     await vi.waitFor(() => expect(ui.markup()).toContain("Confirm customer creation"));
     ui.changeUser("user-b");
     ui.confirm();
-    await vi.waitFor(() => expect(ui.markup()).toContain("original user and workspace"));
+    await vi.waitFor(() => expect(ui.markup()).toContain("اصل صارف اور ورک اسپیس"));
     expect(api.confirmCopilotDraft).not.toHaveBeenCalled();
   });
 });

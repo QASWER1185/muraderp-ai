@@ -65,7 +65,7 @@ describe("V9 quotation authority and privacy",()=>{
   });
   it("keeps mixed brands separate and HE China strictly GI",()=>{
     const rules=[{match:"PPR-C pipe",brand:"Turk Plast",discount:45},{match:"fittings",brand:"Popular",discount:41}];
-    expect(applyHybridRules({name:"PPR-C pipe 25mm"},rules)).toMatchObject({brand:"turk plast",discount:45});
+    expect(applyHybridRules({name:"PPR-C pipe 25mm"},rules)).toMatchObject({brand:"Turk Plast",discount:45});
     expect(explicitBrand("Turk Plast pipe, Popular fittings, Dura Max UPVC, HE China GI")).toBeUndefined();
     expect(classifyMaterial("HE China brass fitting")).toBe("GI");expect(sameBrand("Dura Max",canonicalBrand("DeraMax"))).toBe(true);
     const quote=groupQuotation([{productName:"Turk Plast PPR-C 25mm",brandName:"Turk Plast",quantity:2,unit:"pcs",unit_price:100,discount_amount:90,unitCost:40},

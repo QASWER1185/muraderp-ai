@@ -6,6 +6,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/copilot/:path*",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot/:path*"
+    },
+    {
       "source": "/api/v1/:path*",
       "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/:path*"
     }

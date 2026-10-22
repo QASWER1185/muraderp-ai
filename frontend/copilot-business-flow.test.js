@@ -34,7 +34,7 @@ describe("Part 3 actual chat payment review lifecycle",()=>{
   });
   it("blocks confirmation after a workspace/branch change",async()=>{
     const f=setup();await f.send("receipt");await f.click("[data-prepare-conversation-payment]");mocks.context={organizationId:"org",branchId:"other"};
-    await f.click("[data-confirm-draft]");expect(mocks.confirm).not.toHaveBeenCalled();expect(f.markup()).toContain("Return to the draft");
+    await f.click("[data-confirm-draft]");expect(mocks.confirm).not.toHaveBeenCalled();expect(f.markup()).toContain("اصل ورک اسپیس اور برانچ");
   });
   it("removes stale preparation and confirmation after a new conversation request",async()=>{
     const f=setup();await f.send("receipt");await f.click("[data-prepare-conversation-payment]");
