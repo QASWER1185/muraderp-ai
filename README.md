@@ -1,5 +1,33 @@
 # MuradERP-AI
 
+Copilot analytics use the configured Gemini native function-calling loop. The
+registered read tools are `erp_get_profit_summary`, `erp_get_top_customers`,
+`erp_get_top_salesmen`, `erp_get_top_profitable_products`, `erp_get_top_vendors`,
+`erp_get_daily_cash_summary`, `erp_get_slow_moving_stock`, and
+`erp_get_inventory_summary`. They also have read-only HTTP endpoints at
+`POST /api/copilot/analytics/<tool>` (also `/api/v1/ai/copilot/analytics/<tool>`).
+Use the normal Copilot browser session or an authorized internal service token,
+the `X-Branch-Id` header, and `{ organizationId, input }`; internal callers also
+provide their authorized `userId`. Tool input never accepts tenant identifiers.
+Permissions and branch access are checked before every report.
+
+Calendar periods use Asia/Karachi. Profit and cash come from posted general
+ledger entries; COGS uses account 5000 and cash uses account 1000, excluding bank
+balances. Rankings use posted invoices/returns, historical costs and party
+ledgers, with currencies kept separate. Warehouse stock is organization scoped.
+Missing historical costs are reported, never replaced with zero. The catalog
+audit tool `erp_audit_catalog_rates` compares the supplied Dura Max variants and
+prices with active ERP rates; corrections use the existing rate-change preview
+and explicit confirmation. No report or audit changes business records.
+Standalone rate questions use `erp_get_product_sale_rate` to resolve the exact
+brand/specification and active sale price in one read without model-guessed IDs.
+
+Run `node scripts/copilot-live-acceptance.mjs --output <local-path.json>` for
+read-only production chat transcripts. Credentials are read from environment or
+Google Secret Manager and are never written to transcripts. Use `--local-chat`
+after a backend build to test the local agent against live Gemini/ERP sources.
+Keep transcripts containing business data in a private local output directory.
+
 A reliable, maintainable ERP for building-material, electrical, and sanitary businesses.
 The business workflow may take inspiration from QuickBooks, but the implementation and branding are original.
 
@@ -132,11 +160,11 @@ It searches active imported catalog headings for material context while preservi
 brand, numeric-size, organization and branch restrictions. Database regression
 coverage is in `supabase/tests/depot_v9.sql` (`npm run test:database` in `backend`).
 
-Cloud Run images use `cloudbuild.cloudrun.yaml` to enable the Dockerfile's BuildKit
-cache mounts. Set `_IMAGE` to a commit-tagged Artifact Registry image and `_COMMIT`
-to the deployed Git SHA when submitting the build, then deploy that image and
-route traffic to its ready revision. Vercel proxies both `/api/v1/*` and
-`/api/copilot/*`; its project root directory is `frontend`.
+Build the root Dockerfile into a commit-tagged Artifact Registry image, deploy
+that image to Cloud Run with the matching `RELEASE_COMMIT`, then explicitly route
+traffic to its ready revision. The Dockerfile supports the Cloud Build Docker
+builder without BuildKit cache mounts. Vercel proxies both `/api/v1/*` and
+`/api/copilot/*`; the root `vercel.json` builds and serves `frontend/dist`.
 
 ## Architecture decision
 

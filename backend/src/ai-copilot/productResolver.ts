@@ -34,11 +34,27 @@ function specifications(value:string):string[] {
     .map(match=>(/^(?:mm|millimeter)/.test(match[2]!)?"mm:":"inch:")+decimal(match[1]!));
   for(const match of text.matchAll(/\b(pn|sch(?:edule)?)\s*[-:]?\s*(\d+)\b/gu))sizes.push((match[1]==="pn"?"pn:":"schedule:")+Number(match[2]));
   for(const match of text.matchAll(/\bclass\s*['"]?([a-z0-9]+)\b/gu))sizes.push("class:"+match[1]);
+  for(const match of text.matchAll(/(\d{2,3})\s*(?:°|degrees?\b|ڈگری)/gu))sizes.push("angle:"+Number(match[1]));
+  for(const match of text.matchAll(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?|گرام)\b/gu))sizes.push("grams:"+Number(match[1]));
+  for(const variant of ["medium","single","double","plastic","metal","fancy"])if(new RegExp("\\b"+variant+"\\b","u").test(text))sizes.push("variant:"+variant);
   return sizes;
+}
+
+/** The merchant's named Dura variants are defaults for unspecified variants;
+ * they restrict catalog search, never replace authoritative stored prices. */
+export function canonicalCatalogQuery(value:string,brand?:string):string {
+  if(!sameBrand(brand??explicitBrand(value),"Dura Max"))return value;
+  let query=value;
+  if(/\bu[\s-]*pvc\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\b(?:medium|class|schedule|sch|conduit|heavy|light)\b/i.test(query))query+=" Medium";
+  if(/\bp[\s-]*trap\b/i.test(query)&&!/\b(?:single|double)\b/i.test(query))query+=" Single";
+  if(/\bgate\s+valve\b/i.test(query)&&!/\b(?:plastic|metal|fancy|brass)\b/i.test(query))query+=" Plastic";
+  return query;
 }
 
 /** Explicit dimensions/pressure/class are restrictions, never fuzzy preferences. */
 export function matchesProductSpecification(query:string,candidate:string):boolean {
+  if(/\bu[\s-]*pvc\b/i.test(query)&&/\bppr/i.test(candidate))return false;
+  if(/\bppr/i.test(query)&&!/\bppr/i.test(candidate))return false;
   const actual=new Set(specifications(candidate));
   return specifications(query).every(spec=>actual.has(spec));
 }

@@ -15,6 +15,15 @@ export function erpActionReviewMarkup(review) {
   return `<article class="review-card confirmation-card" dir="auto"><h3>منظوری کے لیے پری ویو</h3><p>${escapeHtml(preview.summary)}</p><div class="review-lines">${grouped??lines.map((line,index)=>`<div class="review-line"><strong>${index+1}. ${escapeHtml(line.productName??line.name??"")}</strong><p>${escapeHtml(line.quantity??line.qty??"")} ${escapeHtml(line.unit??"")} · نرخ ${escapeHtml(line.unit_price??line.list_price??"")} · رعایت ${escapeHtml(line.discountPercent??0)}%</p></div>`).join("")}</div>${preview.totals?`<p><strong>کل رقم: PKR ${escapeHtml(preview.totals.grand_total)}</strong></p>`:""}${preview.warnings?.length?`<p class="review-warning">${escapeHtml(preview.warnings.join(" "))}</p>`:""}${quotation?`<details><summary>گاہک کا واٹس ایپ کارڈ</summary><pre data-customer-quotation>${escapeHtml(quotation.text)}</pre><button type="button" class="button secondary" data-copy-quotation>متن کاپی کریں</button><button type="button" class="button secondary" data-download-card>کارڈ ڈاؤن لوڈ کریں</button></details>`:""}${preview.privateMargin?`<details class="merchant-scorecard"><summary>صرف دکاندار کے لیے مارجن</summary><p>${preview.privateMargin.costsKnown?`خرید لاگت: PKR ${escapeHtml(preview.privateMargin.cost)} · متوقع مجموعی منافع: PKR ${escapeHtml(preview.privateMargin.grossProfit)}`:"خرید لاگت کی مکمل تصدیق دستیاب نہیں؛ منافع کا اندازہ نہیں لگایا گیا۔"}</p></details>`:""}${preview.challan?`<details open><summary>بغیر نرخ کا ڈسپیچ چلّان</summary><pre data-customer-quotation>${escapeHtml(preview.challan.text)}</pre><button type="button" class="button secondary" data-download-card>چلّان ڈاؤن لوڈ کریں</button></details>`:""}<button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button><button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور محفوظ کریں</button></article>`;
 }
 export function depotReportMarkup(report){
+  if(report.catalogIntegrity===true)return `<article class="review-card" dir="auto"><h3>کیٹلاگ نرخوں کی پڑتال</h3>${report.rows.map(row=>`<p>${escapeHtml(row.name)} · موجودہ ${escapeHtml(row.currentListPrice??"نامعلوم")} · کیٹلاگ ${escapeHtml(row.expectedListPrice)} · ${row.status==="verified"?"تصدیق شدہ":"درستگی کا پری ویو درکار"}</p>`).join("")}<p>قیمتوں کی تبدیلی الگ پری ویو اور واضح منظوری کے بعد محفوظ ہو گی۔</p></article>`;
+  if(report.analytics===true){
+    const labels={rank:"درجہ",name:"نام",currency:"کرنسی",unit:"یونٹ",salesVolume:"خالص فروخت",revenue:"آمدن",cogs:"لاگت",grossProfit:"مجموعی منافع",netProfit:"خالص منافع",operatingExpenses:"اخراجات",purchaseVolume:"خالص خریداری",outstanding:"بقایا",quantity:"مقدار",marginPercent:"مارجن %",onHand:"موجودہ اسٹاک",lastMovement:"آخری نقل و حرکت",productCount:"کیٹلاگ آئٹمز",productsWithStock:"دستیاب اسٹاک والے آئٹمز",cashIn:"نقد وصولی",cashOut:"نقد ادائیگی",openingBalance:"ابتدائی نقد",closingBalance:"موجودہ نقد",salesCounterCollections:"کاؤنٹر وصولی"};
+    const english=report.language==="en";
+    if(english)Object.assign(labels,{rank:"Rank",name:"Name",currency:"Currency",unit:"Unit",salesVolume:"Net sales",revenue:"Revenue",cogs:"COGS",grossProfit:"Gross profit",netProfit:"Net profit",operatingExpenses:"Operating expenses",purchaseVolume:"Net purchases",outstanding:"Outstanding",quantity:"Quantity",marginPercent:"Margin %",onHand:"On hand",lastMovement:"Last movement",productCount:"Catalog products",productsWithStock:"Products with stock",cashIn:"Cash in",cashOut:"Cash out",openingBalance:"Opening cash",closingBalance:"Closing cash",salesCounterCollections:"Counter collections"});
+    const table=rows=>{if(!rows?.length)return "";const columns=Object.keys(labels).filter(key=>rows.some(row=>Object.hasOwn(row,key)));return `<div class="analytics-table"><table><thead><tr>${columns.map(key=>`<th>${labels[key]}</th>`).join("")}</tr></thead><tbody>${rows.map(row=>`<tr>${columns.map(key=>`<td>${escapeHtml(row[key]??"—")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;};
+    const metrics=Object.entries(report.metrics??{}).filter(([key,value])=>labels[key]&&!Array.isArray(value)).map(([key,value])=>`<p>${labels[key]}: <strong>${escapeHtml(value)}</strong></p>`).join("");
+    return `<article class="review-card analytics-report" dir="auto"><h3>${english?"Business report":"کاروباری رپورٹ"}</h3><p>${escapeHtml(report.period?.from??"")} — ${escapeHtml(report.period?.to??"")}</p>${metrics}${table(report.rows)}${report.metrics?.highestVolume?.length?`<h4>${english?"Highest sales volume":"مقدار کے لحاظ سے سب سے زیادہ فروخت"}</h4>${table(report.metrics.highestVolume)}`:""}${report.metrics?.highestMargin?.length?`<h4>${english?"Highest margin":"سب سے زیادہ مارجن"}</h4>${table(report.metrics.highestMargin)}`:""}</article>`;
+  }
   if(!Array.isArray(report.issues))return "";
   return `<article class="review-card" dir="auto"><h3>طلب اور وینڈر کوٹیشن کی پڑتال</h3>${report.issues.map(issue=>`<p class="${issue.negativeMargin||["quantity","specification","negative_margin"].includes(issue.kind)?"negative-margin":"review-warning"}">${escapeHtml(issue.message)}</p>`).join("")}${Array.isArray(report.corrected)?`<details><summary>درست کوٹیشن کا پری ویو</summary>${report.corrected.map(line=>`<p>${escapeHtml(line.name)} · مقدار ${escapeHtml(line.quantity)} · معیار ${escapeHtml(line.specification)} · رعایت ${escapeHtml(line.discount)}%</p>`).join("")}</details>`:""}</article>`;
 }
@@ -293,7 +302,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       /codec|microphone|recording/iu.test(original)?"جناب، صوتی ریکارڈنگ شروع نہیں ہو سکی؛ مائیک کی اجازت اور معاون صوتی فارمیٹ دیکھ لیں۔":
       /sign in/iu.test(original)?"جناب، ERP تک رسائی کے لیے پہلے لاگ اِن کر لیں۔":
       /choose.*workspace/iu.test(original)?"جناب، پہلے اپنی فعال ورک اسپیس منتخب کر لیں۔":
-      "جناب، درخواست مکمل نہیں ہو سکی۔ گفتگو اور فائلیں برقرار ہیں؛ تفصیل دیکھ کر دوبارہ کوشش کریں۔";
+      "جناب، درخواست مکمل نہیں ہو سکی۔ تفصیل دیکھ کر دوبارہ کوشش کریں۔";
     retryAction = action;
     appendMessage("assistant", `<div class="message-error">${icon("alert")}<span><strong>جناب، یہ تفصیل دوبارہ دیکھ لیں</strong><p>${escapeHtml(message)}</p>${action ? '<button class="button secondary compact" type="button" data-copilot-retry>دوبارہ کوشش کریں</button>' : ""}</span></div>`, "error");
     if (error?.code === "AI_API_KEY_REJECTED" || error?.code === "AI_NOT_CONFIGURED") void openKeySettings();
@@ -437,9 +446,12 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         const current=getWorkspaceContext();
         if(getAuthenticatedUserId()!==userId || current?.organizationId!==context.organizationId || current?.branchId!==context.branchId) {conversation.clear();throw new Error("Workspace changed. Please resend in the active workspace.");}
         if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
+        // Consume media once the server accepts the message, before rendering
+        // cards can fail. Subsequent text turns must never resend these files.
+        if(response.data.status!=="rate_limited"){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         activeDraft = null; preparedConversation = null;
-        appendMessage("assistant", `<p>${escapeHtml(response.data.answer).split("\n\n").join("</p><p>")}</p>`);
+        appendMessage("assistant", `<p>${escapeHtml(response.data.answer).split("\n\n").join("</p><p>").replace(/\n/g,"<br>")}</p>`);
         if (response.data.status !== "rate_limited" && response.data.preparation?.intent === "customer_create") {
           customerPreparationScope = { ...context, userId };
           appendMessage("assistant", customerPreparationMarkup());
@@ -474,22 +486,22 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
           showError(new Error("The AI provider is temporarily rate limited. Your message and attachment are ready to retry."),()=>analyze(selection));
           return;
         }
-        input.value="";input.style.height="auto";clearAttachment();
         return;
       }
       if (action === "invoice_extract") {
         const response = await extractInvoiceDocument(payload, context.branchId);
+        input.value="";input.style.height="auto";clearAttachment();
         const extraction = response.data;
         appendMessage("assistant", `<article class="review-card"><div class="review-heading"><div><span class="status-pill neutral">Extraction only</span><h3>Invoice review</h3></div></div><p>${extraction.lines?.length ?? 0} line(s) extracted. This does not create or post an invoice.</p><div class="review-lines">${(extraction.lines ?? []).map((line, index) => `<div class="review-line"><div class="review-line-title"><span>${index + 1}</span><strong>${escapeHtml(line.productName?.value ?? line.productName ?? "Unrecognized item")}</strong></div></div>`).join("")}</div><div class="review-actions"><button class="button secondary" type="button" data-review-cancel>Close review</button></div></article>`);
         return;
       }
       payload.intent = action === "auto" ? "auto" : apiIntent(action);
       const response = await createCopilotReview(payload, context.branchId);
+      input.value="";input.style.height="auto";clearAttachment();
       thread.querySelector("[data-review-card]")?.remove();
       review = response.data;
       quoteVersions.clear();
       appendMessage("assistant", reviewCardMarkup(review));
-      input.value="";input.style.height="auto";clearAttachment();
     } finally { if(version===operationVersion) setBusy(false); }
   }
   function fromCameraLabel(source) { return source === "camera" ? "Photo for review" : source === "image" ? "Attachment for review" : "ERP request"; }

@@ -5,6 +5,11 @@ import { businessFixture, scope, pipe, dura } from "./business.test-fixtures.js"
 import { resolveCandidates } from "../../services/entity-search.service.js";
 
 describe("provider-independent authoritative inventory", () => {
+  it("uses native function calling for every request when a provider is configured",async()=>{
+    const respond=vi.fn(async()=>({output:[],text:"native"}));
+    const result=await new BasicInventoryModel({respond}).respond([{role:"user",content:"How many products in inventory?"}],[{name:"query_inventory"}],new AbortController().signal);
+    expect(result.text).toBe("native");expect(respond).toHaveBeenCalledOnce();
+  });
   it("returns verified quantities through the same scoped tools without a provider", async () => {
     const f = businessFixture();
     const result = await new UnifiedCopilotAgent(new BasicInventoryModel(), f.tools).run({ message: "Check Popular pipe stock" }, scope);

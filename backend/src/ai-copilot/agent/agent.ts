@@ -125,6 +125,7 @@ export class UnifiedCopilotAgent {
     let review: unknown;
     const businessFacts: BusinessFact[] = [];
     const reports:unknown[]=[];
+    const analyticsAnswers:string[]=[];
     let verifiedResults = 0;
     let productContext: ProductContext | undefined = priorProducts;
     let productSearches = 0;
@@ -143,6 +144,7 @@ export class UnifiedCopilotAgent {
     };
     let answer = FALLBACK;
     let status = "limit";
+    let verifiedRate=false;
     const estimateRequest=/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message);
     let missingEstimateCustomer=false,estimateRecoveryUsed=false;
     const customerRequest = !estimateRequest && /\b(?:new|naya)\s+customer\b|\bcustomer\s+(?:add|create)\b|نیا\s+کسٹمر|کسٹمر\s+ایڈ/i.test(request.message)
@@ -154,6 +156,7 @@ export class UnifiedCopilotAgent {
         const step = await withinDeadline(this.model.respond(input, availableTools, controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
+          if(analyticsAnswers.length){answer=analyticsAnswers.join("\n\n");status="completed";break;}
           if(missingEstimateCustomer && !estimateRecoveryUsed){
             estimateRecoveryUsed=true;requiredToolRetry=true;
             input.push({role:"user",content:"Continue the original estimate request now with erp_create_estimate, using the supplied customerName/address. Attach the new customer to that combined preview. No separate customer approval or stock lookup is needed."});
@@ -227,6 +230,17 @@ export class UnifiedCopilotAgent {
             if(result && typeof result==="object" && "report" in result){
               reports.push(result.report);const report=result.report as any;
               if(typeof report.auditId==="string")state.workingAuditId=report.auditId;
+            }
+            if(result && typeof result==="object" && "analytics" in result && result.analytics===true && "answer" in result && typeof result.answer==="string")analyticsAnswers.push(result.answer);
+            if(call.name==="erp_get_product_sale_rate"&&result&&typeof result==="object"&&"resolution" in result){
+              const match=result as EntityResolution<RankedEntity> & {verifiedSaleRate?:boolean;answer?:string};
+              unresolvedProduct=match.requiresClarification?match:undefined;productUnresolved=match.resolution!=="resolved";
+              const product=productReference(match.bestCandidate);
+              productContext=product?{candidates:[product],ambiguous:false}:undefined;
+              if(match.verifiedSaleRate&&product){
+                delete state.clarification;verifiedRate=true;answer=match.answer!;status="completed";break;
+              }
+              if(match.items.length)state.clarification={kind:"product",candidates:match.items.slice(0,5).map(row=>({id:row.id,name:row.name.slice(0,160)}))};
             }
             if (BUSINESS_TOOLS.has(call.name)) {
               productContext = state.productContext;
@@ -347,7 +361,7 @@ export class UnifiedCopilotAgent {
             logger?.warn({ traceId, iteration, tool: call.name, outcome: "error", errorCode: error instanceof ApiError ? error.code : "UNEXPECTED_TOOL_ERROR" }, "Copilot tool failed");
           }
         }
-        if (review || status === "malformed" || status === "duplicate" || status === "clarification" || status === "timeout") break;
+        if (verifiedRate || review || status === "malformed" || status === "duplicate" || status === "clarification" || status === "timeout") break;
       }
     } catch (error) {
       if (error instanceof ApiError && [401, 403].includes(error.status)) throw error;
@@ -383,6 +397,7 @@ export class UnifiedCopilotAgent {
     if (businessFacts.length && status !== "completed") {
       answer = businessAnswer(businessFacts, request.message) + "\n\n" + (status === "clarification" ? answer : "جناب، اب تک حاصل شدہ تفصیل یہ ہے۔ باقی حصے کے لیے دوبارہ کوشش کریں۔");
     }
+    if(analyticsAnswers.length){answer=analyticsAnswers.join("\n\n")+(businessFacts.length?"\n\n"+businessAnswer(businessFacts,request.message):"");if(status!=="clarification"&&status!=="rate_limited")status="completed";}
     logger?.info({ traceId, status, calls }, "Copilot agent finished");
     state.productContext = productContext;
     state.customerAmbiguous = customerAmbiguous;

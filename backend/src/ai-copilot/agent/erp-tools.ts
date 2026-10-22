@@ -16,9 +16,14 @@ import { randomUUID } from "node:crypto";
 import { ERP_ACTION_DEFINITIONS, ERP_ACTION_SCHEMAS, ERP_ACTION_PERMISSIONS, ERP_READ_ACTIONS, isErpActionName, type ErpReadName, type ErpWriteName } from "../tools/registry.js";
 import type { CustomerMemory } from "../customerMemoryStore.js";
 import { explicitBrand,brandsInText } from "../productResolver.js";
+import { ANALYTICS_DEFINITIONS, ANALYTICS_SCHEMAS, ANALYTICS_PERMISSIONS, isAnalyticsTool, analyticsAnswer, type CopilotAnalytics } from "../analytics.js";
+import { auditDuraCatalog } from "../catalogIntegrity.js";
+import { isEnglishRequest } from "./language.js";
+import { normalizeProductSearchQuery } from "../../services/entity-search.service.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
+  analytics?:Pick<CopilotAnalytics,"read">;
   memory?: CustomerMemory;
   tenant: Pick<TenantAccessService, "assertPermission" | "assertBranchAccess">;
   erp: Pick<ErpService, "getProduct" | "getCustomer">;
@@ -59,6 +64,18 @@ const CUSTOMER_CREATE_TOOL = defineTool({ name: "prepare_customer_create", descr
   } });
 
 export const ERP_TOOLS = [
+  defineTool({name:"erp_get_product_sale_rate",description:"Answer a standalone product rate question in ONE read. Supply the full product name, brand, material, size and angle. The server resolves the item and its active global sale rate automatically; never guess product or rate-list IDs. For customer-specific negotiated prices use the customer-aware lookup_current_sale_rate workflow.",schema:lookup.extend({brand:query.optional(),quantity:z.number().finite().positive().default(1)}),permission:"sales.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async({query,limit,brand,quantity},scope,{search,pricing,rateLists,tenant},signal)=>{
+    await tenant.assertPermission(scope,"products.read");
+    const match=await search.searchProducts(query,limit,scope,brand);
+    signal?.throwIfAborted();
+    if(match.resolution!=="resolved"||!match.bestCandidate)return match;
+    const product=match.bestCandidate;
+    const rate=await pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,quantity,as_of:new Date().toISOString()});
+    signal?.throwIfAborted();
+    if(rate){const version=await rateLists.getVersion(rate.rate_list_version_id);if(version.rate_list_id!==rate.rate_list_id||rate.product_id!==product.id)throw new ApiError(502,"RATE_SOURCE_INVALID","The sale-rate source could not be verified.");}
+    return {...match,verifiedSaleRate:true,rate,product,analytics:true,answer:product.name+" — "+(rate?`${rate.currency_code} ${rate.unit_price}/${rate.unit}`:"فعال فروخت کا ریٹ دستیاب نہیں۔")};
+  }}),
+  defineTool({name:"erp_audit_catalog_rates",description:"Audit the merchant's Dura Max Medium pipe, Single P-Trap, Plastic Head/Cap Gate Valve and 500g solvent baselines against active one-to-one catalog rates. Returns exact correction candidates, never changes rates. If asked to correct, prepare the returned candidates with erp_update_commodity_rates and require the normal one-click approval.",schema:z.strictObject({}),permission:"products.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async(_input,scope,services)=>auditDuraCatalog(services,scope)}),
   defineTool({name:"recall_customer_memory",description:"Recall preferred brands by category, dated authorized historical discounts and purchasing patterns for a resolved customer. Current rates and merchant cost floors still apply.",schema:z.strictObject({customer_id:id}),permission:"customers.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async({customer_id},scope,{memory,erp,tenant})=>{
     await tenant.assertPermission(scope,"sales.read");
     const customer=await erp.getCustomer(customer_id,scope.organizationId);
@@ -146,7 +163,7 @@ export class ErpToolRegistry {
   }
   definitions() {
     const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name) && (tool.name !== "prepare_customer_create" || this.services.runtime)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
-    return [...reads, ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []), ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
+    return [...reads, ...(this.services.analytics?ANALYTICS_DEFINITIONS:[]), ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []), ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
   }
   async confirmPendingAction(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope) {
     if(!this.services.runtime?.confirmAndExecute)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP confirmation service is not configured.");
@@ -155,11 +172,28 @@ export class ErpToolRegistry {
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    if(isAnalyticsTool(name)){
+      if(!this.services.analytics)throw new ApiError(503,"ANALYTICS_UNAVAILABLE","Analytics is not configured.");
+      const input=ANALYTICS_SCHEMAS[name].parse(raw);
+      await this.assertScope(scope);
+      for(const permission of ANALYTICS_PERMISSIONS[name])await this.services.tenant.assertPermission(scope,permission);
+      signal?.throwIfAborted();
+      const report=await this.services.analytics.read(name,input,scope);
+      report.language=isEnglishRequest(_originalMessage??"")?"en":"ur";
+      return {analytics:true,answer:analyticsAnswer(report,_originalMessage??""),report};
+    }
     const mixed=brandsInText(_originalMessage??"").length>1;
+    if(name==="erp_get_product_sale_rate"&&_originalMessage&&raw&&typeof raw==="object"&&!Array.isArray(raw)){
+      // Preserve the user's exact specs when removing recognized rate-question
+      // wording. A model refinement must not silently drop an angle or size.
+      const original=_originalMessage.trim().replace(/[?؟.]+$/u,"");
+      const normalized=normalizeProductSearchQuery(_originalMessage);
+      if(normalized!==original&&normalized.length<=120)raw={...raw,query:normalized};
+    }
     if(mixed && state)delete state.brandHint;
     const brand=mixed?undefined:explicitBrand(_originalMessage??"")??state?.brandHint;
     if(state && explicitBrand(_originalMessage??""))state.brandHint=explicitBrand(_originalMessage!);
-    if(brand && raw && typeof raw==="object" && !Array.isArray(raw) && ["search_products","erp_create_estimate","erp_create_invoice"].includes(name))
+    if(brand && raw && typeof raw==="object" && !Array.isArray(raw) && ["search_products","erp_get_product_sale_rate","erp_create_estimate","erp_create_invoice"].includes(name))
       raw={...raw,brand};
     if(isErpActionName(name)) {
       if(!this.services.runtime?.createUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");

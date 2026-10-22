@@ -26,7 +26,7 @@ describe("missing entities and Copilot failure recovery", () => {
     expect(result.answer).toContain("Bestway Cement");
     expect(result.answer).toContain("0 BAG");
     expect(result.answer).toContain("Hamdan Sahib");
-    expect(result.answer).toContain("بقایا 800");
+    expect(result.answer).toContain("outstanding 800");
     expect(result.answer).not.toMatch(/999|could not verify|was not found/);
   });
 
@@ -104,7 +104,8 @@ describe("missing entities and Copilot failure recovery", () => {
     const f = businessFixture();
     const model = { respond: vi.fn(async () => { throw new ApiError(502, "AI_PROVIDER_BAD_REQUEST", "Safe settings guidance"); }) };
     const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "hello" }, scope);
-    expect(result.answer).toContain("فارمیٹ قبول نہیں ہوا");
+    expect(result.answer).toContain("درخواست کا فارمیٹ");
+    expect(result.answer).not.toContain("تصویر JPEG");
     expect(result.answer).not.toContain("Safe settings guidance");
   });
 

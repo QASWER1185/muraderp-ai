@@ -108,10 +108,14 @@ label{display:grid;gap:6px;color:#465467;font-size:12px;font-weight:650}input,te
 .voice-waveform i:nth-of-type(2) { height:16px; animation-delay:120ms; }.voice-waveform i:nth-of-type(3) { height:11px; animation-delay:240ms; }.voice-waveform i:nth-of-type(4) { height:19px; animation-delay:360ms; }
 @keyframes voice-wave { to { transform:scaleY(.45); } }
 .negative-margin { color:#b42318; background:#fff1f0; border-inline-start:3px solid #b42318; padding:.6rem; }
+.analytics-table { max-width:100%; overflow-x:auto; margin-top:12px; }
+.analytics-table table { width:100%; border-collapse:collapse; font-size:12px; }
+.analytics-table th,.analytics-table td { padding:8px; border-bottom:1px solid var(--line); text-align:start; white-space:nowrap; }
+.analytics-report { min-width:0; }
 
 /* Keep mobile chat messages in their own scroll track and dock media above the composer. */
-.copilot-panel { min-height:0; grid-template-rows:auto minmax(0,1fr) auto auto auto auto; }
-.copilot-thread { min-height:0; overscroll-behavior:contain; }
+.copilot-panel { min-height:0; min-width:0; width:100%; max-width:100%; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr) auto auto auto auto; overflow:hidden; }
+.copilot-thread { min-height:0; min-width:0; overflow-x:hidden; overscroll-behavior:contain; }
 .attachment-preview { position:relative; z-index:1; display:flex; flex-wrap:nowrap; max-width:100%; min-width:0; max-height:92px; overflow-x:auto; overflow-y:hidden; margin:0 26px 8px; padding:6px; scrollbar-width:thin; }
 .attachment-file { flex:0 0 auto; max-width:min(240px,75vw); }
 .attachment-file>span:not(.attachment-icon) { min-width:0; }

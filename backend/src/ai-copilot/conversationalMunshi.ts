@@ -2,7 +2,9 @@
 export function canonicalSlipWords(value:string):string {
   return value.normalize("NFKC").replace(/\p{M}/gu,"").replace(/ایلبو|البو|\belbo\b/giu,"Elbow")
     .replace(/ساکٹ|سوکٹ/gu,"Socket").replace(/\btee\b|ٹی جوائنٹ/giu,"Tee")
-    .replace(/یو\s*پی\s*وی\s*سی/gu,"U-PVC").replace(/پی\s*پی\s*آر\s*سی/gu,"PPR-C")
+    .replace(/یو\s*پی\s*وی\s*سی|\bu\s*-?\s*pvc\b/giu,"U-PVC").replace(/پی\s*پی\s*آر\s*سی|\bpprc\b/giu,"PPR-C")
+    .replace(/ڈگری|\bdegrees?\b/giu,"°").replace(/انچ/gu,"inch")
+    .replace(/\b(elbow|bend)\s+(45|90)(?!\d)(?!\s*°)/giu,"$1 $2°")
     .replace(/\bdera\s*max\b|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس/giu,"Dura Max")
     .replace(/پاپولر/gu,"Popular").replace(/ترک\s*پلاسٹ/gu,"Turk Plast").replace(/ایچ\s*ای\s*چائنا/gu,"HE China")
     .replace(/پائپ/gu,"Pipe").replace(/ٹیفلون/gu,"Teflon").replace(/سلوشن/gu,"Solvent Solution")
@@ -20,7 +22,7 @@ export function canonicalUnit(value:string):string {
 export function munshiErrorMessage(code:string,message:string):string {
   if(/[\u0600-\u06ff]/u.test(message))return message;
   const messages:Record<string,string>={
-    AI_PROVIDER_BAD_REQUEST:"جناب، تصویر کے لیے AI کی درخواست کا فارمیٹ قبول نہیں ہوا۔ تصویر JPEG یا PNG میں دوبارہ بھیج دیں؛ مسئلہ برقرار رہے تو منتخب ماڈل کی ترتیبات دیکھ لیں۔",
+    AI_PROVIDER_BAD_REQUEST:"جناب، AI نے درخواست کا فارمیٹ یا منتخب ماڈل کی ترتیبات قبول نہیں کیں۔ گفتگو برقرار ہے؛ دوبارہ کوشش کریں یا Copilot کی ماڈل ترتیبات دیکھ لیں۔",
     AI_NOT_CONFIGURED:"جناب، Copilot کی ترتیبات میں Gemini کی API کلید درج کر دیں تاکہ پرچی پڑھ سکوں۔",
     AI_API_KEY_REJECTED:"جناب، Gemini کی API کلید قبول نہیں ہوئی؛ Copilot کی ترتیبات میں درست کلید درج کر دیں۔",
     AI_PROVIDER_RATE_LIMITED:"جناب، AI کی عارضی حد پوری ہو گئی ہے۔ گفتگو کی تفصیل برقرار ہے؛ کچھ دیر بعد دوبارہ کوشش کریں۔",

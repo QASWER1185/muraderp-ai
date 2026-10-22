@@ -83,10 +83,10 @@ export class CustomerMemoryStore implements CustomerMemory {
   }
 }
 
-export function rememberedDiscount(profile: CustomerPricingProfile, product: { id: number; brand_id?: number | null; category: string }, unit: string, currency: string) {
+export function rememberedDiscount(profile: CustomerPricingProfile, product: { id: number; brand_id?: number | null; category: string }, unit: string, currency: string,defaultDiscount=0) {
   const compatible = profile.history.filter(row => row.unit === unit && row.currency_code === currency);
   return Number((compatible.find(row => row.product_id === product.id) ??
-    compatible.find(row => row.brand_id != null && row.brand_id === product.brand_id && row.category === product.category))?.discount_percent ?? 0);
+    compatible.find(row => row.brand_id != null && row.brand_id === product.brand_id && row.category === product.category))?.discount_percent ?? defaultDiscount);
 }
 
 export function returnMemoryMessage(customer: string, row: CommercialHistoryLine, credited = false) {

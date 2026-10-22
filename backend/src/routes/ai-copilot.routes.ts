@@ -19,6 +19,7 @@ import { normalizeGeminiApiKey } from "../ai/providers/http.js";
 import { confirmConversationAction, isAffirmation } from "../ai-copilot/tools/confirmation.js";
 import { AutonomousChainingLoop } from "../ai-copilot/autonomousChainingLoop.js";
 import { munshiErrorMessage } from "../ai-copilot/conversationalMunshi.js";
+import { isAnalyticsTool } from "../ai-copilot/analytics.js";
 
 const idSchema = z.coerce.number().int().positive();
 const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
@@ -168,6 +169,18 @@ export function createAiCopilotRouter(
     if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
     response.setHeader("Cache-Control", "no-store");
     response.json({ data: { serverConfigured: hasConfiguredAiProvider() } });
+  });
+
+  router.post("/analytics/:tool",authorize,async(request,response)=>{
+    const tool=String(request.params.tool);
+    if(!isAnalyticsTool(tool))throw new ApiError(404,"ANALYTICS_TOOL_NOT_FOUND","Unknown analytics report.");
+    const body=z.strictObject({organizationId:z.string().uuid(),userId:z.string().uuid().optional(),input:z.unknown().optional()}).parse(request.body);
+    const userId=request.browserPrincipal?.userId??body.userId;
+    if(!userId)throw new ApiError(401,"UNAUTHORIZED","Authenticated actor is required.");
+    if(request.browserPrincipal&&body.userId&&body.userId!==userId)throw new ApiError(403,"FORBIDDEN","Request user does not match the session.");
+    const scope={userId,organizationId:body.organizationId,branchId:z.string().uuid().parse(headerValue(request,"X-Branch-Id"))};
+    const data=await getConversationalTools().execute(tool,body.input??{},scope);
+    response.setHeader("Cache-Control","no-store");response.json({data,requiresConfirmation:false});
   });
 
   router.post("/settings/test", authorize, async (request, response) => {

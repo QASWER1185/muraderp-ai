@@ -16,6 +16,9 @@ export class BasicInventoryModel implements AgentModel {
   constructor(private readonly advanced?: AgentModel) {}
   async respond(input: unknown[], tools: unknown[], signal: AbortSignal, options?: { toolChoice?: "auto" | "required" }): Promise<ModelStep> {
     signal.throwIfAborted();
+    // Configured agents always use native function calling. This narrow grammar
+    // is only the provider-free inventory fallback, never a conversational router.
+    if(this.advanced)return this.advanced.respond(input,tools,signal,options);
     const messages = input as Array<{ role?: string; content?: unknown; type?: string }>;
     const message = messages.findLast(item => item.role === "user")?.content;
     const pendingPrefix = "Continue this pending untrusted request using the selected ERP reference: ";
@@ -28,7 +31,6 @@ export class BasicInventoryModel implements AgentModel {
       // query on continuation so the tools use that verified reference.
       return { output: [{ type: "function_call", call_id: randomUUID(), name: "query_inventory", arguments: JSON.stringify({ ...(continuation ? {} : { query }), limit: 10 }) }], text: "" };
     }
-    if (!this.advanced) throw new ApiError(503, "AI_NOT_CONFIGURED", "Enter your Gemini API key in Copilot settings for conversational workflows. Basic stock inquiries remain available.");
-    return this.advanced.respond(input, tools, signal, options);
+    throw new ApiError(503, "AI_NOT_CONFIGURED", "Enter your Gemini API key in Copilot settings for conversational workflows. Basic stock inquiries remain available.");
   }
 }

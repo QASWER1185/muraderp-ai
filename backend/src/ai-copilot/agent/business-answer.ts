@@ -1,9 +1,10 @@
 import type { BusinessFact } from "./business-tools.js";
+import { isEnglishRequest } from "./language.js";
 
 // Render authoritative facts outside the model. The model chooses the tools and
 // their sequence, but cannot change verified values or invent a missing value.
 export function businessAnswer(facts: BusinessFact[], _message: string): string {
-  const label = (_english: string, translated: string) => translated;
+  const label = (english: string, translated: string) => isEnglishRequest(_message)?english:translated;
   const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? Number(value.toFixed(2)).toString() : label("unavailable", "دستیاب نہیں");
   const name = (value: unknown) => value && typeof value === "object" && "name" in value ? String(value.name) : "";
   const rendered: string[] = [];

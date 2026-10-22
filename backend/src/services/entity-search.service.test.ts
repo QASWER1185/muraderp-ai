@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SupabaseEntitySearchService, resolveCandidates, normalizeProductSearchQuery } from "./entity-search.service.js";
+import {canonicalSlipWords} from "../ai-copilot/conversationalMunshi.js";
 const scope={userId:'u',organizationId:'o',branchId:'b'};
 const row={id:1,name:'ELBOW FEMALE 25x1/2',sku:'EF25',unit:'PCS',category:'Fittings',brand_name:'Popular',confidence:.95,match_kind:'fuzzy'};
 function setup(data: unknown = [row],error: unknown = null) {
@@ -14,16 +15,25 @@ describe('database entity search service',()=>{
     ['POPULAR PIPE PN-20 25 MM MTR ka rate hai?', 'POPULAR PIPE PN-20 25 MM MTR'],
     ['ELBOOW 25x1/2 PCS ki kya rate hai؟', 'elbow 25x1/2 PCS'],
     ['ELBOW 25*1/2', 'ELBOW 25*1/2'],
+    ['What PIPE 25MM', 'PIPE 25MM'],
+    ['What is the rate of Dura Max PPRC Pipe PN-16 25mm?', 'Dura Max PPRC Pipe PN-16 25mm'],
+    ['ڈیورا میکس یو پی وی سی ایلبو 90 ڈگری 2 انچ کا ریٹ بتاؤ','ڈیورا میکس یو پی وی سی ایلبو 90 ڈگری 2 انچ'],
   ])('keeps the catalog query and dimensions from %s', async (input, expected) => {
     const {search,rpc}=setup();
     expect(normalizeProductSearchQuery(input)).toBe(expected);
     await search.searchProducts(input,10,scope);
-    expect(rpc.mock.calls[0]?.[1]).toMatchObject({p_query:expected});
+    expect(rpc.mock.calls[0]?.[1]).toMatchObject({p_query:canonicalSlipWords(expected)});
   });
   it('does not turn equally ranked size variants into a chosen product',async()=>{
     const {search}=setup([row,{...row,id:2,name:'ELBOW 25x3/4',confidence:.94}]);
     expect(await search.searchProducts('ELBOOW 25*1/2 KA RATE KIA HY',10,scope))
       .toMatchObject({resolution:'ambiguous',bestCandidate:null,requiresClarification:true});
+  });
+  it('normalizes spoken uPVC and an explicit elbow angle without losing the size',async()=>{
+    const {search,rpc}=setup([{...row,id:269,name:'DURA MAX ELBOW 90° 2"',brand_name:'DURA MAX'}]);
+    expect(await search.searchProducts('uPVC Elbow 90 2 inch',10,scope,'Dura Max')).toMatchObject({resolution:'resolved',bestCandidate:{id:269}});
+    expect(rpc.mock.calls[0]?.[1]).toMatchObject({p_query:'U-PVC Elbow 90° 2 inch',p_brand:'Dura Max'});
+    expect(await search.searchProducts('uPVC Elbow 45 2 inch',10,scope,'Dura Max')).toMatchObject({resolution:'no_match'});
   });
 
   it('makes one bounded RPC with trusted scope and maps only safe fields',async()=>{

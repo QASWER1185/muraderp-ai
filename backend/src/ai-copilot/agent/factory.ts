@@ -19,6 +19,7 @@ import { CopilotRuntime } from "../copilot.runtime.js";
 import { hasConfiguredAiProvider } from "../../ai/providers/factory.js";
 import { BasicInventoryModel } from "./basic-inventory-model.js";
 import { CustomerMemoryStore } from "../customerMemoryStore.js";
+import { CopilotAnalytics } from "../analytics.js";
 
 export function createConversationalTools(provider?: ToolCallingAiProvider): ErpToolRegistry {
   if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) throw new ApiError(503, "COPILOT_NOT_CONFIGURED", "ERP data access is not configured");
@@ -26,6 +27,7 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
   const rateLists = new SupabaseRateListRepository();
   const erp = new SupabaseErpService();
   return new ErpToolRegistry({
+    analytics:new CopilotAnalytics(getSupabaseAdminClient),
     tenant: new TenantAccessService(authorization), erp,
     memory:new CustomerMemoryStore(),
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
@@ -36,6 +38,7 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
     },
     createUnifiedDraft:(...args)=>new CopilotRuntime().createUnifiedDraft(...args),
     getBusinessReport:(...args)=>new CopilotRuntime().getBusinessReport(...args),
+    getDepotReport:(...args)=>new CopilotRuntime().getDepotReport(...args),
     confirmAndExecute:(...args)=>new CopilotRuntime().confirmAndExecute(...args),
     },
   }, true, { erp, repository: new SupabaseCopilotBusinessRepository(), customers: new SupabaseCustomerPaymentBrowserRepository(), vendors: new SupabaseVendorPaymentBrowserRepository() });

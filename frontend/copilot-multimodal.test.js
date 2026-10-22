@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-const mocks=vi.hoisted(()=>({context:{organizationId:"org",branchId:"branch"},ask:vi.fn(),media:vi.fn(),prepare:vi.fn(),confirm:vi.fn()}));
+const mocks=vi.hoisted(()=>({context:{organizationId:"org",branchId:"branch"},ask:vi.fn(),media:vi.fn(),prepare:vi.fn(),confirm:vi.fn(),extract:vi.fn()}));
 vi.mock("./workspace-context.js",()=>({getWorkspaceContext:()=>mocks.context}));
-vi.mock("./copilot-api.js",()=>({askCopilot:mocks.ask,askCopilotMedia:mocks.media,prepareConversationDraft:mocks.prepare,prepareConversationPayment:vi.fn(),confirmCopilotDraft:mocks.confirm,createCopilotDraft:vi.fn(),createCopilotReview:vi.fn(),quoteCopilotEstimateLine:vi.fn(),createCopilotRateListDraft:vi.fn(),extractInvoiceDocument:vi.fn()}));
+vi.mock("./copilot-api.js",()=>({askCopilot:mocks.ask,askCopilotMedia:mocks.media,prepareConversationDraft:mocks.prepare,prepareConversationPayment:vi.fn(),confirmCopilotDraft:mocks.confirm,createCopilotDraft:vi.fn(),createCopilotReview:vi.fn(),quoteCopilotEstimateLine:vi.fn(),createCopilotRateListDraft:vi.fn(),extractInvoiceDocument:mocks.extract}));
 import { mountCopilot,validateAttachment,ambiguityMarkup,extractionMarkup,conversationDraftMarkup } from "./copilot-ui.js";
 function setup(){
   mocks.context={organizationId:"org",branchId:"branch"};Object.values(mocks).filter(value=>typeof value?.mockReset==="function").forEach(value=>value.mockReset());
@@ -24,6 +24,19 @@ function setup(){
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it("sends a BI follow-up as text without reusing the previous three slips or audio",async()=>{
+    const f=setup();f.attach([image(),image(),image(),new File(["voice"],"note.webm",{type:"audio/webm"})]);await f.send("ارسلان شاہنواز کا ایسٹیمیٹ بنائیں");
+    expect(mocks.media.mock.calls[0][0].attachments).toHaveLength(4);expect(f.query("#copilot-attachment").hidden).toBe(true);expect(f.query("#copilot-input").value).toBe("");
+    await f.send("اس مہینے کا پرافٹ کتنا ہے");expect(mocks.media).toHaveBeenCalledOnce();expect(mocks.ask).toHaveBeenCalledWith("اس مہینے کا پرافٹ کتنا ہے","org","branch","signed","id",undefined);
+  });
+  it("consumes accepted media before rendering a malformed extraction card",async()=>{
+    const f=setup();f.attach(image());mocks.media.mockResolvedValueOnce({data:{answer:"accepted",extraction:{document:{}}}});await f.send("estimate");
+    expect(f.query("#copilot-attachment").hidden).toBe(true);await f.send("How many products in inventory?");expect(mocks.media).toHaveBeenCalledOnce();expect(mocks.ask).toHaveBeenCalledOnce();
+  });
+  it("clears the invoice-extraction composer before the next text query",async()=>{
+    const f=setup();f.query("#copilot-action").value="invoice_extract";mocks.extract.mockResolvedValueOnce({data:{lines:[]}});f.attach(image());await f.send("extract");
+    expect(f.query("#copilot-input").value).toBe("");expect(f.query("#copilot-attachment").hidden).toBe(true);f.query("#copilot-action").value="auto";await f.send("monthly profit");expect(mocks.ask).toHaveBeenCalledOnce();
+  });
   it("sends all ten JPEG/JPG images together with canonical MIME types",async()=>{
     const f=setup(),files=Array.from({length:10},(_,index)=>new File(["slip-"+index],`WhatsApp-${index}.jpg`,{type:index%2?"image/jpg":"image/jpeg"}));
     f.attach(files);await f.send("Arslan Shahnawaz Sb, Ittehad Town, Dura Max 50% estimate");

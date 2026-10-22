@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../types/database.types.js";
 import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
-import { canonicalBrand, explicitBrand, sameBrand, matchesProductSpecification } from "../ai-copilot/productResolver.js";
+import { canonicalBrand, explicitBrand, sameBrand, matchesProductSpecification, canonicalCatalogQuery } from "../ai-copilot/productResolver.js";
 import { canonicalSlipWords } from "../ai-copilot/conversationalMunshi.js";
 
 export type SearchScope = { userId: string; organizationId: string; branchId: string };
@@ -33,6 +33,8 @@ export function resolveCandidates<T extends RankedEntity>(rows: T[], limit: numb
 /** Remove only common rate-question wording; keep catalog size and unit tokens intact. */
 export function normalizeProductSearchQuery(query: string): string {
   return query.trim().replace(/[?؟.]+$/u, "")
+    .replace(/^(?:what\s+(?:is\s+)?(?:the\s+)?(?:rate|price)\s+(?:of\s+)?|what\s+|(?:please\s+)?(?:show|tell|give)(?:\s+me)?\s+(?:the\s+)?(?:rate|price)\s+(?:of\s+)?)/iu,"")
+    .replace(/\s+(?:کا|کی)\s+(?:ریٹ|قیمت)(?:\s+(?:بتاؤ|بتائیں|بتا دیں|کیا ہے))?$/u,"")
     .replace(/\belboow\b/giu, "elbow")
     .replace(/\s+(?:(?:ka|ki)\s+)?(?:kia|kya)\s+rate\s+(?:hy|hai)$/iu, "")
     .replace(/\s+(?:(?:ka|ki)\s+)?rate\s+(?:(?:kia|kya)\s+)?(?:hy|hai)$/iu, "")
@@ -75,8 +77,9 @@ export class SupabaseEntitySearchService implements EntitySearchService {
 
   async searchProducts(query: string, limit: number, scope: SearchScope, brand?: string) {
     const restriction=brand ?? explicitBrand(query);
-    const rows = await this.search("search_products_fuzzy",query,limit,scope,restriction);
-    return resolveCandidates(rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(query,String(r.name)+" "+String(r.sku))).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
+    const catalogQuery=canonicalCatalogQuery(canonicalSlipWords(normalizeProductSearchQuery(query)),restriction);
+    const rows = await this.search("search_products_fuzzy",catalogQuery,limit,scope,restriction);
+    return resolveCandidates(rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(catalogQuery,String(r.name)+" "+String(r.sku))).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
       sku: String(r.sku), unit: String(r.unit), category: String(r.category),
       brandName: r.brand_name == null ? null : String(r.brand_name), confidence: Number(r.confidence), match_kind: String(r.match_kind) })),limit);
   }

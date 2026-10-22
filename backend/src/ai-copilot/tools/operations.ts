@@ -26,6 +26,7 @@ import { landedCost,canonicalUnit } from "../conversationalMunshi.js";
 import { SiteTransferService, DEPOT_WRITES } from "../siteTransferService.js";
 import type { CompanionLearningStore } from "../companionLearningStore.js";
 import type { DepotIntelligenceStore } from "../depotIntelligenceStore.js";
+import { duraCatalogBaseline } from "../catalogIntegrity.js";
 
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const amount=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
@@ -152,7 +153,9 @@ export class DefaultErpOperations implements ErpOperations {
       if(!rate||rate.unit!==product.unit)requireChoice(product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔");
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
-      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code);
+      const baseline=duraCatalogBaseline(product.name,brand);
+      if(baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
+      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
       const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
       const merchantCost=!invoice && this.deps.intelligence?await this.deps.intelligence.purchaseFloor(scope,product.id,rate.unit_price,product.unit,rate.currency_code):null;
       const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
