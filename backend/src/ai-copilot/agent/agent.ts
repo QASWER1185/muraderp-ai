@@ -232,7 +232,7 @@ export class UnifiedCopilotAgent {
               if(typeof report.auditId==="string")state.workingAuditId=report.auditId;
             }
             if(result && typeof result==="object" && "analytics" in result && result.analytics===true && "answer" in result && typeof result.answer==="string")analyticsAnswers.push(result.answer);
-            if(call.name==="erp_get_product_sale_rate"&&result&&typeof result==="object"&&"resolution" in result){
+            if(result&&typeof result==="object"&&"resolution" in result&&(call.name==="erp_get_product_sale_rate"||("verifiedSaleRate" in result&&result.verifiedSaleRate===true))){
               const match=result as EntityResolution<RankedEntity> & {verifiedSaleRate?:boolean;answer?:string};
               unresolvedProduct=match.requiresClarification?match:undefined;productUnresolved=match.resolution!=="resolved";
               const product=productReference(match.bestCandidate);

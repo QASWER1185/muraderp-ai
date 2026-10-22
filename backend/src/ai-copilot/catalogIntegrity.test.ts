@@ -25,6 +25,7 @@ describe("one-to-one Dura catalog variants",()=>{
     expect(matchesProductSpecification(query,'DURA MAX ELBOW 90° 2"')).toBe(true);
     expect(matchesProductSpecification(query,'DURA MAX ELBOW 45° 2"')).toBe(false);
     expect(canonicalSlipWords('Dura Max PPRC Pipe PN-16 25mm')).toContain("PPR-C");
+    expect(canonicalSlipWords('Dura Max Solvent Solution 500g')).toBe('Dura Max Solvent 500g');
   });
   it("audits authoritative active prices and only proposes corrections",async()=>{
     const f=fixture();vi.mocked(f.services.search.searchProducts).mockImplementation(async(query)=>({resolution:"resolved",requiresClarification:false,hasMore:false,items:[],bestCandidate:{id:10,name:query,confidence:1,match_kind:"exact_name",sku:"DM",category:"Fittings",unit:"pcs",brandName:"Dura Max"}}));

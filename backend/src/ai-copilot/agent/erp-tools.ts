@@ -183,12 +183,18 @@ export class ErpToolRegistry {
       return {analytics:true,answer:analyticsAnswer(report,_originalMessage??""),report};
     }
     const mixed=brandsInText(_originalMessage??"").length>1;
-    if(name==="erp_get_product_sale_rate"&&_originalMessage&&raw&&typeof raw==="object"&&!Array.isArray(raw)){
+    if(["search_products","erp_get_product_sale_rate"].includes(name)&&_originalMessage&&raw&&typeof raw==="object"&&!Array.isArray(raw)){
       // Preserve the user's exact specs when removing recognized rate-question
       // wording. A model refinement must not silently drop an angle or size.
       const original=_originalMessage.trim().replace(/[?؟.]+$/u,"");
       const normalized=normalizeProductSearchQuery(_originalMessage);
-      if(normalized!==original&&normalized.length<=120)raw={...raw,query:normalized};
+      if(normalized!==original&&normalized.length<=120){
+        raw={...raw,query:normalized};
+        // The native model already selected product search. Complete this
+        // explicit rate read through the same scoped resolver, rather than
+        // asking the model to invent a second ID-based call.
+        if(name==="search_products")return this.execute("erp_get_product_sale_rate",raw,scope,state,_originalMessage,signal);
+      }
     }
     if(mixed && state)delete state.brandHint;
     const brand=mixed?undefined:explicitBrand(_originalMessage??"")??state?.brandHint;
