@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { RequestHandler } from "express";
+import { env } from "../config/env.js";
 import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
 
@@ -84,11 +85,28 @@ function setTenantHeaders(request: Parameters<RequestHandler>[0], context: ApiKe
 /** API keys authenticate the machine caller. Missing tenant headers default to
  * Murad's primary tenant, while supplied headers continue through tenant ACLs.
  */
-export function createApiKeyAuth(loadDefaultContext: DefaultApiKeyTenantContextLoader = loadDefaultApiKeyTenantContext): RequestHandler {
-  return (request, _response, next) => {
-    const expectedKey = process.env.MURAD_API_KEY;
-    const providedKey = request.header("X-API-Key");
-    if (!expectedKey || !providedKey || !tokensMatch(providedKey, expectedKey)) {
+export function createApiKeyAuth(
+  loadDefaultContext: DefaultApiKeyTenantContextLoader = loadDefaultApiKeyTenantContext,
+  internalApiToken: string | undefined = env.INTERNAL_API_TOKEN,
+): RequestHandler {
+  return (request, response, next) => {
+    const expectedKey = (process.env.MURAD_API_KEY ?? "").trim();
+    const suppliedApiKey = request.header("X-API-Key");
+    const authorization = request.header("Authorization")?.trim();
+    const bearerMatch = authorization ? /^Bearer\s+(.+)$/i.exec(authorization) : null;
+    const hasApiKeyHeader = suppliedApiKey !== undefined;
+    const incomingKey = (hasApiKeyHeader ? suppliedApiKey : bearerMatch?.[1] ?? "").trim();
+    const isInternalBearer = !hasApiKeyHeader && bearerMatch !== null &&
+      !!internalApiToken && tokensMatch(bearerMatch[1]!.trim(), internalApiToken.trim());
+
+    if (!expectedKey || !incomingKey || !tokensMatch(incomingKey, expectedKey)) {
+      // Preserve the separate internal service-token route, but never let an
+      // explicitly supplied API key or unknown bearer token fall through to a
+      // browser-cookie error that hides the actual credential failure.
+      if (hasApiKeyHeader || (bearerMatch !== null && !isInternalBearer)) {
+        response.status(401).json({ error: "Invalid API key" });
+        return;
+      }
       next();
       return;
     }

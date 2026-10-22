@@ -35,7 +35,7 @@ function appForAuthenticationTest(auth: typeof apiKeyAuth = apiKeyAuth) {
   app.use("/api/v1/test", createCopilotAuth(undefined, "api-key-test-service"), (req, res) => {
     res.status(200).json({ authenticated: true, servicePrincipalId: req.servicePrincipal?.id, userId: req.browserPrincipal?.userId });
   });
-  app.get("/api/v1/internal-test", createInternalApiAuth("test-internal-api-token", "api-key-test-service"), (req, res) => {
+  app.get("/api/v1/internal-test", createInternalApiAuth(env.INTERNAL_API_TOKEN, "api-key-test-service"), (req, res) => {
     res.status(200).json({ authenticated: true, servicePrincipalId: req.servicePrincipal?.id });
   });
   app.get("/api/v1/session-bound", browserSessionHandler(true), (req, res) => res.status(200).json({ userId: req.browserPrincipal?.userId }));
@@ -58,6 +58,24 @@ describe("versioned API key authentication", () => {
       .set("X-Organization-Id", defaults.organizationId).set("X-Branch-Id", defaults.branchId).set("X-Actor-User-Id", defaults.actorUserId);
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ authenticated: true, servicePrincipalId: "api-key-test-service" });
+  });
+
+  it("trims configured and incoming API keys", async () => {
+    vi.stubEnv("MURAD_API_KEY", `  ${API_KEY}\r\n`);
+    const response = await request(appForAuthenticationTest()).get("/api/v1/internal-test")
+      .set("X-API-Key", `  ${API_KEY}  `)
+      .set("X-Organization-Id", defaults.organizationId).set("X-Branch-Id", defaults.branchId).set("X-Actor-User-Id", defaults.actorUserId);
+    expect(response.status).toBe(200);
+  });
+
+  it("accepts the API key in a Bearer header and fills default tenant context", async () => {
+    vi.stubEnv("MURAD_API_KEY", API_KEY);
+    const loadDefaultContext = vi.fn().mockResolvedValue(defaults);
+    const response = await request(appForAuthenticationTest(createApiKeyAuth(loadDefaultContext)))
+      .get("/api/v1/tenant-context").set("Authorization", `Bearer ${API_KEY}`);
+    expect(response.status).toBe(200);
+    expect(loadDefaultContext).toHaveBeenCalledOnce();
+    expect(response.body).toEqual({ ...defaults, transactionContext: defaults });
   });
 
   it("fills missing tenant headers from the primary context for key-only requests", async () => {
@@ -90,6 +108,22 @@ describe("versioned API key authentication", () => {
     vi.stubEnv("MURAD_API_KEY", API_KEY);
     const response = await request(appForAuthenticationTest()).get("/api/v1/internal-test").set("X-API-Key", "incorrect-key");
     expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: "Invalid API key" });
+  });
+
+  it("rejects an unknown Bearer credential without falling through to browser sessions", async () => {
+    vi.stubEnv("MURAD_API_KEY", API_KEY);
+    const response = await request(appForAuthenticationTest()).get("/api/v1/internal-test")
+      .set("Authorization", "Bearer incorrect-key").set("Cookie", sessionCookie());
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: "Invalid API key" });
+  });
+
+  it("allows the configured internal bearer token to use its existing service-auth path", async () => {
+    vi.stubEnv("MURAD_API_KEY", API_KEY);
+    const response = await request(appForAuthenticationTest()).get("/api/v1/internal-test")
+      .set("Authorization", `Bearer ${env.INTERNAL_API_TOKEN}`);
+    expect(response.status).toBe(200);
   });
 
   it("continues to accept existing signed browser sessions", async () => {
