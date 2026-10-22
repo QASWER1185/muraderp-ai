@@ -17,8 +17,9 @@ function setup(){
   const idle=()=>vi.waitFor(()=>expect(query("#copilot-send").disabled).toBe(false));
   const send=async(text="")=>{query("#copilot-input").value=text;query("#copilot-send").listeners.get("click")();await idle();};
   const attach=(file,camera=false)=>{const input=query(camera?"#copilot-camera":"#copilot-file");input.files=Array.isArray(file)?file:[file];input.listeners.get("change")();};
+  const attachmentClick=target=>query("#copilot-attachment").listeners.get("click")({target:{closest:selector=>selector===`[data-remove-slip]`||selector===`[data-remove-voice]`?target:null}});
   const click=async(selector,target={dataset:{},remove:vi.fn()})=>{thread.listeners.get("click")({target:{closest:requested=>requested===selector?target:null}});await idle();};
-  return {query,controller,send,attach,click,idle,markup:()=>messages.map(message=>message.innerHTML).join("\n")};
+  return {query,controller,send,attach,click,attachmentClick,idle,markup:()=>messages.map(message=>message.innerHTML).join("\n")};
 }
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
@@ -45,6 +46,7 @@ describe("Part 4 multimodal browser workflow",()=>{
     const f=setup();mocks.media.mockResolvedValue({data:{answer:"وسیم مظہر بھائی کا مکمل ایسٹیمیٹ تیار ہے۔",conversationToken:"signed",conversationId:"id",status:"review",
       review:{intent:"erp_action",tool:"erp_create_estimate",draftId:"quote-action",idempotencyKey:"quote-key",preview:{summary:"نیا گاہک اور ایسٹیمیٹ",lines:[{productName:"Dura Max Elbow 25mm",quantity:3,unit:"pcs",unit_price:100,discountPercent:50}],totals:{grand_total:150}}}}});
     f.attach([image(),image(),image()]);await f.send("estimate");
+    expect(f.query("#copilot-input").value).toBe("");expect(f.query("#copilot-attachment").hidden).toBe(true);
     expect(f.markup()).toContain("Dura Max Elbow 25mm");expect(f.markup()).toContain("150");
     await f.click("[data-confirm-draft]");expect(mocks.confirm).toHaveBeenCalledOnce();
     expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({id:"quote-action",intent:"estimate"}));
@@ -138,6 +140,15 @@ describe("Part 4 microphone cleanup",()=>{
   }
   it("releases the microphone and sends the recorded file through STT",async()=>{
     const f=setup(),r=recording(f);await r.start();r.active().data();f.query("#copilot-mic").listeners.get("click")();await f.idle();expect(r.stop).toHaveBeenCalled();expect(f.query("#copilot-attachment").hidden).toBe(false);await f.send();expect(mocks.media.mock.calls[0][0]).toMatchObject({source:"voice",media:{mimeType:"audio/webm"}});
+  });
+  it("keeps multiple slip images when recording voice and dispatches both in one payload",async()=>{
+    const f=setup(),r=recording(f),slips=[new File(["slip-1"],"page-1.jpg",{type:"image/jpeg"}),new File(["slip-2"],"page-2.png",{type:"image/png"})];
+    f.attach(slips);await r.start();r.active().data();f.query("#copilot-mic").listeners.get("click")();await f.idle();
+    expect(f.query("#copilot-attachment").innerHTML).toContain("page-1.jpg");expect(f.query("#copilot-attachment").innerHTML).toContain("page-2.png");expect(f.query("#copilot-attachment").innerHTML).toContain("voice-waveform");
+    await f.send("Waseem Mazhar, Dura Max estimate");
+    const sent=mocks.media.mock.calls.at(-1)[0];expect(sent.source).toBe("image");expect(sent.attachments).toHaveLength(3);
+    expect(sent.attachments.slice(0,2).map(file=>file.media.mimeType)).toEqual(["image/jpeg","image/png"]);
+    expect(sent.attachments[2].media.mimeType).toBe("audio/webm");expect(sent.attachments.every(file=>!file.media.base64.startsWith("data:"))).toBe(true);
   });
   it("reset releases the microphone and ignores late stop attachments",async()=>{
     const f=setup(),r=recording(f);await r.start();r.active().data();f.controller.reset();await new Promise(resolve=>setTimeout(resolve,0));expect(r.stop).toHaveBeenCalled();expect(f.query("#copilot-attachment").hidden).toBe(true);

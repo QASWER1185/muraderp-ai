@@ -58,14 +58,15 @@ export function ambiguityMarkup(clarification) {
   return `<article class="review-card" data-agent-ambiguity><h3>درست ${clarification.kind==="product"?"آئٹم":clarification.kind==="vendor"?"فراہم کنندہ":"گاہک"} منتخب کر لیں</h3><p>اسی گفتگو کو آگے بڑھانے کے لیے درست ریکارڈ منتخب کریں۔</p>${clarification.candidates.map(row=>`<button class="button secondary" type="button" data-agent-candidate="${escapeHtml(row.id)}" data-candidate-kind="${escapeHtml(clarification.kind)}">${escapeHtml(row.name)}${row.city?" · "+escapeHtml(row.city):""}${row.sku?" · "+escapeHtml(row.sku):""}</button>`).join("")}</article>`;
 }
 export function extractionMarkup(extraction,reviewText) {
+  const transcript=extraction.transcript?`<p class="voice-transcript">صوتی ہدایت: ${escapeHtml(extraction.transcript)}</p>`:"";
   if (extraction.catalog) {
     const catalog = extraction.catalog;
     return `<article class="review-card" data-input-review><h3>${escapeHtml(catalog.name)}</h3><p>${catalog.items.length} کیٹلاگ آئٹمز · عمومی رعایت ${escapeHtml(catalog.standardDiscountPercent ?? "درج نہیں")}%</p><details><summary>تمام نکالے گئے آئٹمز دیکھیں</summary>${catalog.items.map(item => `<p>${escapeHtml(item.brand)} · ${escapeHtml(item.category)} · ${escapeHtml(item.name)} · ${escapeHtml(item.size)} · ${escapeHtml(item.unit)} · چھپا ہوا نرخ PKR ${escapeHtml(item.list_price)}</p>`).join("")}</details>${catalog.warnings.length ? `<p class="review-warning">${escapeHtml(catalog.warnings.join(" "))}</p>` : ""}</article>`;
   }
-  if(extraction.transcript) return `<article class="review-card"><h3>صوتی پیغام کی عبارت</h3><p>${escapeHtml(extraction.transcript)}</p><p>گاہک اور سامان کی شناخت کے بعد موجودہ ERP نرخ استعمال ہوں گے۔</p></article>`;
+  if(extraction.transcript && !extraction.document) return `<article class="review-card"><h3>صوتی پیغام کی عبارت</h3>${transcript}<p>گاہک اور سامان کی شناخت کے بعد موجودہ ERP نرخ استعمال ہوں گے۔</p></article>`;
   const doc=extraction.document;
   if(!doc) return "";
-  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3><p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p>${escapeHtml(line.productName)} · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")} · پرچی کا نرخ ${escapeHtml(line.unitRate??"درج نہیں")} · رعایت ${escapeHtml(line.discountPercent??doc.discountPercent??"درج نہیں")}%</p>`).join("")}<p>پرچی کی ابتدائی رقم: ${escapeHtml(doc.subtotal??"درج نہیں")}؛ کل: ${escapeHtml(doc.total??"درج نہیں")}۔ ایسٹیمیٹ کی قیمت فعال ERP ریٹ لسٹ سے لی گئی ہے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
+  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3>${transcript}<p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p>${escapeHtml(line.productName)} · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")} · پرچی کا نرخ ${escapeHtml(line.unitRate??"درج نہیں")} · رعایت ${escapeHtml(line.discountPercent??doc.discountPercent??"درج نہیں")}%</p>`).join("")}<p>پرچی کی ابتدائی رقم: ${escapeHtml(doc.subtotal??"درج نہیں")}؛ کل: ${escapeHtml(doc.total??"درج نہیں")}۔ ایسٹیمیٹ کی قیمت فعال ERP ریٹ لسٹ سے لی گئی ہے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
 }
 
 function conversationStorage(){try{return globalThis.sessionStorage;}catch{return null;}}
@@ -204,6 +205,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const micButton = document.querySelector("#copilot-mic");
   let attachment = null;
   let attachments = [];
+  let voiceAudio = null;
+  let voiceAudioName = "";
   let attachmentFromCamera = false;
   let attachmentUrls = [];
   let review = null;
@@ -246,27 +249,33 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
   function clearAttachment() {
     attachmentUrls.forEach(url=>URL.revokeObjectURL(url));
-    attachmentUrls = []; attachments=[]; attachment = null; attachmentFromCamera = false; fileInput.value = ""; cameraInput.value = ""; attachmentRoot.hidden = true; attachmentRoot.innerHTML = "";
+    attachmentUrls = []; attachments=[]; attachment = null; voiceAudio = null; voiceAudioName = ""; attachmentFromCamera = false; fileInput.value = ""; cameraInput.value = ""; attachmentRoot.hidden = true; attachmentRoot.innerHTML = "";
   }
-  function showAttachment(file, fromCamera = false) {
-    showAttachments(fromCamera && attachments.length ? [...attachments,file] : [file],fromCamera);
-  }
-  function showAttachments(files,fromCamera=false) {
-    clearAttachment();
-    try {
-      files.forEach(validateAttachment);
-      if(files.length>10)throw new Error("ایک ساتھ زیادہ سے زیادہ 10 پرچیاں منتخب کریں۔");
-      if(files.reduce((sum,file)=>sum+file.size,0)>MAX_MEDIA_BYTES)throw new Error("تمام فائلوں کا مجموعی حجم 8 MB تک رکھیں۔");
-      if(files.length>1 && files.some(file=>file.type.startsWith("audio/")))throw new Error("صوتی پیغام الگ بھیجیں؛ پرچیوں کے ساتھ صرف تصاویر یا PDF شامل کریں۔");
-    }catch(error){showError(error);return;}
-    attachments=files;attachment=files[0]??null;attachmentFromCamera=fromCamera;
-    attachmentRoot.innerHTML=files.map((file,index)=>{
-      let imagePreview;
-      if(file.type.startsWith("image/")){const url=URL.createObjectURL(file);attachmentUrls.push(url);imagePreview=`<img src="${url}" alt="پرچی ${index+1}" />`;}
-      else imagePreview=`<span class="attachment-icon">${icon(file.type.startsWith("audio/")?"mic":"file")}</span>`;
-      return `<div class="attachment-file">${imagePreview}<span><strong>${escapeHtml(file.name||"صوتی پیغام")}</strong><small>${escapeHtml(attachmentLabel(file))}</small></span><button class="icon-button" type="button" data-remove-attachment="${index}" aria-label="فائل ہٹائیں">${icon("close")}</button></div>`;
+  function renderAttachments() {
+    attachmentUrls.forEach(url=>URL.revokeObjectURL(url));attachmentUrls=[];
+    const slips=attachments.map((file,index)=>{
+      let preview;
+      if(file.type.startsWith("image/")){const url=URL.createObjectURL(file);attachmentUrls.push(url);preview=`<img src="${url}" alt="پرچی ${index+1}" />`;}
+      else preview=`<span class="attachment-icon">${icon("file")}</span>`;
+      return `<div class="attachment-file">${preview}<span><strong>${escapeHtml(file.name||`پرچی ${index+1}`)}</strong><small>${escapeHtml(attachmentLabel(file))}</small></span><button class="icon-button" type="button" data-remove-slip="${index}" aria-label="پرچی ہٹائیں">${icon("close")}</button></div>`;
     }).join("");
-    attachmentRoot.hidden = false;
+    const voice=voiceAudio?`<div class="attachment-file voice-attachment"><span class="attachment-icon voice-waveform" aria-label="صوتی پیغام منسلک ہے">${icon("mic")}<i></i><i></i><i></i><i></i></span><span><strong>${escapeHtml(voiceAudioName||"صوتی پیغام")}</strong><small>${escapeHtml(attachmentLabel({name:voiceAudioName,size:voiceAudio.size}))}</small></span><button class="icon-button" type="button" data-remove-voice aria-label="صوتی پیغام ہٹائیں">${icon("close")}</button></div>`:"";
+    attachmentRoot.innerHTML=slips+voice;attachmentRoot.hidden=!attachments.length&&!voiceAudio;
+    attachment=attachments[0]??(voiceAudio?{type:voiceAudio.type,size:voiceAudio.size,name:voiceAudioName}:null);
+  }
+  function addAttachments(files,fromCamera=false) {
+    try {
+      const incoming=files.map(file=>({file,mimeType:validateAttachment(file)}));
+      const incomingVoice=incoming.filter(item=>item.mimeType.startsWith("audio/"));
+      const incomingSlips=incoming.filter(item=>!item.mimeType.startsWith("audio/"));
+      if(incomingVoice.length>1||(incomingVoice.length&&voiceAudio))throw new Error("ایک پیغام کے ساتھ صرف ایک صوتی نوٹ شامل کریں۔");
+      if(attachments.length+incomingSlips.length>10)throw new Error("ایک ساتھ زیادہ سے زیادہ 10 پرچیاں منتخب کریں۔");
+      if([...attachments,...incomingSlips.map(item=>item.file)].reduce((sum,file)=>sum+file.size,0)+(voiceAudio?.size??0)+incomingVoice.reduce((sum,item)=>sum+item.file.size,0)>MAX_MEDIA_BYTES)throw new Error("تمام فائلوں کا مجموعی حجم 8 MB تک رکھیں۔");
+      attachments=[...attachments,...incomingSlips.map(item=>item.file)];
+      if(incomingVoice.length){voiceAudio=incomingVoice[0].file;voiceAudioName=voiceAudio.name||"صوتی پیغام";}
+      if(fromCamera)attachmentFromCamera=true;
+    }catch(error){showError(error);return;}
+    renderAttachments();
   }
   function showError(error, action = null) {
     const original=error?.message??"";
@@ -399,20 +408,24 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (operationBusy) return;
     const context = contextOrThrow();
     const text = input.value.trim();
-    if (!text && !attachment) throw new Error("Write a message or add an attachment first.");
+    if (!text && !attachment && !voiceAudio) throw new Error("Write a message or add an attachment first.");
     const action = task.value;
-    const source = sourceForAttachment(attachment, attachmentFromCamera);
+    const source = attachments.length ? sourceForAttachment(attachments[0], attachmentFromCamera) : voiceAudio ? "voice" : "text";
     if(recorder?.state==="recording") throw new Error("Stop recording before sending.");
     const display = text || (source === "voice" ? "Voice note" : fromCameraLabel(source));
-    appendMessage("user", `<p>${escapeHtml(display)}</p>${attachments.map(file=>`<small>${escapeHtml(attachmentLabel(file))}</small>`).join("")}`);
+    appendMessage("user", `<p>${escapeHtml(display)}</p>${attachments.map(file=>`<small>${escapeHtml(attachmentLabel(file))}</small>`).join("")}${voiceAudio?`<small>♫ ${escapeHtml(voiceAudioName||"صوتی پیغام")}</small>`:""}`);
     const sentAttachment = attachment;
     const sentAttachments=[...attachments];
+    const sentVoiceAudio=voiceAudio;
+    const sentVoiceAudioName=voiceAudioName;
     const version=++operationVersion;
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
       const encodedAttachments=await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})));
-      const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(encodedAttachments[0] ? { media: encodedAttachments[0].media } : {}) };
-      const mediaInput=sentAttachments.length>1 ? {attachments:encodedAttachments} : {media:payload.media,fileName:sentAttachment?.name};
+      const encodedVoice=sentVoiceAudio?{fileName:sentVoiceAudioName||"voice-note.webm",media:await readFileAsBase64(new File([sentVoiceAudio],sentVoiceAudioName||"voice-note.webm",{type:sentVoiceAudio.type}))}:null;
+      const combinedAttachments=[...encodedAttachments,...(encodedVoice?[encodedVoice]:[])];
+      const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(encodedAttachments[0] ? { media: encodedAttachments[0].media } : encodedVoice?.media ? {media:encodedVoice.media}: {}) };
+      const mediaInput=combinedAttachments.length>1 ? {attachments:combinedAttachments} : {media:combinedAttachments[0]?.media??payload.media,fileName:combinedAttachments[0]?.fileName??sentAttachment?.name};
       if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
@@ -597,8 +610,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         if(version!==recordingVersion) return;
         setBusy(false);
         if(recordingBytes>MAX_MEDIA_BYTES) {showError(new Error("Recording exceeds 8 MB. Please record a shorter message."));return;}
-        const type=(active.mimeType||mimeType||"audio/webm").split(";")[0],blob=new Blob(recordingChunks,{type});
-        showAttachment(new File([blob],`voice-${Date.now()}.${type==="audio/mp4"?"m4a":type==="audio/ogg"?"ogg":"webm"}`,{type}));
+        const type=(active.mimeType||mimeType||"audio/webm").split(";")[0];
+        voiceAudio=new Blob(recordingChunks,{type});voiceAudioName=`voice-${Date.now()}.${type==="audio/mp4"?"m4a":type==="audio/ogg"?"ogg":"webm"}`;renderAttachments();
       });
       active.start(1000);setBusy(false);sendButton.disabled=true;task.disabled=true;
       recordingTimer=setTimeout(()=>{if(active.state==="recording") active.stop();},60_000);
@@ -617,9 +630,9 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   document.querySelector("#copilot-attach").addEventListener("click", () => fileInput.click());
   document.querySelector("#copilot-camera-button").addEventListener("click", () => cameraInput.click());
   micButton.addEventListener("click", () => void run(toggleRecording));
-  fileInput.addEventListener("change", () => { if (fileInput.files?.length) showAttachments(Array.from(fileInput.files)); });
-  cameraInput.addEventListener("change", () => { if (cameraInput.files?.[0]) showAttachment(cameraInput.files[0], true); });
-  attachmentRoot.addEventListener("click", (event) => { const button=event.target.closest("[data-remove-attachment]");if(button){const remaining=attachments.filter((_,index)=>index!==Number(button.dataset.removeAttachment??0));if(remaining.length)showAttachments(remaining,attachmentFromCamera);else clearAttachment();} });
+  fileInput.addEventListener("change", () => { if (fileInput.files?.length) addAttachments(Array.from(fileInput.files));fileInput.value=""; });
+  cameraInput.addEventListener("change", () => { if (cameraInput.files?.[0]) addAttachments([cameraInput.files[0]], true);cameraInput.value=""; });
+  attachmentRoot.addEventListener("click", (event) => { const slip=event.target.closest("[data-remove-slip]");const voice=event.target.closest("[data-remove-voice]");if(slip){attachments=attachments.filter((_,index)=>index!==Number(slip.dataset.removeSlip));renderAttachments();}if(voice){voiceAudio=null;voiceAudioName="";renderAttachments();} });
   thread.addEventListener("click", (event) => {
     const cardButton=event.target.closest("[data-copy-quotation], [data-download-card]");
     if(cardButton){

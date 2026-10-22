@@ -197,7 +197,7 @@ export function createAiCopilotRouter(
     const organizationId = z.string().uuid().parse(headerValue(request,"X-Organization-Id"));
     const branchId = z.string().uuid().parse(headerValue(request,"X-Branch-Id"));
     const input = z.strictObject({ source:z.enum(["image","camera","voice"]), media:mediaSchema.optional(),
-      attachments:z.array(z.strictObject({media:mediaSchema,fileName:z.string().trim().max(255).optional()})).min(1).max(10).optional(),
+      attachments:z.array(z.strictObject({media:mediaSchema,fileName:z.string().trim().max(255).optional()})).min(1).max(11).optional(),
       message:z.string().trim().max(4000).optional(),fileName:z.string().trim().max(255).optional(),task:z.enum(["auto","estimate","rate_list_update"]).default("auto"),
       conversationToken:z.string().max(9000).optional(),conversationId:z.string().uuid().optional() }).parse(request.body);
     const scope = {userId,organizationId,branchId};

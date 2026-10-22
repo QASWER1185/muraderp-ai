@@ -48,9 +48,10 @@ export class GeminiAdapter implements AiProviderContract {
     const parts=content.map(value=>{const part=value as any;
       if(part.type==="input_text")return {text:part.text};
       if(part.type==="input_image" || part.type==="input_file")return {inlineData:inlineMedia(part.image_url??part.file_data)};
+      if(part.type==="input_audio")return {inlineData:inlineMedia(part.audio_url??part.file_data)};
       throw new ApiError(422,"AI_INPUT_UNSUPPORTED","Unsupported extraction input.");
     });
-    const model=content.some(value=>["input_image","input_file"].includes((value as any).type))?this.config.visionModel??this.config.model:this.config.model;
+    const model=content.some(value=>["input_image","input_file","input_audio"].includes((value as any).type))?this.config.visionModel??this.config.model:this.config.model;
     if(options?.recoverIncomplete && options.format==="json"){
       // Catalogs use text JSON so an output-limit response can retain closed
       // rows. Native function-call arguments may vanish when cut mid-object.

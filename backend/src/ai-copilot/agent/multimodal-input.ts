@@ -11,6 +11,16 @@ export function estimateCaptionChoices(message: string): {customerName?:string;c
   const text=message.replace(/[۰-۹٠-٩]/g,char=>String("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩".indexOf(char)%10));
   const percentages=[...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|فیصد|percent\b)/giu)].map(match=>Number(match[1]));
   const percent=percentages.length===1 && percentages[0]!<=100 && brandsInText(text).length<=1?percentages[0]:undefined;
+  // Urdu voice/text requests often identify the customer inline rather than
+  // as comma-separated fields. Honorifics provide a reliable boundary between
+  // the person's name and the address in phrases such as "ارسلان شاہنواز صاحب
+  // اتحاد ٹاؤن ... کے گاہک ہیں".
+  const urduCustomer=text.match(/آپ\s+(?<name>[\p{L}][\p{L}\s]{1,70}?(?:صاحب|بھائی|جناب))\s+(?<address>[\p{L}\p{N}\s،,.-]{2,120}?)\s+کے\s+(?:گاہک|کسٹمر)\s+(?:ہیں|ہے)/iu);
+  if(urduCustomer?.groups?.name && urduCustomer.groups.address){
+    const customerName=urduCustomer.groups.name.trim().replace(/\s+(?:صاحب|بھائی|جناب)$/u,"").trim();
+    const customerAddress=urduCustomer.groups.address.trim().replace(/[،,.\s]+$/u,"");
+    if(customerName&&customerAddress)return {customerName,customerAddress,...(percent!==undefined?{percent}:{})};
+  }
   const parts=text.split(/[,،|\n]+/u).map(part=>part.trim()).filter(Boolean);
   const metadata=parts.findIndex((part,index)=>index>0 && (!!explicitBrand(part)||/%|فیصد|percent\b/iu.test(part)));
   const name=parts[0]?.replace(/^(?:(?:please\s+)?(?:prepare|make|create)\s+(?:an?\s+)?(?:estimate|quotation|quote)\s+for|(?:estimate|quotation|quote)\s+for|for|customer(?:\s+name)?\s*[:=])\s*/iu,"")
@@ -33,10 +43,17 @@ export class MultimodalAgentInput {
   async normalize(input:MultimodalInput,scope:AgentScope):Promise<NormalizedInput> {
     if(input.media && input.attachments)throw new ApiError(422,"INVALID_MEDIA","ایک درخواست میں صرف media یا attachments بھیجیں۔");
     const files=input.attachments??(input.media?[{media:input.media,fileName:input.fileName}]:[]);
-    if(!files.length || files.length>10 || (input.source==="voice" && files.length!==1))
-      throw new ApiError(422,"INVALID_MEDIA","ایک ساتھ 1 سے 10 پرچیاں یا ایک صوتی پیغام بھیجیں۔");
+    if(!files.length || files.length>11 || (input.source==="voice" && files.length!==1))
+      throw new ApiError(422,"INVALID_MEDIA","ایک ساتھ 1 سے 10 پرچیاں اور ضرورت ہو تو ایک صوتی پیغام بھیجیں۔");
     if(files.reduce((sum,file)=>sum+Buffer.byteLength(file.media.base64,"base64"),0)>8*1024*1024)
       throw new ApiError(413,"MEDIA_TOO_LARGE","تمام منسلک فائلوں کا مجموعی حجم 8 MB تک رکھیں۔");
+    const audioFiles=files.filter(file=>file.media.mimeType.startsWith("audio/"));
+    const visualFiles=files.filter(file=>!file.media.mimeType.startsWith("audio/"));
+    if(audioFiles.length&&visualFiles.length){
+      if(audioFiles.length!==1||visualFiles.length>10||input.source==="voice")throw new ApiError(422,"INVALID_MEDIA","ایک صوتی نوٹ کے ساتھ ایک سے دس پرچیوں کی تصاویر شامل کریں۔");
+      return this.normalizeCombined(input,files,visualFiles,scope);
+    }
+    if(audioFiles.length&&files.length>1)throw new ApiError(422,"INVALID_MEDIA","ایک درخواست میں صرف ایک صوتی نوٹ شامل کیا جا سکتا ہے۔");
     const results=[];
     for(let index=0;index<files.length;index+=3)results.push(...await Promise.all(files.slice(index,index+3).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope))));
     if(results.length===1)return results[0]!;
@@ -50,6 +67,16 @@ export class MultimodalAgentInput {
     const documents=results.map(result=>"document" in result.extraction?result.extraction.document:undefined);
     if(documents.some(doc=>!doc))throw new ApiError(422,"INVALID_MEDIA","صرف پرچیوں کی تصاویر یا PDF ایک ساتھ بھیجیں۔");
     return this.documentResult(mergeBusinessDocuments(documents as BusinessDocument[]),input);
+  }
+  private async normalizeCombined(input:MultimodalInput,files:Array<{media:Media;fileName?:string|undefined}>,visualFiles:Array<{media:Media;fileName?:string|undefined}>,scope:AgentScope):Promise<NormalizedInput>{
+    const source=input.source==="camera"?"camera":"image";
+    const intent=input.task==="rate_list_update"||isRateListRequest((input.message??"")+" "+visualFiles.map(file=>file.fileName??"").join(" "))?"rate_list.import":"estimate.create";
+    const draft=await new AiInputPipeline(this.provider,new InMemoryAiInputGateway()).createDraft({...scope,source,intent,media:visualFiles[0]!.media,mediaParts:files.map(file=>file.media),
+      ...((input.message||files.some(file=>file.fileName))?{text:(input.message??"")+files.map(file=>file.fileName?"\nFile name (untrusted metadata): "+file.fileName:"").join("")}: {})});
+    const document=businessDocumentSchema.parse(draft.fields.document?.value);
+    const transcript=typeof draft.fields.transcript?.value==="string"?draft.fields.transcript.value:undefined;
+    const message=[input.message,transcript?"Voice instruction (transcribed): "+transcript:undefined].filter(Boolean).join("\n");
+    return this.documentResult(document,{...input,source,message},transcript);
   }
   private async normalizeSingle(input:MultimodalInput & {media:Media}, scope:AgentScope):Promise<NormalizedInput> {
     // A request-local gateway cannot leak or retain another tenant's extraction.
@@ -73,7 +100,7 @@ export class MultimodalAgentInput {
     }
     return this.documentResult(businessDocumentSchema.parse(proposal.fields.document?.value),input);
   }
-  private documentResult(document:BusinessDocument,input:MultimodalInput) {
+  private documentResult(document:BusinessDocument,input:MultimodalInput,transcript?:string) {
     const caption=estimateCaptionChoices(input.message??"");
     document={...document,...(caption.customerName?{customerName:caption.customerName}:{}),
       ...(caption.customerAddress?{customerAddress:caption.customerAddress}:{}),
@@ -101,6 +128,6 @@ export class MultimodalAgentInput {
         ...(caption.percent!==undefined?{discount:caption.percent}:line.discountPercent!=null?{discount:line.discountPercent}:{}),
         ...(line.rawShorthand?{rawShorthand:line.rawShorthand}:{})}))};
     const boundedMessage=message.length>20_000 ? (input.message??"ایسٹیمیٹ تیار کریں۔")+"\n"+document.lines.length+" مکمل لائنیں ساختہ پرچی میں محفوظ ہیں؛ قیمتیں ERP سے لیں۔" : message;
-    return { message:boundedMessage, reviewRequired,estimateRequest, extraction: { source: input.source, document, mediaRetained: false as const } };
+    return { message:boundedMessage, reviewRequired,estimateRequest, extraction: { source: input.source, document,...(transcript?{transcript}:{}), mediaRetained: false as const } };
   }
 }

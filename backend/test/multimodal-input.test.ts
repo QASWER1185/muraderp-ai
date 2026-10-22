@@ -2,7 +2,7 @@ import { createCanvas, PDFDocument } from "@napi-rs/canvas";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { ProviderBusinessInput, type BusinessDocument } from "../src/ai-input/business-input.provider.js";
-import { MultimodalAgentInput } from "../src/ai-copilot/agent/multimodal-input.js";
+import { estimateCaptionChoices, MultimodalAgentInput } from "../src/ai-copilot/agent/multimodal-input.js";
 import { validateAgentMedia, visionContent } from "../src/ai-input/media-validation.js";
 import { AiProvider } from "../src/ai-input/openai.provider.js";
 
@@ -13,8 +13,16 @@ export const document:BusinessDocument={customerName:"Qasim",vendorName:null,war
 export const png=()=>({mimeType:"image/png",base64:createCanvas(120,60).toBuffer("image/png").toString("base64")});
 export function wav(silent=false){const b=Buffer.alloc(1644);b.write("RIFF");b.writeUInt32LE(b.length-8,4);b.write("WAVEfmt ",8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(8000,24);b.writeUInt32LE(16000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write("data",36);b.writeUInt32LE(1600,40);if(!silent)b.fill(12,44);return {mimeType:"audio/wav",base64:b.toString("base64")};}
 function pdf(pages=1){const doc=new PDFDocument();for(let i=0;i<pages;i++){const ctx=doc.beginPage(120,60);ctx.fillText("Qasim estimate",5,20);doc.endPage();}return {mimeType:"application/pdf",base64:doc.close().toString("base64")};}
-function fixture(){const provider={generate:vi.fn(async(_schema:unknown,_instructions:string,_content:unknown[])=>structuredClone(document)),transcribe:vi.fn(async()=>"قاسم کے لیے پاپولر پچیس ایم ایم پائپ چالیس فیصد ڈسکاؤنٹ پر بنا دو")};const adapter=new ProviderBusinessInput(provider);return {provider,adapter,input:new MultimodalAgentInput(adapter)};}
+function fixture(){const provider={name:"gemini" as const,generate:vi.fn(async(_schema:unknown,_instructions:string,_content:unknown[])=>structuredClone(document)),transcribe:vi.fn(async()=>"قاسم کے لیے پاپولر پچیس ایم ایم پائپ چالیس فیصد ڈسکاؤنٹ پر بنا دو")};const adapter=new ProviderBusinessInput(provider);return {provider,adapter,input:new MultimodalAgentInput(adapter)};}
 describe("Part 4 concrete extraction and media validation",()=>{
+  it("extracts the named customer and address from a natural Urdu multi-slip request",async()=>{
+    const f=fixture();
+    const message="ان پرچیوں سے آپ ارسلان شاہنواز صاحب اتحاد ٹاؤن ڈرائیونڈ لاہور کے گاہک ہیں ان کو ایز اے کسٹمر ایڈ کریں اور ان پرچیوں سے ڈیورا میکس کا ایسٹیمیٹ بنا دیں";
+    expect(estimateCaptionChoices(message)).toMatchObject({customerName:"ارسلان شاہنواز",customerAddress:"اتحاد ٹاؤن ڈرائیونڈ لاہور"});
+    const result=await f.input.normalize({source:"image",message,attachments:[{media:png()},{media:png()},{media:png()}]},scope);
+    expect(f.provider.generate).toHaveBeenCalledTimes(3);
+    expect(result.estimateRequest).toMatchObject({customerName:"ارسلان شاہنواز",customerAddress:"اتحاد ٹاؤن ڈرائیونڈ لاہور",brand:"Dura Max",items:Array(3).fill({name:"EBOW FEMALE 25*1/2"})});
+  });
   it.each(["image","camera"] as const)("normalizes %s observations without granting observed prices/totals authority",async source=>{
     const f=fixture();const result=await f.input.normalize({source,media:png()},scope);
     expect(result.reviewRequired).toBe(false);expect(result.message).toContain("EBOW FEMALE");expect(result.message).toContain('"quantity":20');
@@ -24,6 +32,15 @@ describe("Part 4 concrete extraction and media validation",()=>{
   it("uses only STT before passing Urdu wording to the same Agent",async()=>{
     const f=fixture();const result=await f.input.normalize({source:"voice",media:wav()},scope);
     expect(result.message).toContain("قاسم");expect(result.message).not.toContain("quantity");expect(f.provider.generate).not.toHaveBeenCalled();expect(f.provider.transcribe).toHaveBeenCalledOnce();
+  });
+  it("sends voice and every attached slip to Gemini together in one extraction turn",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue({...structuredClone(document),transcript:"وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں"} as any);
+    const result=await f.input.normalize({source:"image",message:"Dura Max estimate",attachments:[{fileName:"front.png",media:png()},{fileName:"back.png",media:png()},{fileName:"voice.wav",media:wav()}]},scope);
+    expect(f.provider.generate).toHaveBeenCalledOnce();expect(f.provider.transcribe).not.toHaveBeenCalled();
+    const content=f.provider.generate.mock.calls[0]?.[2] as any[];
+    expect(content.filter(part=>part.type==="input_image")).toHaveLength(2);expect(content.filter(part=>part.type==="input_audio")).toHaveLength(1);
+    expect(result.message).toContain("Voice instruction (transcribed): وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں");
+    expect(result.extraction).toMatchObject({transcript:"وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں",document:{customerName:"Qasim"}});
   });
   it.each(["confidence","line confidence","warning","missing quantity","empty lines"])("requires review for %s without inventing a field",async reason=>{
     const f=fixture(),doc=structuredClone(document);

@@ -56,6 +56,23 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
     const body=JSON.parse(String(fetcher.mock.calls[0]![1]!.body));
     expect(body.contents[0].parts[0].inlineData).toEqual({mimeType:"image/jpeg",data:"YQ=="});
   });
+  it("strips audio data-URL headers and sends audio beside every image in one Gemini request",async()=>{
+    if(provider!=="gemini")return;
+    const fetcher=fetchResult(native("gemini",[tool("gemini","erp_proposal",{proposal:{value:"observed"}})]));
+    const adapter=createAiProvider(config("gemini"),fetcher);
+    await adapter.generate(schema,"listen and read",[
+      {type:"input_text",text:"follow the voice instruction and read the slips"},
+      {type:"input_image",image_url:"data:image/jpeg;base64,YQ=="},
+      {type:"input_image",image_url:"data:image/png;base64,Yg=="},
+      {type:"input_audio",file_data:"data:audio/wav;base64,Yw=="},
+    ]);
+    expect(fetcher).toHaveBeenCalledOnce();
+    const body=JSON.parse(String(fetcher.mock.calls[0]![1]!.body));
+    expect(body.contents[0].parts.slice(1).map((part:any)=>part.inlineData)).toEqual([
+      {mimeType:"image/jpeg",data:"YQ=="},{mimeType:"image/png",data:"Yg=="},{mimeType:"audio/wav",data:"Yw=="},
+    ]);
+    expect(String(fetcher.mock.calls[0]![0])).toContain("vision-model");
+  });
   it("fails closed on refusal, incomplete generation, remote media and malformed tool calls",async()=>{
     const fetcher=fetchResult(provider==="gemini"?{candidates:[{finishReason:"SAFETY",content:{parts:[]}}]}:{stop_reason:"max_tokens",content:[]});
     const adapter=createAiProvider(config(provider),fetcher);

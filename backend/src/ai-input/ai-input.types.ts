@@ -20,6 +20,8 @@ export interface AiInputRequest {
   locale?: string;
   /** Request-only bytes. Never saved in a draft or sent to a caller as a URL. */
   media?: { mimeType: string; base64: string };
+  /** Optional in-memory mixed-media bundle for one multimodal provider turn. */
+  mediaParts?: Array<{ mimeType: string; base64: string }>;
 }
 
 export interface ExtractedField<T = unknown> {

@@ -48,10 +48,10 @@ export const invalidOutput=()=>new ApiError(422,"AI_INVALID_OUTPUT","The AI resu
 export function inlineMedia(value:unknown):{mimeType:string;data:string} {
   if(typeof value!=="string")throw invalidOutput();
   const media=parseMediaDataUrl(value);
-  if(!media || !/^(?:image\/(?:png|jpeg|webp)|application\/pdf)$/.test(media.mimeType) ||
+  if(!media || !/^(?:image\/(?:png|jpeg|webp)|application\/pdf|audio\/(?:webm|mp4|mpeg|wav|ogg))$/.test(media.mimeType) ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(media.data) || !media.data)
-    throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The provider requires inline image or PDF content.");
-  return media;
+    throw new ApiError(422,"AI_INPUT_UNSUPPORTED","The provider requires valid inline image, PDF, or audio content.");
+  return { ...media, mimeType: media.mimeType==="audio/mp4"?"audio/m4a":media.mimeType };
 }
 export function appendMessage(messages:any[],role:string,block:any,field="content") {
   const previous=messages.at(-1);
