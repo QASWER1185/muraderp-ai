@@ -8,7 +8,10 @@ import type { AuthoritativeTransactionIdentity } from "../types/authoritative-tr
 const uuid = z.string().uuid();
 
 function requiredUuidHeader(request: Request, name: string): string {
-  const value = request.header(name)?.trim();
+  const contextValue = name === "X-Organization-Id" ? request.apiKeyTenantContext?.organizationId
+    : name === "X-Branch-Id" ? request.apiKeyTenantContext?.branchId
+    : name === "X-Actor-User-Id" ? request.apiKeyTenantContext?.actorUserId : undefined;
+  const value = contextValue ?? request.header(name)?.trim();
   const parsed = uuid.safeParse(value);
   if (!parsed.success) {
     throw new ApiError(400, "TRANSACTION_CONTEXT_REQUIRED", `${name} must be a valid UUID`);
