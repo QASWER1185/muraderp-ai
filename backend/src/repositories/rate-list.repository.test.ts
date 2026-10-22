@@ -15,6 +15,19 @@ class FakeQuery {
 }
 
 describe("SupabaseRateListRepository price resolution", () => {
+  it.each(["separate catalogs","same product conflict","future version","quantity threshold"])("checks ambiguity only after product eligibility: %s",async mode=>{
+    const org="11111111-1111-4111-8111-111111111111";
+    const tables:Record<string,Array<Record<string,any>>>={
+      rate_lists:[1,2].map(id=>({id,organization_id:org,price_type:"SALE",scope_type:"GLOBAL",is_active:true,currency_code:"PKR"})),
+      rate_list_versions:[1,2].map(id=>({id,rate_list_id:id,status:"ACTIVE",version_number:1,effective_from:mode==="future version"&&id===2?"2027-01-01T00:00:00Z":"2026-01-01T00:00:00Z",effective_to:null})),
+      rate_list_items:[{id:1,rate_list_version_id:1,product_id:10,minimum_quantity:1,unit_price:1558,unit:"pcs"},{id:2,rate_list_version_id:2,product_id:mode==="separate catalogs"?20:10,minimum_quantity:mode==="quantity threshold"?100:1,unit_price:999,unit:"pcs"}],
+    };
+    const client={from(table:string){let rows=tables[table]!;const q:any={select:()=>q,eq:(key:string,value:unknown)=>{rows=rows.filter(row=>row[key]===value);return q;},in:(key:string,values:unknown[])=>{rows=rows.filter(row=>values.includes(row[key]));return q;},lte:(key:string,value:number)=>{rows=rows.filter(row=>row[key]<=value);return q;},then:(resolve:any,reject:any)=>Promise.resolve({data:rows,error:null}).then(resolve,reject)};return q;}};
+    const repository=new SupabaseRateListRepository(()=>client as never);
+    const read=repository.findBestRateListItem({organization_id:org,price_type:"SALE",product_id:10,quantity:1,as_of:"2026-10-22T00:00:00Z"});
+    if(mode==="same product conflict")await expect(read).rejects.toThrow("Ambiguous pricing");
+    else await expect(read).resolves.toMatchObject({rate_list_id:1,product_id:10,unit_price:1558});
+  });
   it("uses the atomic draft-version import RPC", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: { version: { id: 7, status: "DRAFT" }, items: [] }, error: null });
     const repository = new SupabaseRateListRepository(() => ({ rpc }) as never);

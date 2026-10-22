@@ -79,20 +79,19 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
     const applicableRateLists = rateLists.filter((rateList) => { if (context.rate_list_id != null) return rateList.id === context.rate_list_id; if (rateList.scope_type === "CUSTOMER") return rateList.customer_id === context.customer_id; if (rateList.scope_type === "VENDOR") return rateList.vendor_id === context.vendor_id; return rateList.scope_type === "GLOBAL"; });
     if (applicableRateLists.length === 0) return null;
 
-    if (context.rate_list_id == null) {
-      const winningScopePriority = Math.max(...applicableRateLists.map((rateList) => scopePriority[rateList.scope_type]));
-      const winningScopeRateListIds = new Set(applicableRateLists.filter((rateList) => scopePriority[rateList.scope_type] === winningScopePriority).map((rateList) => rateList.id));
-      if (winningScopeRateListIds.size > 1) {
-        throw new Error("Ambiguous pricing: multiple active rate lists match the winning scope");
-      }
-    }
-
     const { data: rawVersions, error: versionError } = await client.from("rate_list_versions").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").in("rate_list_id", applicableRateLists.map((r) => r.id)).eq("status", "ACTIVE"); if (versionError) throw versionError;
     const versions = (rawVersions ?? []) as RateListVersionRecord[];
     const applicableVersions = versions.filter((version) => { const from = Date.parse(version.effective_from); const to = version.effective_to ? Date.parse(version.effective_to) : Number.POSITIVE_INFINITY; return from <= asOf && asOf < to; });
     if (applicableVersions.length === 0) return null;
     const { data: rawItems, error: itemError } = await client.from("rate_list_items").select("id, rate_list_version_id, product_id, minimum_quantity, unit_price, unit, created_at, updated_at").in("rate_list_version_id", applicableVersions.map((v) => v.id)).eq("product_id", context.product_id).lte("minimum_quantity", context.quantity); if (itemError) throw itemError;
     const candidates = ((rawItems ?? []) as RateListItemRecord[]).map((item) => { const version = applicableVersions.find((v) => v.id === item.rate_list_version_id); const rateList = version ? applicableRateLists.find((r) => r.id === version.rate_list_id) : undefined; return version && rateList ? { item, version, rateList } : null; }).filter((x): x is { item: RateListItemRecord; version: RateListVersionRecord; rateList: RateListRecord } => x !== null);
+    // Different catalogs may coexist (U-PVC, PPR-C, other brands). Only lists
+    // containing an eligible rate for this product can create ambiguity.
+    if (context.rate_list_id == null && candidates.length) {
+      const priority = Math.max(...candidates.map(candidate => scopePriority[candidate.rateList.scope_type]));
+      const ids = new Set(candidates.filter(candidate => scopePriority[candidate.rateList.scope_type] === priority).map(candidate => candidate.rateList.id));
+      if (ids.size > 1) throw new Error("Ambiguous pricing: multiple active rate lists match the winning scope");
+    }
     candidates.sort((a, b) => { const scope = scopePriority[b.rateList.scope_type] - scopePriority[a.rateList.scope_type]; if (scope) return scope; const quantity = b.item.minimum_quantity - a.item.minimum_quantity; if (quantity) return quantity; const effective = Date.parse(b.version.effective_from) - Date.parse(a.version.effective_from); if (effective) return effective; return b.version.version_number - a.version.version_number; });
     const best = candidates[0]; if (!best) return null;
     return { rate_list_id: best.rateList.id, rate_list_version_id: best.version.id, rate_list_item_id: best.item.id, product_id: best.item.product_id, unit_price: best.item.unit_price, unit: best.item.unit, currency_code: best.rateList.currency_code, minimum_quantity: best.item.minimum_quantity, scope_type: best.rateList.scope_type, effective_from: best.version.effective_from };
