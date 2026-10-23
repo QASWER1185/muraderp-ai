@@ -142,7 +142,7 @@ label{display:grid;gap:6px;color:#465467;font-size:12px;font-weight:650}input,te
 .copilot-panel .message-body { text-align:start; unicode-bidi:plaintext; min-width:0; overflow-wrap:anywhere; }
 .copilot-panel .message-body:dir(rtl) { text-align:right; }
 .copilot-panel .message-body p,.copilot-panel .message-body li { font-size:15px; line-height:1.85; }
-.copilot-panel bdi { unicode-bidi:isolate; }
+.copilot-panel bdi { unicode-bidi:isolate; white-space:nowrap; }
 .copilot-panel .shop-table { max-width:100%; overflow-x:auto; margin:12px 0; overscroll-behavior-inline:contain; }
 .shop-table table { width:100%; border-collapse:collapse; font-size:15px; }
 .shop-table th,.shop-table td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:start; white-space:nowrap; vertical-align:top; }
