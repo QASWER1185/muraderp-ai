@@ -38,7 +38,7 @@ const attachments=rows.map((lines,index)=>{
  lines.forEach((line,i)=>ctx.fillText(line,30,220+i*60));
  return {fileName:"synthetic-shop-slip-"+(index+1)+".png",media:{mimeType:"image/png",base64:canvas.toBuffer("image/png").toString("base64")}};
 });
-const result=await post("/api/v1/ai/copilot/agent/input",{source:"image",task:"estimate",message:`Prepare a single complete estimate for customer ${customer.name}, Dura Max 50%. Include EVERY row in all three slips. Use current catalog prices. The Test Connector is intentionally unlisted: keep it pending. Teflon is PKR 50 per roll.`,attachments});
+const result=await post("/api/v1/ai/copilot/agent/input",{source:"image",task:"estimate",message:`Customer name: ${customer.name}, Dura Max, 50%, Prepare a single complete estimate. Include EVERY row in all three slips. Use current catalog prices. The Test Connector is intentionally unlisted: keep it pending. Teflon is PKR 50 per roll.`,attachments});
 const data=result.data;
 const observation={test:"three_synthetic_slips",httpStatus:result.httpStatus,status:data?.status,answer:data?.answer,extractedLineCount:data?.extraction?.document?.lines?.length,lines:data?.review?.preview?.lines,totals:data?.review?.preview?.totals,warnings:data?.review?.preview?.warnings,error:result.error};
 checks.push(observation);console.log(JSON.stringify(observation));

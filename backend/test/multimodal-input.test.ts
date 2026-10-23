@@ -63,6 +63,13 @@ describe("Part 4 concrete extraction and media validation",()=>{
     f.provider.generate.mockResolvedValue(doc);const result=await f.input.normalize({source:"image",media:png()},scope);
     expect(result.reviewRequired).toBe(reason==="empty lines");if(reason==="missing quantity")expect(result.message).toContain('"quantity":null');
   });
+  it("honors an explicit estimate task when its caption asks to use current catalog prices",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue(document);
+    const result=await f.input.normalize({source:"image",task:"estimate",message:"Prepare an estimate using current catalog prices",media:png()},scope);
+    expect(result.estimateRequest?.items).toHaveLength(document.lines.length);
+    expect(result.catalog).toBeUndefined();
+    expect(f.provider.generate.mock.calls[0]?.[1]).toContain("demand-slip estimate");
+  });
   it("does not halt readable sized rows solely for low confidence",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,confidence:.3,lines:[{...document.lines[0]!,size:"25mm",confidence:.3}]});
     const result=await f.input.normalize({source:"image",media:png()},scope);
