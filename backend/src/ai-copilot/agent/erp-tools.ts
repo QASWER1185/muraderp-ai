@@ -34,7 +34,7 @@ export type ToolServices = {
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
-  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"reviseUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
+  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"reviseUnifiedDraft"|"inspectUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -170,6 +170,7 @@ export class ErpToolRegistry {
     const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name) && (tool.name !== "prepare_customer_create" || this.services.runtime)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
     return [...reads, ...(this.services.analytics?ANALYTICS_DEFINITIONS:[]), ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []),
       ...(this.services.runtime?.reviseUnifiedDraft?[{type:"function" as const,name:"revise_pending_action",strict:false,parameters:z.toJSONSchema(revisionSchema),description:"Correct the current unconfirmed invoice, estimate conversion, receipt, return or other ERP action. Omit draftId for working context. Supply ONLY changed original tool input fields in changes (e.g. paidAmount for cash/credit, invoiceId for return source). Every omitted item and field is retained. Creates a fresh validated preview; never edits posted records or approves a posting. For estimate item/category edits use erp_amend_estimate."}]:[]),
+      ...(this.services.runtime?.inspectUnifiedDraft?[{type:"function" as const,name:"inspect_pending_action",strict:false,parameters:z.toJSONSchema(z.strictObject({})),description:"Read all original items and stable lineNumber values in the current unconfirmed action. Call before correcting specific estimate rows; never guess row numbers from truncated dialogue. Returns scoped source inputs, not current prices. Then use erp_amend_estimate updateLines. Unknown observed additions may be added by name/size/qty/unit without productId and stay pending."}]:[]),
       ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
   }
   async confirmPendingAction(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope) {
@@ -179,6 +180,11 @@ export class ErpToolRegistry {
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    if(name==="inspect_pending_action"){
+      await this.assertScope(scope);
+      if(!state?.workingActionId||!this.services.runtime?.inspectUnifiedDraft)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، پہلے اسی گفتگو کا غیر منظور شدہ مسودہ منتخب کریں۔");
+      return this.services.runtime.inspectUnifiedDraft(state.workingActionId,scope);
+    }
     if(name==="revise_pending_action"){
       if(!this.services.runtime?.reviseUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Revision service is unavailable.");
       await this.assertScope(scope);

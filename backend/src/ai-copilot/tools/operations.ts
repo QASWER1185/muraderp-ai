@@ -228,6 +228,7 @@ export class DefaultErpOperations implements ErpOperations {
         if((input.removeProductIds??[]).includes(item.productId)||(input.removeLineNumbers??[]).includes(index+1))return [];
         const rowChange=lineUpdates.find((row:any)=>row.lineNumber===index+1)?.changes??{};
         const updated={...item,...updates.find(update=>update.productId===item.productId),...rowChange};
+        if(rowChange.productId===undefined && ["name","size","brand"].some(key=>rowChange[key]!==undefined&&rowChange[key]!==item[key]))delete updated.productId;
         if((input.discountScheme||input.pricingRules) && rowChange.discount===undefined && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
         return [updated];
       });

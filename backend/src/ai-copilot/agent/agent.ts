@@ -155,14 +155,15 @@ export class UnifiedCopilotAgent {
     let status = "limit";
     let verifiedRate=false;
     const recoveries:string[]=[];
-    const estimateRequest=/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message);
+    const estimateCorrection=state.workingActionTool==="erp_create_estimate" && /اسی|ڈرافٹ|درست|اصلاح|فیصد|لیس|شامل|\b(?:draft|amend|correct|change|discount|add)\b/iu.test(request.message);
+    const estimateRequest=estimateCorrection||/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message);
     let missingEstimateCustomer=false,estimateRecoveryUsed=false;
     const customerRequest = !estimateRequest && /\b(?:new|naya)\s+customer\b|\bcustomer\s+(?:add|create)\b|نیا\s+کسٹمر|کسٹمر\s+ایڈ/i.test(request.message)
       && this.tools.definitions().some(tool => tool && typeof tool === "object" && "name" in tool && tool.name === "prepare_customer_create");
     try {
       for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
         if (controller.signal.aborted) { status = "timeout"; break; }
-        const availableTools=this.tools.definitions().filter(tool=>!estimateRequest || !ESTIMATE_UNNEEDED_TOOLS.has((tool as {name:string}).name));
+        const availableTools=this.tools.definitions().filter(tool=>!estimateRequest || (!ESTIMATE_UNNEEDED_TOOLS.has((tool as {name:string}).name) && (!estimateCorrection || !["search_products","erp_get_product_sale_rate","erp_compare_brand_rates","lookup_current_sale_rate"].includes((tool as {name:string}).name))));
         const step = await withinDeadline(this.model.respond(input, availableTools, controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {

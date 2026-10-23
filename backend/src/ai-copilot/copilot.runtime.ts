@@ -267,6 +267,17 @@ export class CopilotRuntime {
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
     return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:!prepared.data.incomplete};
   }
+  async inspectUnifiedDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}) {
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    const {data:record,error}=await this.dependencies.database().from("ai_copilot_actions").select("status,action_plan")
+      .eq("id",draftId).eq("organization_id",scope.organizationId).eq("user_id",scope.userId).maybeSingle();
+    if(error)throw new ApiError(502,"ERP_READ_FAILED","The active action could not be read.");
+    const action=record?.action_plan?.unifiedAction;
+    if(!action || !Object.hasOwn(ACTION_TARGETS,action.tool) || record.status!=="DRAFT" || record.action_plan.branchId!==scope.branchId)
+      throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، اسی صارف اور برانچ کا غیر منظور شدہ مسودہ منتخب کریں۔");
+    await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[action.tool as ErpWriteName]);
+    return {draftId,tool:action.tool,customerName:action.input.customerName,items:(action.input.items??[]).map((item:any,index:number)=>({lineNumber:index+1,...item})),pricingRules:action.input.pricingRules};
+  }
   async reviseUnifiedDraft(draftId:string,changes:Record<string,unknown>,scope:{userId:string;organizationId:string;branchId:string},source:CopilotActionPlan["source"]="text") {
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
     const {data:record,error}=await this.dependencies.database().from("ai_copilot_actions").select("status,action_plan")

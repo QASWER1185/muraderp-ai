@@ -10,6 +10,21 @@ import {ErpToolRegistry} from "./agent/erp-tools.js";
 
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 describe("shared conversational recovery",()=>{
+  it("reads full pending source rows under owner scope without exposing stale rates",async()=>{
+    const eq=vi.fn();const auth=vi.fn();const query:any={select:()=>query,eq:(...args:any[])=>{eq(...args);return query;},maybeSingle:async()=>({data:{status:"DRAFT",action_plan:{branchId:scope.branchId,unifiedAction:{tool:"erp_create_estimate",input:{customerName:"خادم حسین پلمبر",items:[{name:"ململ",qty:4,unit:"gaz"}]},data:{secretCost:100}}}},error:null})};
+    const runtime=new CopilotRuntime({} as any,{database:()=>({from:()=>query}),authorization:{assertPermission:auth},branchAccess:{assertBranchAccess:vi.fn()}} as any);
+    const result=await runtime.inspectUnifiedDraft("original-preview",scope);
+    expect(result.items).toEqual([{lineNumber:1,name:"ململ",qty:4,unit:"gaz"}]);expect(result).not.toHaveProperty("data");
+    expect(eq.mock.calls).toEqual(expect.arrayContaining([["organization_id",scope.organizationId],["user_id",scope.userId]]));expect(auth).toHaveBeenCalledWith(scope.userId,scope.organizationId,"sales.create");
+    await expect(runtime.inspectUnifiedDraft("original-preview",{...scope,branchId:"another"})).rejects.toMatchObject({code:"ERP_ACTION_CLARIFICATION"});
+  });
+  it("continues an implicit draft correction with inspect and amendment tools",async()=>{
+    const state=newBusinessState(scope);state.workingActionId="a3000000-0000-4000-8000-000000000009";state.workingActionTool="erp_create_estimate";
+    const model={respond:vi.fn().mockResolvedValueOnce({output:[],text:"No catalog match"}).mockResolvedValueOnce({output:[{type:"function_call",name:"erp_amend_estimate",call_id:"edit",arguments:"{}"}],text:""})};
+    const executor={definitions:()=>["inspect_pending_action","search_products","erp_amend_estimate"].map(name=>({name})),execute:vi.fn(async()=>({review:{requiresConfirmation:false,preview:{summary:"Corrected pending draft"}}}))};
+    const result=await new UnifiedCopilotAgent(model,executor).run({message:"اسی ڈرافٹ کی اصلاح کریں، ململ 4 گز شامل کریں",conversationToken:writeBusinessState(state)},scope);
+    expect(result.answer).toBe("Corrected pending draft");expect(model.respond.mock.calls[0]?.[1]).toEqual([{name:"inspect_pending_action"},{name:"erp_amend_estimate"}]);
+  });
   it("retains the customer before a provider failure and never treats a correction's جی as a new name",async()=>{
     const model={respond:vi.fn(async()=>{throw new ApiError(502,"AI_PROVIDER_ERROR","Provider failed");})};
     const first=await new UnifiedCopilotAgent(model,{definitions:()=>[],execute:vi.fn()}).run({message:"خادم حسین پلمبر کے لیے دو پائپ کا ایسٹیمیٹ بناؤ"},scope);

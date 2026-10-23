@@ -16,6 +16,13 @@ function fixture(){
   return {deps,ops:new DefaultErpOperations(deps),persist:(action:any)=>{saved={id:"a3000000-0000-4000-8000-000000000009",status:"DRAFT",user_id:scope.userId,action_plan:{branchId:scope.branchId,unifiedAction:action}};}};
 }
 describe("simulated multi-turn lifecycle (synthetic slip lines)",()=>{
+  it("re-resolves changed sizes and keeps newly observed unlisted rows pending",async()=>{
+    const f=fixture();f.deps.search.searchProducts=vi.fn(async()=>resolveCandidates([],5));
+    const first=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:11,name:"PPR-C Pipe",size:"25mm",qty:2},{productId:12,qty:3}]},scope);f.persist(first);
+    const revised=await f.ops.prepare("erp_amend_estimate",{draftId:"a3000000-0000-4000-8000-000000000009",updateLines:[{lineNumber:1,changes:{size:"32mm"}}],addItems:[{name:"ململ",qty:4,unit:"gaz"},{name:"UPVC Socket",size:"5 inch",qty:4,unit:"pcs"}]},scope);
+    expect(revised.data.lines).toHaveLength(4);expect(revised.data.lines[0]).toMatchObject({pending:true,size:"32mm"});expect(revised.data.lines[1]).toMatchObject({product_id:12,quantity:3});
+    expect(revised.data.lines[2]).toMatchObject({pending:true,quantity:4,unit:"gaz"});expect(revised.preview).toMatchObject({incomplete:true,partialTotals:{grand_total:600}});
+  });
   it("corrects only the chosen row when two rows share the same product",async()=>{
     const f=fixture();const first=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:11,qty:2},{productId:11,qty:3}]},scope);f.persist(first);
     const revised=await f.ops.prepare("erp_amend_estimate",{draftId:"a3000000-0000-4000-8000-000000000009",updateLines:[{lineNumber:1,changes:{qty:4}}]},scope);
