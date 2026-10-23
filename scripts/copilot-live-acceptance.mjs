@@ -73,7 +73,9 @@ if(process.argv.includes("--catalog-audit")){
     const response=localAgent?undefined:await fetch(base+"/api/copilot/chat",{method:"POST",headers:{"Content-Type":"application/json","Cookie":cookie,"X-Branch-Id":scope.branchId},body:JSON.stringify({organizationId:scope.organizationId,userId:scope.userId,message:question,...conversation}),signal:AbortSignal.timeout(180000)});
     const result=localAgent?{data:await localAgent.run({message:question,...conversation},scope)}:await response.json(),data=result.data;
     if(data?.conversationToken){conversationToken=data.conversationToken;conversationId=data.conversationId;}
-    const transcript={question,httpStatus:response?.status??null,transport:localAgent?"local agent / live Gemini and ERP":"production HTTP",status:data?.status,answer:data?.answer??data?.message,toolNames:data?.toolNames,error:result.error};
+    const preview=data?.review?.preview;
+    const transcript={question,httpStatus:response?.status??null,transport:localAgent?"local agent / live Gemini and ERP":"production HTTP",status:data?.status,answer:data?.answer??data?.message,toolNames:data?.toolNames,requiresConfirmation:data?.requiresConfirmation,
+      ...(preview?{preview:{incomplete:preview.incomplete??false,lines:preview.lines?.map(line=>({productId:line.product_id,name:line.productName??line.name,size:line.size,quantity:line.quantity??line.qty,unit:line.unit,rate:line.unit_price,discountPercent:line.discountPercent,pending:line.pending??false})),totals:preview.totals,partialTotals:preview.partialTotals}}:{}),error:result.error};
     transcripts.push(transcript);console.log(JSON.stringify(transcript));
   }
   const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify({verifiedAt:new Date().toISOString(),base,scope,transcripts},null,2));

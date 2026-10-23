@@ -12,6 +12,8 @@ export function estimateCaptionChoices(message: string): {customerName?:string;c
   const text=message.replace(/[۰-۹٠-٩]/g,char=>String("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩".indexOf(char)%10));
   const percentages=[...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|فیصد|پرسنٹ|percent\b)/giu)].map(match=>Number(match[1]));
   const percent=percentages.length===1 && percentages[0]!<=100 && brandsInText(text).length<=1?percentages[0]:undefined;
+  const inlineName=text.match(/^(?:(?:جناب|حاجی صاحب)[،,\s]*)?(?<name>[\p{L}][\p{L}\s]{0,69}?)\s+کے\s*لیے(?:\s|$)/u)?.groups?.name?.trim();
+  if(inlineName)return {customerName:inlineName,...(percent!==undefined?{percent}:{})};
   const named=text.match(/(?:کسٹمر|گاہک)\s+کا\s+نام\s+(?<name>[\p{L}][\p{L}\s]{0,70}?)\s+ہے(?:\s|[۔،,.]|$)/u);
   if(named?.groups?.name)return {customerName:named.groups.name.trim(),...(percent!==undefined?{percent}:{})};
   const informal=text.match(/(?:کسٹمر|گاہک)\s+(?<name>[\p{L}\s]{1,70}?)\s+ہے\s+(?<address>[\p{L}\p{N}\s،,.-]{2,120}?)\s+کا(?:[،,.\s]|$)/u);

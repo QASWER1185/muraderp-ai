@@ -277,8 +277,6 @@ export class UnifiedCopilotAgent {
               }
               if((result.review as any).tool==="erp_create_estimate"){
                 state.workingActionId=prepared.draftId;
-                const choices=args as {customerName?:string;customerAddress?:string};
-                if(choices.customerName)state.estimateCustomerChoice={name:choices.customerName,...(choices.customerAddress?{address:choices.customerAddress}:{})};
               }
               status = "completed"; break;
             }

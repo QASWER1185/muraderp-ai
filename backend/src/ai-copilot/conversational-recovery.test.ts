@@ -6,9 +6,19 @@ import {confirmConversationAction} from "./tools/confirmation.js";
 import {ApiError} from "../errors/api-error.js";
 import {CustomerMemoryStore} from "./customerMemoryStore.js";
 import {CopilotRuntime} from "./copilot.runtime.js";
+import {ErpToolRegistry} from "./agent/erp-tools.js";
 
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 describe("shared conversational recovery",()=>{
+  it("retains the owner's complete customer name and strips an inferred address",async()=>{
+    const prepare=vi.fn(async(..._args:any[])=>({draftId:"preview"}));
+    const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{createUnifiedDraft:prepare}} as any);
+    const state=newBusinessState(scope);
+    await tools.execute("erp_create_estimate",{customerName:"خادم حسین",customerAddress:"لاہور",items:[{productId:11,qty:2}]},scope,state,"خادم حسین پلمبر کے لیے دو پائپ کا ایسٹیمیٹ بناؤ");
+    expect(prepare.mock.calls[0]?.[1]).toMatchObject({customerName:"خادم حسین پلمبر"});
+    expect(prepare.mock.calls[0]?.[1]).not.toHaveProperty("customerAddress");
+    expect(state.estimateCustomerChoice).toEqual({name:"خادم حسین پلمبر"});
+  });
   it("does not complete an estimate correction with a standalone price read",async()=>{
     const rateCall={type:"function_call",call_id:"rate",name:"erp_get_product_sale_rate",arguments:"{}"};
     const prepareCall={type:"function_call",call_id:"preview",name:"erp_create_estimate",arguments:"{}"};
