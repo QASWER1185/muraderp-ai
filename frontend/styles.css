@@ -148,3 +148,10 @@ label{display:grid;gap:6px;color:#465467;font-size:12px;font-weight:650}input,te
 .shop-table th,.shop-table td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:start; white-space:nowrap; vertical-align:top; }
 .shop-table th { background:var(--surface-soft); }
 .copilot-panel .review-line-title strong { font-size:15px; line-height:1.85; }
+
+.copilot-panel .review-card {font-family:inherit;font-size:15px;line-height:1.85;text-align:start;unicode-bidi:plaintext;}
+.copilot-panel .review-card:dir(rtl) {direction:rtl;text-align:right;}
+.copilot-panel .counter-totals {margin:14px 0;max-width:420px;}
+.copilot-panel .counter-totals>div {display:flex;justify-content:space-between;gap:20px;padding:4px 0;}
+.copilot-panel .counter-totals dd {margin:0;}
+.copilot-panel .counter-totals>div:last-child {font-weight:700;border-top:1px solid var(--line);}

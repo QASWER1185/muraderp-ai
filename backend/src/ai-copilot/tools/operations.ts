@@ -26,6 +26,7 @@ import { landedCost,canonicalUnit } from "../conversationalMunshi.js";
 import { SiteTransferService, DEPOT_WRITES } from "../siteTransferService.js";
 import type { CompanionLearningStore } from "../companionLearningStore.js";
 import type { DepotIntelligenceStore } from "../depotIntelligenceStore.js";
+import { shopItem, shopDiscount, correctionNote, counterTotals } from "../shop-policy.js";
 import { duraCatalogBaseline } from "../catalogIntegrity.js";
 
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -115,17 +116,24 @@ export class DefaultErpOperations implements ErpOperations {
     if(available<=0||Math.abs(quantity-available)>.000001||value<0)requireChoice("Reconciled inventory cost is unavailable for Product "+productId+". Provide its verified unitCost.");
     return {unitCost:value/available,available,costSource:"reconciled stock movement valuation"};
   }
-  private async quote(input:any,scope:AgentScope,invoice=false,asOf=today(),approvedCustomer?:any) {
+  private async quote(input:any,scope:AgentScope,invoice=false,asOf=today(),approvedCustomer?:any, committing=false) {
     const customer=approvedCustomer ? {name:approvedCustomer.name,city:approvedCustomer.city,newCustomer:approvedCustomer} : await this.customer(input,scope,!invoice);
     const profile=customer.id ? await this.memory.recall(scope,customer.id,customer.name) :
       {history:[],preferredBrands:[],transactionCount:0,averageTransactionVolume:0,averageOrderIntervalDays:null,context:"",customerId:0};
-    const warehouseId=invoice?await this.warehouse(input.warehouseId,scope):undefined;
+    const warehouseId=invoice?(committing?await this.warehouse(input.warehouseId,scope):input.warehouseId):undefined;
     const lines:any[]=[];
     for(let offset=0;offset<input.items.length;offset+=8) {
       const batch=await Promise.all(input.items.slice(offset,offset+8).map(async(original:any,index:number)=>{
-      const item=applyHybridRules<any>(original,input.pricingRules??[]);
+      const item=shopItem(applyHybridRules<any>(original,input.pricingRules??[]),input.brand);
+      const pending=(reason:string,product?:any)=>({line_number:offset+index+1,product_id:product?.id??null,productName:product?.name??[item.name,item.size].filter(Boolean).join(" "),size:item.size,brandName:brand??"دیگر سامان",quantity:item.qty??0,unit:product?.unit??item.unit??"pcs",unit_price:0,discount_amount:0,discountPercent:item.discount??input.discountScheme?.percent??shopDiscount(brand),pricing_source:"PENDING_RATE",pendingReason:reason});
       const brand=input.brand ?? item.brand ?? explicitBrand(item.name??"");
+      if(!committing && /\bteflon\b|ٹیفلون/iu.test(item.name??"") && item.qty!=null){
+        return {...pending("دکان کا مقررہ نرخ؛ کیٹلاگ میں تصدیق پینڈنگ"),unit:"roll",unit_price:50,discountPercent:0,pricing_source:"MERCHANT_QUOTE"};
+      }
       if(input.brand && item.brand && !sameBrand(item.brand,input.brand))requireChoice("اس پرچی کے تمام آئٹمز صرف "+canonicalBrand(input.brand)+" میں تیار ہوں گے۔ مختلف برانڈ کے لیے الگ درخواست دیں۔");
+      if(item.qty==null) { if(!committing)return pending("مقدار پینڈنگ"); requireChoice("اس آئٹم کی مقدار درکار ہے۔"); }
+      if(!committing&&!item.productId && /\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(item.name??"") && !/\d\s*(?:mm\b|inch\b|["″])/i.test([item.name,item.size].join(" ")))
+        return pending("درست سائز پینڈنگ");
       let product=item.productId?await this.deps.erp.getProduct(item.productId,scope.organizationId):null;
       if(!item.productId) {
         if(!item.name)requireChoice("Each item needs a product name or Product ID.");
@@ -139,7 +147,7 @@ export class DefaultErpOperations implements ErpOperations {
           const preferred=profile.preferredBrands.filter(brand=>match.items.some(row=>row.category===brand.category && row.brandName===brand.brandName));
           if(preferred.length===1) match=await this.deps.search.searchProducts([preferred[0]!.brandName,item.name,item.size].filter(Boolean).join(" "),5,scope);
         }
-        if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
+        if(match.resolution!=="resolved"||!match.bestCandidate) { if(!committing)return pending("کیٹلاگ آئٹم یا سائز پینڈنگ"); requireChoice("براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ ")); }
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
@@ -148,35 +156,38 @@ export class DefaultErpOperations implements ErpOperations {
       if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       const countedPipe=(/\bpipe\b/i.test(product.name)||/^pipes?$/i.test(product.category))&&["pcs","length"].includes(canonicalUnit(item.unit??""))&&["pcs","length"].includes(canonicalUnit(product.unit));
-      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe)requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔");
+      const countedTin=/\b(?:solvent|solution)\b/i.test(product.name)&&["pcs","can"].includes(canonicalUnit(item.unit??""))&&["pcs","can"].includes(canonicalUnit(product.unit));
+      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe&&!countedTin) { if(!committing)return pending("پیکنگ کی تعداد یا یونٹ کی تبدیلی پینڈنگ",product); requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔"); }
       const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
-      if(!rate||rate.unit!==product.unit)requireChoice(product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔");
+      if(!rate||rate.unit!==product.unit) { if(!committing)return pending("فعال نرخ پینڈنگ",product); requireChoice(product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔"); }
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
       const baseline=duraCatalogBaseline(product.name,brand);
-      if(baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
-      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
-      const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
+      if(committing&&baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
+      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,shopDiscount(brand??explicitBrand(product.name)));
+      const cost=invoice&&committing?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
       const merchantCost=!invoice && this.deps.intelligence?await this.deps.intelligence.purchaseFloor(scope,product.id,rate.unit_price,product.unit,rate.currency_code):null;
       const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
-      await this.memory.assertFloor(scope,product.id,rate.unit_price,item.qty*rate.unit_price===0?0:discountAmount/(item.qty*rate.unit_price)*100,product.unit,rate.currency_code,cost?.unitCost);
+      if(committing)await this.memory.assertFloor(scope,product.id,rate.unit_price,item.qty*rate.unit_price===0?0:discountAmount/(item.qty*rate.unit_price)*100,product.unit,rate.currency_code,cost?.unitCost);
       if(classifyMaterial([brand,product.name].join(" "))==="GI" && /brass|براس|پیتل/iu.test(product.name))
         requireChoice("HE China صرف G.I. فٹنگ ہے؛ اسے پیتل یا Brass کے طور پر شامل نہیں کیا جا سکتا۔");
       return {line_number:offset+index+1,product_id:product.id,productName:product.name,...(item.size?{size:item.size}:{}),brandName:brand??explicitBrand(product.name)??"دیگر سامان",quantity:item.qty,unit:product.unit,unit_price:rate.unit_price,
         discount_amount:discountAmount,discountPercent:discount,pricing_source:"RESOLVED_RATE",
+        ...(correctionNote(original.rawShorthand??original.name,product.name)?{correctionNote:correctionNote(original.rawShorthand??original.name,product.name)}:{}),
         rate_list_id:rate.rate_list_id,rate_list_version_id:rate.rate_list_version_id,resolved_price:rate,
         ...(merchantCost!=null?{merchantUnitCost:merchantCost}:{}),
         ...(cost??{})};
       }));
       lines.push(...batch);
     }
-    if(invoice) {
+    if(invoice&&committing) {
       const required=new Map<number,number>();
       for(const line of lines)required.set(line.product_id,(required.get(line.product_id)??0)+line.quantity);
       for(const line of lines)if(required.get(line.product_id)!>line.available)requireChoice("Insufficient stock for "+line.productName+".");
     }
-    const totals=calculateEstimateTotals(lines,input.carriageCharges??0);
+    const calculated=calculateEstimateTotals(lines,input.carriageCharges??0);
+    const totals={...calculated,...counterTotals(calculated)};
     if((input.paidAmount??0)>totals.customer_payable_total)requireChoice("Paid amount exceeds the invoice payable amount.");
     return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf};
   }
@@ -253,7 +264,7 @@ export class DefaultErpOperations implements ErpOperations {
       const installation=new InstallationCompletenessService();
       data.companions=installation.audit(data.lines.map((line:any)=>({name:line.productName,quantity:line.quantity})));
       if(this.deps.companions){
-        const learned=await this.deps.companions.suggestions(scope,data.lines.map((line:any)=>line.product_id),input.brand);
+        const learned=await this.deps.companions.suggestions(scope,data.lines.filter((line:any)=>line.product_id!=null).map((line:any)=>line.product_id),input.brand);
         data.companions.push(...learned.filter(item=>!data.companions.some((known:any)=>known.query.toLowerCase()===item.query.toLowerCase())));
       }
       data.creditWarnings=data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
@@ -265,18 +276,19 @@ export class DefaultErpOperations implements ErpOperations {
     const summary=tool==="erp_create_estimate" ?
       "حاجی صاحب! "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
       (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
-      " "+count+" آئٹمز کا مکمل ایسٹیمیٹ پری ویو تیار کر دیا گیا ہے۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ تفصیل دیکھ لیں؛ ERP میں محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
+      " "+count+" آئٹمز کا ایسٹیمیٹ حاضر ہے۔ معلوم نرخوں کی خالص رقم PKR "+data.totals.grand_total+" ہے۔"+(data.lines.some((line:any)=>line.pricing_source==="PENDING_RATE")?" پینڈنگ آئٹمز صفر نرخ پر الگ نشان زد ہیں؛ ان کی قیمت اس رقم میں شامل نہیں۔":"") :
       "میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
     return {tool,input,data,preview:{title,summary,
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
       ...(data.totals?{totals:data.totals}:{}),
       ...(tool==="erp_create_estimate"?{companions:data.companions,quotation:data.quotation,privateMargin:data.privateMargin,
-        warnings:[...data.creditWarnings,new InstallationCompletenessService().prompt(data.companions)].filter(Boolean)}:{}),
+        warnings:[...data.creditWarnings,...data.lines.flatMap((line:any)=>[line.pendingReason?line.productName+": "+line.pendingReason:undefined,line.correctionNote]).filter(Boolean),new InstallationCompletenessService().prompt(data.companions)].filter(Boolean)}:{}),
       ...(tool==="erp_record_payment"&&!data.allocations.length?{warnings:["یہ غیر مختص پیشگی وصولی ہے؛ کسی مخصوص invoice کو ادا شدہ نہیں کیا جائے گا۔"]}:{})}};
   }
   async execute(action:PreparedErpAction,scope:AgentScope,key:string) {
-    const {tool,input,data}=action;
+    const {tool,input}=action;
+    let data=action.data;
     if(DEPOT_WRITES.has(tool))return this.depot.execute(action,scope,key);
     if(tool==="erp_customer_return") {
       // Revalidate the exact approved source, never silently rebind to a newer sale.
@@ -300,8 +312,11 @@ export class DefaultErpOperations implements ErpOperations {
     },{organizationId:scope.organizationId,branchId:scope.branchId,actorUserId:scope.userId,servicePrincipalId:this.deps.principal,
       operation:"customer-payment.create",idempotencyKey:key,requestFingerprint:digest(action)});
     if(tool==="erp_create_estimate"||tool==="erp_create_invoice") {
-      const current=await this.quote(input,scope,tool==="erp_create_invoice",data.date,data.newCustomer);
-      equal(current,dataWithoutNumber(data),"Authoritative prices, units, costs or totals");
+      const current=await this.quote(input,scope,tool==="erp_create_invoice",data.date,data.newCustomer,true);
+      if(tool==="erp_create_invoice"){
+        equal(commercialQuote(current),commercialQuote(dataWithoutNumber(data)),"Authoritative prices, units or totals");
+        data={...data,...current};
+      } else equal(current,dataWithoutNumber(data),"Authoritative prices, units, costs or totals");
     } else {
       const source=await this.deps.estimates.getEstimateAggregate(data.sourceEstimateId,scope.organizationId);
       equal(digest(source),data.sourceFingerprint,"Source estimate");
@@ -470,3 +485,9 @@ export class DefaultErpOperations implements ErpOperations {
 }
 function dataWithoutNumber(data:Record<string,any>) {const {documentNumber,companions,quotation,privateMargin,creditWarnings,...value}=data;return value;}
 function projectLines(lines:any[],discount=true) {return lines.map(line=>[line.product_id,Number(line.quantity),line.unit,Number(line.unit_price),...(discount?[Number(line.discount_amount??0)]:[])]);}
+
+/** Invoice previews do not reserve stock or require a cost valuation. Recheck both at posting. */
+function commercialQuote(value:Record<string,any>) {
+ const {warehouseId:_warehouse,...quote}=value;
+ return {...quote,lines:quote.lines.map((line:any)=>{const {unitCost:_cost,available:_available,costSource:_source,...commercial}=line;return commercial;})};
+}

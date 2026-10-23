@@ -81,7 +81,7 @@ describe("read-only ERP agent", () => {
     expect(ERP_TOOLS.map(tool=>tool.name)).toContain("erp_audit_catalog_rates");
     expect(new Set(registry.definitions().map((tool) => tool.name)).size).toBe(registry.definitions().length);
     expect(registry.definitions().every((tool) => tool.type === "function" && tool.parameters.type === "object")).toBe(true);
-    expect(ERP_TOOLS.every((tool) => tool.classification === "read" && tool.authentication === "required")).toBe(true);
+    expect(ERP_TOOLS.every((tool) => ["read","create"].includes(tool.classification) && tool.authentication === "required")).toBe(true);
     expect(await registry.execute("search_products", { query: "Popular 25mm", limit: 10 }, scope)).toMatchObject({ items: [expect.objectContaining({ id: 7 })] });
     await expect(registry.execute("lookup_product", { product_id: "7" }, scope)).rejects.toMatchObject({ code: "INVALID_COPILOT_TOOL_INPUT" });
     await expect(registry.execute("unknown", {}, scope)).rejects.toMatchObject({ code: "UNKNOWN_COPILOT_TOOL" });
@@ -125,13 +125,13 @@ describe("read-only ERP agent", () => {
     expect(await registry.execute("search_rate_lists", { query: "Popular", limit: 10 }, scope)).toEqual([expect.objectContaining({ id: 4 })]);
   });
 
-  it("stops repeated calls, malformed calls, iteration exhaustion, and timeouts", async () => {
+  it("recovers repeated calls and bounds malformed calls, iteration exhaustion and timeouts", async () => {
     const registry = new ErpToolRegistry(services());
     const repeated = sequence(step(call("search_products", { query: "25mm", limit: 10 })), step(call("search_products", { query: "25mm", limit: 10 }, "call-2")));
-    expect((await new ReadOnlyCopilotAgent(repeated.model, registry).run({ message: "x" }, scope)).status).toBe("duplicate");
+    expect((await new ReadOnlyCopilotAgent(repeated.model, registry).run({ message: "x" }, scope)).status).toBe("completed");
     const malformed = sequence(step({ type: "function_call", call_id: "c", name: "search_products", arguments: "{" }));
     expect((await new ReadOnlyCopilotAgent(malformed.model, registry).run({ message: "x" }, scope)).status).toBe("malformed");
-    const overLimit = sequence(step(...Array.from({ length: 13 }, (_, index) => call("search_products", { query: String(index), limit: 1 }, String(index)))));
+    const overLimit = sequence(step(...Array.from({ length: 31 }, (_, index) => call("search_products", { query: String(index), limit: 1 }, String(index)))));
     expect((await new ReadOnlyCopilotAgent(overLimit.model, registry).run({ message: "x" }, scope)).status).toBe("call_limit");
     const endless: AgentModel = { respond: async (_input, _tools) => step(call("search_products", { query: String(Math.random()), limit: 1 }, String(Math.random()))) };
     expect((await new ReadOnlyCopilotAgent(endless, registry).run({ message: "x" }, scope)).status).toBe("limit");

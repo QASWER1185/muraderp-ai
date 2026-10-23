@@ -47,10 +47,13 @@ function specifications(value:string,catalog=false):string[] {
 /** The merchant's named Dura variants are defaults for unspecified variants;
  * they restrict catalog search, never replace authoritative stored prices. */
 export function canonicalCatalogQuery(value:string,brand?:string):string {
-  if(!sameBrand(brand??explicitBrand(value),"Dura Max"))return value;
+
   let query=value;
-  if(/\bu[\s-]*pvc\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\b(?:medium|class|schedule|sch|conduit|heavy|light)\b/i.test(query))query+=" Medium";
-  if(/\bppr[\s-]*c\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\bpn\s*[-:]?\s*\d+/i.test(query))query+=" PN-16";
+  if(/\b(?:solvent|solution)\b/i.test(query)&&!/\d\s*(?:g|gm|grams?|kg)\b/i.test(query))query+=" 500g";
+  if(sameBrand(brand??explicitBrand(value),"Dura Max")){
+    if(/\bu[\s-]*pvc\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\b(?:medium|class|schedule|sch|conduit|heavy|light)\b/i.test(query))query+=" Medium";
+    if(/\bppr[\s-]*c\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\bpn\s*[-:]?\s*\d+/i.test(query))query+=" PN-16";
+  }
   if(/\bp[\s-]*trap\b/i.test(query)&&!/\b(?:single|double)\b/i.test(query))query+=" Single";
   if(/\bgate\s+valve\b/i.test(query)&&!/\b(?:plastic|metal|fancy|brass)\b/i.test(query))query+=" Plastic";
   return query;

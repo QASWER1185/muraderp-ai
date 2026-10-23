@@ -13,7 +13,7 @@ export function applyHybridRules<T extends {name?:string;brand?:string;discount?
   const rule=matches[0];
   return rule?{...item,brand:canonicalBrand(rule.brand),discount:item.discount??rule.discount}:item;
 }
-export interface QuotationLine {productName:string;size?:string;brandName?:string;quantity:number;unit:string;unit_price:number;discountPercent?:number;discount_amount?:number;unitCost?:number}
+export interface QuotationLine {productName:string;size?:string;brandName?:string;quantity:number;unit:string;unit_price:number;discountPercent?:number;discount_amount?:number;unitCost?:number;pricing_source?:string}
 export function groupQuotation(lines:QuotationLine[]) {
   const groups=new Map<string,{brand:string;lines:QuotationLine[];gross:number;savings:number;net:number}>();
   for(const line of lines){
@@ -30,7 +30,7 @@ export function groupQuotation(lines:QuotationLine[]) {
 /** Customer-visible card contains no purchase costs or merchant margin. */
 export function quotationCard(customer:string,quote:ReturnType<typeof groupQuotation>) {
   return {title:"ایم مراد بلڈنگ مٹیریل سٹور",customer,sections:quote.groups.map(group=>({brand:group.brand,lines:group.lines.map(line=>({
-    name:line.productName,size:line.size??null,quantity:line.quantity,unit:line.unit,rate:line.unit_price,discount:line.discount_amount??0,discountPercent:line.discountPercent??(line.quantity*line.unit_price?Math.round((line.discount_amount??0)/(line.quantity*line.unit_price)*10000)/100:0),
+    name:line.productName,size:line.size??null,quantity:line.quantity,unit:line.unit,rate:line.unit_price,pending:line.pricing_source==="PENDING_RATE",discount:line.discount_amount??0,discountPercent:line.discountPercent??(line.quantity*line.unit_price?Math.round((line.discount_amount??0)/(line.quantity*line.unit_price)*10000)/100:0),
     amount:line.quantity*line.unit_price-(line.discount_amount??0)})),savings:group.savings,total:group.net})),grandTotal:quote.grandTotal,
-    text:["ایم مراد بلڈنگ مٹیریل سٹور","تخمینہ — "+customer,...quote.groups.flatMap(group=>[group.brand,...group.lines.map(line=>line.productName+" — "+line.quantity+" "+line.unit+"؛ نرخ PKR "+line.unit_price+"؛ رعایت PKR "+(line.discount_amount??0)+"؛ رقم PKR "+(line.quantity*line.unit_price-(line.discount_amount??0))), "برانڈ رعایت: PKR "+group.savings+"؛ رقم: PKR "+group.net]),"کل رقم: PKR "+quote.grandTotal].join("\n")};
+    text:["ایم مراد بلڈنگ مٹیریل سٹور","تخمینہ — "+customer,...quote.groups.flatMap(group=>[group.brand,...group.lines.map(line=>line.productName+" — "+line.quantity+" "+line.unit+"؛ نرخ "+(line.pricing_source==="PENDING_RATE"?"پینڈنگ (PKR 0)":"PKR "+line.unit_price)+"؛ رعایت PKR "+(line.discount_amount??0)+"؛ رقم PKR "+(line.quantity*line.unit_price-(line.discount_amount??0))), "برانڈ رعایت: PKR "+group.savings+"؛ رقم: PKR "+group.net]),"کل رقم: PKR "+quote.grandTotal].join("\n")};
 }

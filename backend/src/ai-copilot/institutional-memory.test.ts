@@ -52,7 +52,7 @@ describe("persistent customer commercial memory",()=>{
     const memory=await memoryFixture(),{ops}=operations(memory);
     const result=await ops.prepare("erp_create_estimate",{customerId:7,items:[{productId:11,qty:2}]},scope);
     expect(result.data.lines[0]).toMatchObject({unit_price:120,discountPercent:50,discount_amount:120});
-    expect(memory.assertFloor).toHaveBeenCalledWith(scope,11,120,50,"pcs","PKR",undefined);
+    expect(memory.assertFloor).not.toHaveBeenCalled();
     expect(result.data.totals.grand_total).toBe(120);
   });
   it("honors an explicit zero discount instead of replacing it with history",async()=>{

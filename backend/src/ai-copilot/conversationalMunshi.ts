@@ -21,7 +21,9 @@ export function canonicalUnit(value:string):string {
   const unit=value.trim().toLowerCase();
   if(/^(?:pcs?|pieces?|عدد|پی سیز)$/u.test(unit))return "pcs";
   if(/^(?:kg|kgs|kilograms?|کلو|کلوگرام)$/u.test(unit))return "kg";
-  if(/^(?:length|lengths|pipe length|لمبائی)$/u.test(unit))return "length";
+  if(/^(?:length|lengths|pipe length|لمبائی|لمبائیاں)$/u.test(unit))return "length";
+  if(/^(?:rolls?|رول)$/u.test(unit))return "roll";
+  if(/^(?:cans?|tins?|ڈبہ|ڈبے)$/u.test(unit))return "can";
   return unit;
 }
 
