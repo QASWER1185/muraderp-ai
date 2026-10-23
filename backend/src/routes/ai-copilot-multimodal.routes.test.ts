@@ -95,7 +95,9 @@ describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=
     const preview=await f.post("agent/input",{source:"image",media:media()});const data=preview.body.data;
     f.runtime.confirmAndExecute.mockRejectedValueOnce(new Error("ERP unavailable"));
     const result=await f.post("agent",{message:"درج کر دیں",conversationToken:data.conversationToken,conversationId:data.conversationId});
-    expect(result.status).toBe(500);expect(JSON.stringify(result.body)).not.toContain("مبارک ہو");expect(f.respond).not.toHaveBeenCalled();
+    expect(result.status).toBe(200);expect(result.body.data.status).toBe("clarification");
+    expect(result.body.data.conversationToken).toBeTruthy();expect(result.body.data.answer).toContain("پڑتال");
+    expect(JSON.stringify(result.body)).not.toContain("مبارک ہو");expect(f.respond).not.toHaveBeenCalled();
   });
   it("routes catalog extraction directly to a protected import review without reasoning or invoice requirements",async()=>{
     const f=setup();

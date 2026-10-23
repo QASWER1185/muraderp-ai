@@ -123,6 +123,7 @@ export class DefaultErpOperations implements ErpOperations {
     const lines:any[]=[];
     for(let offset=0;offset<input.items.length;offset+=8) {
       const batch=await Promise.all(input.items.slice(offset,offset+8).map(async(original:any,index:number)=>{
+      try {
       const item=applyHybridRules<any>(original,input.pricingRules??[]);
       const brand=input.brand ?? item.brand ?? explicitBrand(item.name??"");
       if(input.brand && item.brand && !sameBrand(item.brand,input.brand))requireChoice("اس پرچی کے تمام آئٹمز صرف "+canonicalBrand(input.brand)+" میں تیار ہوں گے۔ مختلف برانڈ کے لیے الگ درخواست دیں۔");
@@ -139,7 +140,7 @@ export class DefaultErpOperations implements ErpOperations {
           const preferred=profile.preferredBrands.filter(brand=>match.items.some(row=>row.category===brand.category && row.brandName===brand.brandName));
           if(preferred.length===1) match=await this.deps.search.searchProducts([preferred[0]!.brandName,item.name,item.size].filter(Boolean).join(" "),5,scope);
         }
-        if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
+        if(match.resolution!=="resolved"||!match.bestCandidate)throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING","براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
@@ -151,12 +152,13 @@ export class DefaultErpOperations implements ErpOperations {
       if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe)requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔");
       const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
-      if(!rate||rate.unit!==product.unit)requireChoice(product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔");
+      if(!rate||rate.unit!==product.unit)throw new ApiError(422,"ESTIMATE_RATE_PENDING",product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔",{productId:product.id,productName:product.name,unit:product.unit});
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
       const baseline=duraCatalogBaseline(product.name,brand);
       if(baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
-      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
+      const categoryItem=applyHybridRules<any>({...item,name:product.name,category:product.category},input.pricingRules??[]);
+      const discount=categoryItem.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
       const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
       const merchantCost=!invoice && this.deps.intelligence?await this.deps.intelligence.purchaseFloor(scope,product.id,rate.unit_price,product.unit,rate.currency_code):null;
       const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
@@ -168,20 +170,30 @@ export class DefaultErpOperations implements ErpOperations {
         rate_list_id:rate.rate_list_id,rate_list_version_id:rate.rate_list_version_id,resolved_price:rate,
         ...(merchantCost!=null?{merchantUnitCost:merchantCost}:{}),
         ...(cost??{})};
+      }catch(error){
+        if(invoice || !(error instanceof ApiError) || !["ESTIMATE_PRODUCT_PENDING","ESTIMATE_RATE_PENDING"].includes(error.code))throw error;
+        const pending=error.details as {productId?:number;productName?:string;unit?:string}|undefined;
+        return {line_number:offset+index+1,productName:pending?.productName??original.name??("آئٹم "+original.productId),product_id:pending?.productId??original.productId,
+          quantity:original.qty,unit:pending?.unit??original.unit??"",unit_price:null,discountPercent:original.discount??input.discountScheme?.percent??0,
+          pending:true,pendingReason:error.message};
+      }
       }));
       lines.push(...batch);
     }
     if(invoice) {
       const required=new Map<number,number>();
       for(const line of lines)required.set(line.product_id,(required.get(line.product_id)??0)+line.quantity);
-      for(const line of lines)if(required.get(line.product_id)!>line.available)requireChoice("Insufficient stock for "+line.productName+".");
+      for(const line of lines)if(required.get(line.product_id)!>line.available)requireChoice(`${line.productName} کا موجودہ اسٹاک ${line.available} ${line.unit} ہے، جبکہ بل میں ${required.get(line.product_id)} درکار ہیں۔ مقدار کم کر دیں، ابھی ایسٹیمیٹ رکھیں، یا پہلے فیکٹری سے وصولی درج کر کے پورا بل تیار کریں۔`);
     }
-    const totals=calculateEstimateTotals(lines,input.carriageCharges??0);
+    const priced=lines.filter(line=>!line.pending);
+    const totals=calculateEstimateTotals(priced,input.carriageCharges??0);
     if((input.paidAmount??0)>totals.customer_payable_total)requireChoice("Paid amount exceeds the invoice payable amount.");
-    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf};
+    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf,
+      ...(priced.length!==lines.length?{incomplete:true,pendingCount:lines.length-priced.length}:{})};
   }
   async prepare(tool:ErpWriteName,raw:unknown,scope:AgentScope):Promise<PreparedErpAction> {
     const input:any=ERP_ACTION_SCHEMAS[tool].parse(raw);
+    if(tool==="erp_create_customer"){input.phone??="";input.address??="";}
     if(DEPOT_WRITES.has(tool))return this.depot.prepare(tool,input,scope);
     if(tool==="erp_amend_estimate"||tool==="erp_accept_companions"){
       if(!input.draftId)requireChoice("جناب، پہلے ایسٹیمیٹ کا پری ویو تیار کر لیں تاکہ اسی میں سامان شامل کروں۔");
@@ -196,8 +208,17 @@ export class DefaultErpOperations implements ErpOperations {
         if(match.resolution==="resolved" && match.bestCandidate)additions.push({productId:match.bestCandidate.id,qty:item.quantity});
         else warnings.push(item.name+" کا مناسب برانڈ، سائز یا نرخ واضح نہیں؛ اسے خود سے شامل نہیں کیا گیا۔");
       }
-      const kept=previous.input.items.filter((item:any)=>!(input.removeProductIds??[]).includes(item.productId));
-      const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.discountScheme?{discountScheme:input.discountScheme}:{})},scope);
+      const updates:any[]=input.updateItems??[];
+      const previousItems=previous.input.items.map((item:any,index:number)=>({...item,...(previous.data.lines[index]?.product_id?{productId:previous.data.lines[index].product_id}:{})}));
+      if(updates.some(update=>!previousItems.some((item:any)=>item.productId===update.productId)))requireChoice("جناب، تبدیل کرنے والا آئٹم موجودہ مسودے میں نہیں ملا؛ اصل آئٹم منتخب کر دیں۔");
+      const kept=previousItems.filter((item:any)=>!(input.removeProductIds??[]).includes(item.productId)).map((item:any)=>{
+        const updated={...item,...updates.find(update=>update.productId===item.productId)};
+        if(input.discountScheme && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
+        if(input.pricingRules && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
+        return updated;
+      });
+      const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.discountScheme?{discountScheme:input.discountScheme}:{}),...(input.pricingRules?{pricingRules:input.pricingRules}:{})},scope);
+      next.preview.summary="جی جناب، بالکل! آپ کی ہدایت کے مطابق اسی مسودے کی تازہ تفصیل حاضر ہے۔\n"+next.preview.summary;
       next.preview.warnings=[...(next.preview.warnings??[]),...warnings];return next;
     }
     let data:any={},title=tool.replace(/^erp_/,"").replaceAll("_"," ");
@@ -241,42 +262,47 @@ export class DefaultErpOperations implements ErpOperations {
       for(const item of source.items) {
         const cost=await this.inventory(item.product_id,warehouseId,scope,input.unitCosts?.find((row:any)=>row.productId===item.product_id)?.unitCost);
         await this.memory.assertFloor(scope,item.product_id,Number(item.unit_price),Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100,item.unit,source.record.currency_code,cost.unitCost);
-        if(item.quantity>cost.available)requireChoice("Insufficient stock for Product "+item.product_id+".");
+        if(item.quantity>cost.available)requireChoice(`آئٹم ${item.product_id} کا موجودہ اسٹاک ${cost.available} ${item.unit} ہے، جبکہ ایسٹیمیٹ میں ${item.quantity} درکار ہیں۔ مقدار کم کریں یا پہلے وصولی درج کریں؛ موجودہ ایسٹیمیٹ سے کام جاری رہے گا۔`);
         const {rate_list_selection_source:_selection,...commercial}=item;
         lines.push({...commercial,...cost,discountPercent:Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100});
       }
       data={customerId:source.record.customer_id,warehouseId,lines,totals:calculateEstimateTotals(lines,source.record.pass_through_rent??0),
         sourceEstimateId:input.estimateId,sourceFingerprint:digest(source),date:today()};
+      if(input.paidAmount>data.totals.customer_payable_total)requireChoice("جناب، وصول شدہ رقم بل کی کل قابلِ ادائیگی رقم سے زیادہ ہے؛ درست وصولی بتا دیں۔");
+      data.paidAmount=input.paidAmount;data.outstandingAmount=amount(data.totals.customer_payable_total-input.paidAmount);
     }
     data.documentNumber="AI-"+randomUUID().slice(0,18);
     if(tool==="erp_create_estimate"){
       const installation=new InstallationCompletenessService();
-      data.companions=installation.audit(data.lines.map((line:any)=>({name:line.productName,quantity:line.quantity})));
+      data.companions=installation.audit(data.lines.filter((line:any)=>!line.pending).map((line:any)=>({name:line.productName,quantity:line.quantity})));
       if(this.deps.companions){
-        const learned=await this.deps.companions.suggestions(scope,data.lines.map((line:any)=>line.product_id),input.brand);
+        const learned=await this.deps.companions.suggestions(scope,data.lines.filter((line:any)=>!line.pending).map((line:any)=>line.product_id),input.brand);
         data.companions.push(...learned.filter(item=>!data.companions.some((known:any)=>known.query.toLowerCase()===item.query.toLowerCase())));
       }
       data.creditWarnings=data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
-      const grouped=groupQuotation(data.lines.map((line:any)=>({...line,...(line.merchantUnitCost!=null?{unitCost:line.merchantUnitCost}:{})})));
-      data.quotation=quotationCard(data.customerName,grouped);data.privateMargin=grouped.privateMargin;
+      const grouped=groupQuotation(data.lines.filter((line:any)=>!line.pending).map((line:any)=>({...line,...(line.merchantUnitCost!=null?{unitCost:line.merchantUnitCost}:{})})));
+      if(!data.incomplete)data.quotation=quotationCard(data.customerName,grouped);data.privateMargin=grouped.privateMargin;
     }
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
-    const summary=tool==="erp_create_estimate" ?
+    const summary=data.incomplete?`جناب، ${data.customerName} کے تمام ${count} آئٹمز مسودے میں شامل ہیں۔ ${data.pendingCount} آئٹمز کا نرخ پینڈنگ تصدیق ہے۔ باقی آئٹمز کی جزوی رقم PKR ${data.totals.grand_total} ہے؛ یہ حتمی کل نہیں۔ ان آئٹمز کی درست ریٹ لسٹ یا سائز بتائیں، یا بعد میں اسی مسودے کو مکمل کریں۔` :tool==="erp_create_estimate" ?
       "حاجی صاحب! "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
       (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
       " "+count+" آئٹمز کا مکمل ایسٹیمیٹ پری ویو تیار کر دیا گیا ہے۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ تفصیل دیکھ لیں؛ ERP میں محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
       "میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
-    return {tool,input,data,preview:{title,summary,
+    const billing=["erp_create_invoice","erp_convert_estimate_to_invoice"].includes(tool)?`\nبل کی قابلِ ادائیگی رقم PKR ${data.totals.customer_payable_total}؛ نقد کاؤنٹر وصولی PKR ${input.paidAmount??0}؛ بقایا کھاتہ PKR ${amount(data.totals.customer_payable_total-(input.paidAmount??0))}۔ نقد بل کے لیے پوری وصولی، یا ادھار کے لیے مطلوبہ جزوی وصولی اسی گفتگو میں بتا دیں۔`:"";
+    const creditWarnings=billing && data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
+    return {tool,input,data,preview:{title,summary:summary+billing,...(billing?{warnings:creditWarnings}:{}),
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
-      ...(data.totals?{totals:data.totals}:{}),
+      ...(data.incomplete?{incomplete:true,partialTotals:data.totals}:data.totals?{totals:data.totals}:{}),
       ...(tool==="erp_create_estimate"?{companions:data.companions,quotation:data.quotation,privateMargin:data.privateMargin,
         warnings:[...data.creditWarnings,new InstallationCompletenessService().prompt(data.companions)].filter(Boolean)}:{}),
       ...(tool==="erp_record_payment"&&!data.allocations.length?{warnings:["یہ غیر مختص پیشگی وصولی ہے؛ کسی مخصوص invoice کو ادا شدہ نہیں کیا جائے گا۔"]}:{})}};
   }
   async execute(action:PreparedErpAction,scope:AgentScope,key:string) {
     const {tool,input,data}=action;
+    if(data.incomplete || data.lines?.some((line:any)=>line.pending))requireChoice("جناب، پینڈنگ نرخوں والا مسودہ محفوظ نہیں ہو گا۔ پہلے تمام آئٹمز کے فعال نرخ واضح کر کے نیا پری ویو تیار کریں۔");
     if(DEPOT_WRITES.has(tool))return this.depot.execute(action,scope,key);
     if(tool==="erp_customer_return") {
       // Revalidate the exact approved source, never silently rebind to a newer sale.

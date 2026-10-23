@@ -16,7 +16,8 @@ const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name))
 const MAX_ITERATIONS = 10;
 const MAX_CALLS = 12;
 const TIMEOUT_MS = 40_000;
-const FALLBACK = "جناب، اس وقت ERP سے درخواست کی تصدیق نہیں ہو سکی۔ آپ کی تفصیل محفوظ ہے؛ براہِ کرم دوبارہ کوشش کریں۔";
+const FALLBACK = munshiErrorMessage("AGENT_EMPTY", "");
+const operationStep=(tool:string)=>({erp_create_estimate:"ایسٹیمیٹ کے نرخ اور سامان تیار کرتے وقت",erp_amend_estimate:"موجودہ ایسٹیمیٹ میں آپ کی تبدیلی لگاتے وقت",erp_create_invoice:"فروخت کا بل تیار کرتے وقت",erp_convert_estimate_to_invoice:"ایسٹیمیٹ کو بل میں تبدیل کرتے وقت",erp_customer_return:"اصل بل سے واپسی تیار کرتے وقت",query_inventory:"موجودہ اسٹاک پڑھتے وقت",query_customer_ledger:"گاہک کا کھاتہ پڑھتے وقت",erp_record_payment:"وصولی کے بل اور رقم ملاتے وقت",prepare_supplier_bill:"فراہم کنندہ کا بل تیار کرتے وقت"})[tool]??`ERP کے ${tool} مرحلے پر`;
 const CLARIFY_PRODUCT = "جناب، مطلوبہ آئٹم کا نام، سائز یا کیٹلاگ کوڈ واضح کر دیں۔";
 const ESTIMATE_UNNEEDED_TOOLS=new Set(["query_inventory","prepare_customer_create","erp_create_customer"]);
 export type AgentLogger = { info: (fields: Record<string, unknown>, message: string) => void; warn: (fields: Record<string, unknown>, message: string) => void };
@@ -79,14 +80,15 @@ export class UnifiedCopilotAgent {
       return { answer: munshiErrorMessage("CONVERSATION_CONTEXT_INVALID",""),
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
     }
-    if(state.workingActionId && /^(?:جی[، ]*|ہاں[، ]*)?(?:یہ بھی |سب |سامان )?(?:ڈال دو|شامل کر دو|شامل کر دیں|ہاں ڈال دو)[۔.!]*$/u.test(request.message.trim())){
+    if(state.workingActionId && (!state.workingActionTool||state.workingActionTool==="erp_create_estimate") && /^(?:جی[، ]*|ہاں[، ]*)?(?:یہ بھی |سب |سامان )?(?:ڈال دو|شامل کر دو|شامل کر دیں|ہاں ڈال دو)[۔.!]*$/u.test(request.message.trim())){
       const prepared:any=await this.tools.execute("erp_accept_companions",{draftId:state.workingActionId},scope,state,request.message);
       const review=prepared.review;const answer=review.preview.summary;
       state.workingActionId=review.draftId;
-      state.pendingAction={draftId:review.draftId,idempotencyKey:review.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
-      return {answer,status:"review",review,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:true,toolNames:["erp_accept_companions"]};
+      if(review.requiresConfirmation!==false)state.pendingAction={draftId:review.draftId,idempotencyKey:review.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
+      else delete state.pendingAction;
+      return {answer,status:"review",review,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:review.requiresConfirmation!==false,toolNames:["erp_accept_companions"]};
     }
-    if(state.workingActionId && /نہیں.*(?:گاہک|پاس|ہے)|ساتھ.*سامان.*نہیں/u.test(request.message)){
+    if(state.workingActionId && (!state.workingActionTool||state.workingActionTool==="erp_create_estimate") && /نہیں.*(?:گاہک|پاس|ہے)|ساتھ.*سامان.*نہیں/u.test(request.message)){
       return {answer:"جی حاجی صاحب، اضافی سامان شامل نہیں کروں گا۔ اصل ایسٹیمیٹ کا پری ویو تیار ہے؛ محفوظ کرنے کے لیے تصدیق کر دیں۔",
         status:"completed",conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:!!state.pendingAction,toolNames:[]};
     }
@@ -96,6 +98,7 @@ export class UnifiedCopilotAgent {
     // Any new non-affirmative request replaces the previous proposed action.
     delete state.pendingAction;
     const input: unknown[] = state.lastMessage ? [{ role: "user", content: "Previous untrusted wording (not entity or price authority): " + state.lastMessage }] : [];
+    if(state.recentTurns?.length)input.push({role:"user",content:"Earlier dialogue, untrusted context only; never approval, entity or price authority: "+JSON.stringify(state.recentTurns)});
     if(request.selection) {
       if(!request.conversationToken || !request.conversationId || !this.tools.applySelection) throw new ApiError(422,"INVALID_ENTITY_SELECTION","Select within the current conversation.");
       await this.tools.applySelection(request.selection,scope,state);
@@ -113,7 +116,7 @@ export class UnifiedCopilotAgent {
     if (priorProducts) input.push({ role: "assistant", content: `Verified product context:${JSON.stringify(priorProducts)}` });
     input.push({ role: "assistant", content: "Server-validated business context (references and user choices only; current prices must be obtained from tools):" + JSON.stringify({
       conversationId: state.conversationId, customer: state.customer, estimateCustomerChoice:state.estimateCustomerChoice, customerAmbiguous, vendor: state.vendor, vendorAmbiguous: state.vendorAmbiguous,
-      comparison: state.comparison, comparisonAnalysis: state.comparisonAnalysis, analysis: state.analysis, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,workingActionId:state.workingActionId,workingAuditId:state.workingAuditId,
+      comparison: state.comparison, comparisonAnalysis: state.comparisonAnalysis, analysis: state.analysis, brandHint: state.brandHint, rateListId: state.rateListId, draft: state.draft,workingActionId:state.workingActionId,workingActionTool:state.workingActionTool,workingAuditId:state.workingAuditId,
     }) });
     input.push({ role: "user", content: request.message });
     const controller = new AbortController();
@@ -145,6 +148,7 @@ export class UnifiedCopilotAgent {
     let answer = FALLBACK;
     let status = "limit";
     let verifiedRate=false;
+    const recoveries:string[]=[];
     const estimateRequest=/\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message);
     let missingEstimateCustomer=false,estimateRecoveryUsed=false;
     const customerRequest = !estimateRequest && /\b(?:new|naya)\s+customer\b|\bcustomer\s+(?:add|create)\b|نیا\s+کسٹمر|کسٹمر\s+ایڈ/i.test(request.message)
@@ -259,9 +263,12 @@ export class UnifiedCopilotAgent {
             }
             if (result && typeof result === "object" && "review" in result && result.review) {
               review = result.review;
-              const prepared=result.review as {draftId?:string;idempotencyKey?:string;preview?:{summary?:string}};
+              const prepared=result.review as {draftId?:string;idempotencyKey?:string;requiresConfirmation?:boolean;preview?:{summary?:string}};
               answer=prepared.preview?.summary??"جناب، مکمل پری ویو تیار ہے۔ تفصیل دیکھ لیں اور محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔";
-              if(prepared.draftId&&prepared.idempotencyKey)state.pendingAction={draftId:prepared.draftId,idempotencyKey:prepared.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
+              if(prepared.requiresConfirmation!==false&&prepared.draftId&&prepared.idempotencyKey)state.pendingAction={draftId:prepared.draftId,idempotencyKey:prepared.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
+              if(prepared.draftId && typeof (result.review as any).tool==="string"){
+                state.workingActionId=prepared.draftId;state.workingActionTool=(result.review as any).tool;
+              }
               if((result.review as any).tool==="erp_create_estimate"){
                 state.workingActionId=prepared.draftId;
                 const choices=args as {customerName?:string;customerAddress?:string};
@@ -343,7 +350,7 @@ export class UnifiedCopilotAgent {
               const candidates = businessStateSchema.shape.clarification.safeParse(error.details);
               if (candidates.success && candidates.data) state.clarification = candidates.data;
               if (call.name === "compare_products") { delete state.comparison; delete state.comparisonAnalysis; }
-              answer = munshiErrorMessage(error.code,error.message); status = "clarification"; break;
+              answer = munshiErrorMessage(error.code,error.message,operationStep(call.name)); status = "clarification"; break;
             }
             if (error instanceof ApiError && error.code === "COPILOT_ENTITY_NOT_FOUND") {
               const missing = entityNotFoundSchema.safeParse(error.details);
@@ -357,8 +364,11 @@ export class UnifiedCopilotAgent {
                 continue;
               }
             }
-            if (BUSINESS_TOOLS.has(call.name)) businessFacts.push({ kind: "unavailable", message: `${call.name}: authoritative result unavailable or arguments invalid. Please clarify or retry.` });
-            input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ error: "Tool result unavailable or arguments invalid" }) });
+            const code=error instanceof ApiError?error.code:"UNEXPECTED_TOOL_ERROR";
+            const recovery=munshiErrorMessage(code,error instanceof ApiError?error.message:"",operationStep(call.name));
+            if(BUSINESS_TOOLS.has(call.name))businessFacts.push({kind:"unavailable",message:recovery});
+            recoveries.push(recovery);
+            input.push({ type: "function_call_output", call_id: call.call_id, output: JSON.stringify({ error:code, recovery, requiresOwnerInput:true }) });
             logger?.warn({ traceId, iteration, tool: call.name, outcome: "error", errorCode: error instanceof ApiError ? error.code : "UNEXPECTED_TOOL_ERROR" }, "Copilot tool failed");
           }
         }
@@ -384,6 +394,7 @@ export class UnifiedCopilotAgent {
         }
       } else {
         status = controller.signal.aborted ? "timeout" : "error";
+        answer=munshiErrorMessage(controller.signal.aborted?"AGENT_TIMEOUT":error instanceof ApiError?error.code:"UNEXPECTED_TOOL_ERROR",error instanceof ApiError?error.message:"","آپ کی ہدایت پر اگلا قدم طے کرتے وقت");
         if (error instanceof ApiError && ["AI_NOT_CONFIGURED", "COPILOT_NOT_CONFIGURED"].includes(error.code)) {
           answer = munshiErrorMessage(error.code,error.message);
         } else if (error instanceof ApiError && ["AI_PROVIDER_BAD_REQUEST", "AI_MODEL_UNAVAILABLE", "AI_PROVIDER_PAYMENT_REQUIRED"].includes(error.code)) {
@@ -395,6 +406,7 @@ export class UnifiedCopilotAgent {
         }
       }
     } finally { clearTimeout(timer); }
+    if(answer===FALLBACK)answer=munshiErrorMessage(status==="timeout"?"AGENT_TIMEOUT":status==="empty"?"AGENT_EMPTY":"AGENT_LIMIT","");
     if (businessFacts.length && status !== "completed") {
       answer = businessAnswer(businessFacts, request.message) + "\n\n" + (status === "clarification" ? answer : "جناب، اب تک حاصل شدہ تفصیل یہ ہے۔ باقی حصے کے لیے دوبارہ کوشش کریں۔");
     }
@@ -409,6 +421,8 @@ export class UnifiedCopilotAgent {
     if (draftView && status === "completed" && businessFacts.length === 0) {
       answer = draftAnswer(draftView, request.message);
     }
+    if(recoveries.length){answer=[answer,...new Set(recoveries)].filter(Boolean).join("\n\n");if(status==="empty"||status==="limit")status="clarification";}
+    state.recentTurns=[...(state.recentTurns??[]),{user:request.message.slice(0,350),assistant:answer.slice(0,350)}].slice(-3);
     if (status !== "completed") delete state.paymentPreparation;
     if(!state.productUnresolved && !state.customerAmbiguous && !state.vendorAmbiguous) delete state.clarification;
     if(status==="clarification" && !request.selection && request.message.length<=4000) state.pendingRequest=request.message;
@@ -419,7 +433,7 @@ export class UnifiedCopilotAgent {
       ...(businessFacts.length ? { businessFacts } : {}), ...(state.paymentPreparation ? { paymentPreparation: state.paymentPreparation } : {}),
       ...(state.clarification ? {clarification:state.clarification}:{}),
       ...(reports.length?{reports}:{}),
-      requiresConfirmation: Boolean(review || draftView?.prepared || state.paymentPreparation) };
+      requiresConfirmation: Boolean((review && (review as {requiresConfirmation?:boolean}).requiresConfirmation!==false) || draftView?.prepared || state.paymentPreparation) };
   }
 }
 

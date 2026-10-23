@@ -8,7 +8,10 @@ export class DepotIntelligenceStore {
     });
     if(error?.code==="42501")return []; // Do not expose private balances to sales-only users.
     if(error)throw new ApiError(502,"CREDIT_GUARD_UNAVAILABLE","گاہک کی ادائیگی کی تفصیل نہیں پڑھی جا سکی۔");
-    return Array.isArray(data?.warnings)?data.warnings:[];
+    const warnings:string[]=Array.isArray(data?.warnings)?data.warnings:[];
+    if(Number.isFinite(Number(data?.outstanding)) && data?.outstanding!=null)
+      return [`${data.customer??"گاہک"} کا موجودہ بقایا ${data.currency??"PKR"} ${Number(data.outstanding)} ہے؛ مقررہ کریڈٹ حد ${data.currency??"PKR"} ${Number(data.creditLimit??0)} ہے۔`,...warnings];
+    return warnings;
   }
   async purchaseFloor(scope:AgentScope,productId:number,price:number,unit:string,currency:string):Promise<number|null>{
     const {data,error}=await this.database().rpc("depot_private_purchase_floor",{p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_product_id:productId,p_list_price:price,p_unit:unit,p_currency:currency});

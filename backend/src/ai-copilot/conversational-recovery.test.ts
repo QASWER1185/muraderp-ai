@@ -1,0 +1,62 @@
+import {describe,it,expect,vi} from "vitest";
+import {munshiErrorMessage} from "./conversationalMunshi.js";
+import {UnifiedCopilotAgent} from "./agent/agent.js";
+import {newBusinessState,writeBusinessState,readBusinessState} from "./agent/business-state.js";
+import {confirmConversationAction} from "./tools/confirmation.js";
+import {ApiError} from "../errors/api-error.js";
+import {CustomerMemoryStore} from "./customerMemoryStore.js";
+import {CopilotRuntime} from "./copilot.runtime.js";
+
+const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
+describe("shared conversational recovery",()=>{
+  it.each(["erp_create_invoice","erp_record_payment","erp_customer_return","erp_convert_estimate_to_invoice"])("revises %s with original inputs intact under actor/tenant/branch scope",async tool=>{
+    const input={customerId:7,items:Array.from({length:100},(_,index)=>({productId:index+1,qty:2})),paidAmount:0};
+    const eq=vi.fn();const query:any={select:()=>query,eq:(...args:any[])=>{eq(...args);return query;},maybeSingle:async()=>({data:{status:"DRAFT",action_plan:{branchId:scope.branchId,unifiedAction:{tool,input}}},error:null})};
+    const runtime=new CopilotRuntime({} as any,{database:()=>({from:()=>query}),branchAccess:{assertBranchAccess:vi.fn()}} as any);
+    const prepare=vi.spyOn(runtime,"createUnifiedDraft").mockResolvedValue({draftId:"new-preview"} as any);
+    await runtime.reviseUnifiedDraft("original-preview",{paidAmount:80},scope);
+    expect(prepare).toHaveBeenCalledWith(tool,{...input,paidAmount:80},scope,"text");
+    expect(eq.mock.calls).toEqual(expect.arrayContaining([["organization_id",scope.organizationId],["user_id",scope.userId]]));
+  });
+  it.each(["CONFIRMED","EXECUTED","FAILED"])("refuses to revise a %s action",async status=>{
+    const query:any={select:()=>query,eq:()=>query,maybeSingle:async()=>({data:{status,action_plan:{branchId:scope.branchId,unifiedAction:{tool:"erp_record_payment",input:{amount:1}}}},error:null})};
+    const runtime=new CopilotRuntime({} as any,{database:()=>({from:()=>query}),branchAccess:{assertBranchAccess:vi.fn()}} as any);
+    const prepare=vi.spyOn(runtime,"createUnifiedDraft");
+    await expect(runtime.reviseUnifiedDraft("original-preview",{amount:2},scope)).rejects.toMatchObject({code:"ERP_ACTION_CLARIFICATION"});
+    expect(prepare).not.toHaveBeenCalled();
+  });
+  it.each(["erp_create_estimate","erp_create_invoice","erp_customer_return","prepare_supplier_bill","query_customer_ledger","erp_record_payment","query_inventory"])("retains specific recovery for %s and rejects model-invented success",async tool=>{
+    let count=0;
+    const model={respond:vi.fn(async()=>count++===0?{output:[{type:"function_call",call_id:"failed",name:tool,arguments:"{}"}],text:""}:{output:[],text:""})};
+    const executor={definitions:()=>[],execute:vi.fn(async()=>{throw new ApiError(502,"ERP_READ_FAILED","SQL secret must not appear");})};
+    const state=newBusinessState(scope);state.workingActionId="a3000000-0000-4000-8000-000000000009";
+    const result=await new UnifiedCopilotAgent(model,executor).run({message:"تفصیل دکھائیں",conversationToken:writeBusinessState(state)},scope);
+    expect(result.answer).toContain("اصل ریکارڈ");expect(result.answer).not.toContain("SQL secret");
+    expect(result.requiresConfirmation).toBe(false);
+    expect(readBusinessState(result.conversationToken,scope).workingActionId).toBe(state.workingActionId);
+  });
+  it("preserves a failed confirmation's exact approval identity without claiming no posting occurred",async()=>{
+    const state=newBusinessState(scope);state.pendingAction={draftId:"draft",idempotencyKey:"same-key",summary:"receipt",expires:Date.now()+60000};
+    const execute=vi.fn(async()=>{throw new Error("upstream secret");});
+    const result=await confirmConversationAction(state,scope,execute);
+    expect(result.status).toBe("clarification");expect(result.answer).not.toContain("upstream secret");
+    expect(readBusinessState(result.conversationToken,scope).pendingAction?.idempotencyKey).toBe("same-key");
+    expect(result.answer).toContain("دہرا اندراج");
+  });
+  it("trims dialogue to keep operational references within the signed token budget",()=>{
+    const state=newBusinessState(scope);state.workingActionId="a3000000-0000-4000-8000-000000000009";
+    state.recentTurns=Array.from({length:3},()=>({user:"جناب".repeat(87),assistant:"تفصیل".repeat(70)}));
+    const token=writeBusinessState(state);
+    expect(token.length).toBeLessThanOrEqual(9000);expect(readBusinessState(token,scope).workingActionId).toBe(state.workingActionId);
+  });
+  it("replaces banned authored messages and never exposes unexpected database text",()=>{
+    expect(munshiErrorMessage("UNKNOWN","اس مرحلے کی تصدیق نہیں ہو سکی")).not.toContain("اس مرحلے کی تصدیق نہیں ہو سکی");
+    expect(munshiErrorMessage("23502","password=secret")).not.toContain("password");
+  });
+  it("asks for the source invoice when historical net return rates differ",async()=>{
+    const query:any={};for(const key of ["select","eq","order","limit","range"])query[key]=()=>query;
+    query.then=(resolve:any)=>Promise.resolve({data:[{document_id:1,document_number:"INV-1",invoice_date:"2026-10-01",net_unit_price:240,unit:"pcs",currency_code:"PKR"},{document_id:2,document_number:"INV-2",invoice_date:"2026-10-02",net_unit_price:250,unit:"pcs",currency_code:"PKR"}],error:null}).then(resolve);
+    const memory=new CustomerMemoryStore(()=>({from:()=>query}) as any);
+    await expect(memory.latestSale(scope,7,11)).rejects.toMatchObject({code:"RETURN_INVOICE_CHOICE_REQUIRED",message:expect.stringContaining("240")});
+  });
+});

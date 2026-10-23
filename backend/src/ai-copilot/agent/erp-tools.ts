@@ -34,7 +34,7 @@ export type ToolServices = {
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
-  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
+  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"reviseUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -54,6 +54,7 @@ const lookup = z.strictObject({ query, limit });
 const productId = z.strictObject({ product_id: id });
 const priceInput = z.strictObject({ product_id: id, rate_list_id: id.optional(), customer_id: id.optional(), quantity: z.number().finite().positive().default(1) });
 const customerCreateSchema = z.strictObject({ name: z.string().trim().min(1).max(200), phone: z.string().trim().min(1).max(50), city: z.string().trim().min(1).max(120) });
+const revisionSchema=z.strictObject({draftId:z.string().uuid().optional(),changes:z.record(z.string(),z.unknown())});
 const match = (value: string, term: string) => value.toLocaleLowerCase().includes(term.toLocaleLowerCase());
 
 function defineTool<T extends z.ZodType>(tool: ErpTool<T>): ErpTool<T> { return tool; }
@@ -167,7 +168,9 @@ export class ErpToolRegistry {
   }
   definitions() {
     const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name) && (tool.name !== "prepare_customer_create" || this.services.runtime)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
-    return [...reads, ...(this.services.analytics?ANALYTICS_DEFINITIONS:[]), ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []), ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
+    return [...reads, ...(this.services.analytics?ANALYTICS_DEFINITIONS:[]), ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []),
+      ...(this.services.runtime?.reviseUnifiedDraft?[{type:"function" as const,name:"revise_pending_action",strict:false,parameters:z.toJSONSchema(revisionSchema),description:"Correct the current unconfirmed invoice, estimate conversion, receipt, return or other ERP action. Omit draftId for working context. Supply ONLY changed original tool input fields in changes (e.g. paidAmount for cash/credit, invoiceId for return source). Every omitted item and field is retained. Creates a fresh validated preview; never edits posted records or approves a posting. For estimate item/category edits use erp_amend_estimate."}]:[]),
+      ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
   }
   async confirmPendingAction(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope) {
     if(!this.services.runtime?.confirmAndExecute)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP confirmation service is not configured.");
@@ -176,6 +179,13 @@ export class ErpToolRegistry {
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    if(name==="revise_pending_action"){
+      if(!this.services.runtime?.reviseUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Revision service is unavailable.");
+      await this.assertScope(scope);
+      const input=revisionSchema.parse(raw),draftId=input.draftId??state?.workingActionId;
+      if(!draftId)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، پہلے مطلوبہ کارروائی کا پری ویو تیار کریں تاکہ اسی کی تفصیل درست کر سکوں۔");
+      return {review:await this.services.runtime.reviseUnifiedDraft(draftId,input.changes,scope,state?.inputSource??"text")};
+    }
     if(isAnalyticsTool(name)){
       if(!this.services.analytics)throw new ApiError(503,"ANALYTICS_UNAVAILABLE","Analytics is not configured.");
       const input=ANALYTICS_SCHEMAS[name].parse(raw);

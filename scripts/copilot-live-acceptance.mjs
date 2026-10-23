@@ -2,7 +2,7 @@
 // argv, transcripts, signed conversation files or logs. No action is confirmed.
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
 const require=createRequire(new URL("../backend/package.json",import.meta.url));
 const {createClient}=require("@supabase/supabase-js");
@@ -60,8 +60,15 @@ if(process.argv.includes("--catalog-audit")){
     }
   }
   const questions=["اس مہینے کا پرافٹ کتنا ہے","اس مہینے سب سے زیادہ کس کسٹمر نے مال خریدا","اس مہینے ٹاپ سیل مین کون سا ہے","سب سے زیادہ کس ایٹم نے ہمیں پرافٹ دیا","اس مہینے ہم نے کس وینڈر سے سب سے زیادہ مال خریدا","How many products in inventory?","What is the rate of Dura Max PPRC Pipe PN-16 25mm?","ڈیورا میکس یو پی وی سی ایلبو 90 ڈگری 2 انچ کا ریٹ بتاؤ"];
+  let selectedQuestions=process.argv.includes("--rates-only")?questions.slice(6):questions;
+  const questionFile=process.argv.indexOf("--questions");
+  if(questionFile>=0){
+    selectedQuestions=JSON.parse(readFileSync(process.argv[questionFile+1],"utf8"));
+    const {isAffirmation}=await import("../backend/dist/ai-copilot/tools/confirmation.js");
+    if(!Array.isArray(selectedQuestions)||selectedQuestions.length>20||selectedQuestions.some(question=>typeof question!=="string"||question.length>20000||isAffirmation(question)))throw new Error("Acceptance questions must be bounded non-approval requests.");
+  }
   const transcripts=[];let conversationToken,conversationId;
-  for(const question of process.argv.includes("--rates-only")?questions.slice(6):questions){
+  for(const question of selectedQuestions){
     const conversation=conversationToken?{conversationToken,conversationId}:{};
     const response=localAgent?undefined:await fetch(base+"/api/copilot/chat",{method:"POST",headers:{"Content-Type":"application/json","Cookie":cookie,"X-Branch-Id":scope.branchId},body:JSON.stringify({organizationId:scope.organizationId,userId:scope.userId,message:question,...conversation}),signal:AbortSignal.timeout(180000)});
     const result=localAgent?{data:await localAgent.run({message:question,...conversation},scope)}:await response.json(),data=result.data;

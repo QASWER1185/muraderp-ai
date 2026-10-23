@@ -250,7 +250,7 @@ export class CopilotRuntime {
     );
     if (plan.unifiedAction?.tool === "erp_create_customer" && plan.unifiedAction.input.openingBalance !== 0)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"accounting.post");
-    if (plan.unifiedAction?.tool === "erp_create_invoice" && plan.unifiedAction.input.paidAmount > 0)
+    if (plan.unifiedAction && ["erp_create_invoice","erp_convert_estimate_to_invoice"].includes(plan.unifiedAction.tool) && plan.unifiedAction.input.paidAmount > 0)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"payments.create");
     if (plan.unifiedAction?.data.newCustomer)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"customers.write");
@@ -265,7 +265,19 @@ export class CopilotRuntime {
     if(prepared.data.newCustomer)await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"customers.write");
     const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
-    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:true as const};
+    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:!prepared.data.incomplete};
+  }
+  async reviseUnifiedDraft(draftId:string,changes:Record<string,unknown>,scope:{userId:string;organizationId:string;branchId:string},source:CopilotActionPlan["source"]="text") {
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    const {data:record,error}=await this.dependencies.database().from("ai_copilot_actions").select("status,action_plan")
+      .eq("id",draftId).eq("organization_id",scope.organizationId).eq("user_id",scope.userId).maybeSingle();
+    if(error)throw new ApiError(502,"ERP_READ_FAILED","The active action could not be read.");
+    const action=record?.action_plan?.unifiedAction;
+    if(!action || !Object.hasOwn(ACTION_TARGETS,action.tool) || record.status!=="DRAFT" || record.action_plan.branchId!==scope.branchId)
+      throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، اسی صارف اور برانچ کا غیر منظور شدہ مسودہ منتخب کریں؛ پوسٹ شدہ بل تبدیل نہیں ہو گا۔");
+    // Original tool validation and permissions run again. Changes can never
+    // override actor/tenant/branch, approval, idempotency or the tool itself.
+    return this.createUnifiedDraft(action.tool,{...action.input,...changes},scope,source);
   }
   async getBusinessReport(input:unknown,scope:{userId:string;organizationId:string;branchId:string}) {
     await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"reports.view");

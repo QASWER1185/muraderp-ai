@@ -20,6 +20,9 @@ export const businessStateSchema = z.strictObject({
   expires: z.number().int(), revision: z.number().int().nonnegative(),
   // A display/model hint only. It never supplies entity, price, or permission authority.
   lastMessage: z.string().max(500).optional(),
+  // Untrusted wording only; structured references and server drafts remain
+  // the authority for entities, prices and approval.
+  recentTurns: z.array(z.strictObject({user:z.string().max(350),assistant:z.string().max(350)})).max(3).optional(),
   pendingRequest: z.string().max(4000).optional(),
   pendingAction: z.strictObject({draftId:z.string().min(1).max(100),idempotencyKey:z.string().min(1).max(255),
     summary:z.string().max(1000),expires:z.number().int(),
@@ -39,6 +42,7 @@ export const businessStateSchema = z.strictObject({
   clarification: z.strictObject({kind:z.enum(["product","customer","vendor"]),candidates:z.array(z.strictObject({id,name:z.string().max(160),sku:z.string().max(100).optional(),unit:z.string().max(30).optional(),city:z.string().max(120).optional()})).min(1).max(5)}).optional(),
   brandHint: z.string().max(120).optional(), rateListId: id.optional(),
   workingActionId:z.string().uuid().optional(),
+  workingActionTool:z.string().max(100).optional(),
   workingAuditId:z.string().uuid().optional(),
   draft: z.strictObject({
     id: z.string().uuid(), revision: z.number().int().nonnegative(),
@@ -78,7 +82,10 @@ export function readBusinessState(token: string | undefined, scope: AgentScope, 
 }
 export function writeBusinessState(state: BusinessState): string {
   const data = businessStateSchema.parse(state);
-  const token = signConversationPayload(data);
+  let token = signConversationPayload(data);
+  // Trim dialogue before operational data. Never lose a slip's draft reference,
+  // selected customer or exact pending approval just to keep prose history.
+  while(token.length>9000 && data.recentTurns?.length){data.recentTurns.shift();token=signConversationPayload(data);}
   if (token.length > 9000) throw new ApiError(422, "CONVERSATION_STATE_LIMIT", "This task has reached its context limit. Prepare it or start a new conversation.");
   return token;
 }

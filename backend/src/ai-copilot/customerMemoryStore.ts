@@ -31,10 +31,10 @@ export class CustomerMemoryStore implements CustomerMemory {
       if (productId !== undefined) query = query.eq("product_id", productId).eq("document_type", "invoice");
       if (invoiceId !== undefined) query = query.eq("document_id", invoiceId);
       query = query.order("invoice_date", { ascending: false }).order("document_id", { ascending: false }).order("source_item_id", { ascending: false });
-      const { data, error } = await (productId === undefined ? query.range(offset, offset + 499) : query.limit(1));
+      const { data, error } = await (invoiceId === undefined ? query.range(offset, offset + 499) : query.limit(1));
       if (error) throw new ApiError(502, "CUSTOMER_MEMORY_UNAVAILABLE", "Customer sales history could not be verified.");
       rows.push(...(data ?? []));
-      if (productId !== undefined || (data ?? []).length < 500) return rows;
+      if (invoiceId !== undefined || (data ?? []).length < 500) return rows;
     }
   }
   async recall(scope: AgentScope, customerId: number, customerName = String(customerId)): Promise<CustomerPricingProfile> {
@@ -64,8 +64,11 @@ export class CustomerMemoryStore implements CustomerMemory {
     };
   }
   async latestSale(scope: AgentScope, customerId: number, productId: number, invoiceId?: number) {
-    const row = (await this.history(scope, customerId, productId, invoiceId))[0];
+    const history = await this.history(scope, customerId, productId, invoiceId);
+    const row = history[0];
     if (!row) throw new ApiError(422, "RETURN_HISTORY_REQUIRED", "No posted sale for this exact customer and product exists in this branch.");
+    if(!invoiceId && new Set(history.map(line=>`${line.currency_code}:${line.net_unit_price}:${line.unit}`)).size>1)
+      throw new ApiError(422,"RETURN_INVOICE_CHOICE_REQUIRED","اس آئٹم کے پچھلے بلوں میں مختلف خالص نرخ ہیں: "+history.slice(0,5).map(line=>`${line.document_number} (ID ${line.document_id})، ${line.invoice_date}، ${line.currency_code} ${line.net_unit_price}/${line.unit}`).join("؛ ")+"۔ کس اصل بل کے نرخ پر واپسی کرنی ہے؟");
     return row;
   }
   async assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number) {

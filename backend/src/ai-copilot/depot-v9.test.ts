@@ -54,8 +54,9 @@ describe("V9 quotation authority and privacy",()=>{
   });
   it("never lists Popular candidates under an explicit Dura brand restriction",async()=>{
     const f=operations();f.deps.search.searchProducts.mockResolvedValue(resolveCandidates([{...f.product,brandName:"Popular",name:"Popular elbow",confidence:1,match_kind:"exact_name"}],5));
-    await expect(f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope)).rejects.toThrow(/Dura Max/);
-    try{await f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope);}catch(error){expect((error as Error).message).not.toContain("Popular");}
+    const pending=await f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope);
+    expect(pending.data.incomplete).toBe(true);expect(pending.data.lines[0].pendingReason).toContain("Dura Max");
+    expect(JSON.stringify(pending.preview)).not.toContain("Popular");
   });
   it("filters in the database BEFORE ranking and still rejects malformed cross-brand RPC results",async()=>{
     const rpc=vi.fn(async()=>({data:[{id:1,name:"Popular Elbow",sku:"P",category:"Fittings",unit:"pcs",brand_name:"Popular",confidence:1,match_kind:"exact_name"}],error:null}));

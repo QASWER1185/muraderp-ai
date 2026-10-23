@@ -14,10 +14,12 @@ export const saleItemSchema = z.strictObject({
 });
 const sale = { customerId: id.optional(), customerName: text.optional(), customerAddress: text.optional(), brand: text.optional(),
   items: z.array(saleItemSchema).min(1).max(500), discountScheme: z.strictObject({ percent }).optional(),
-  pricingRules:z.array(z.strictObject({brand:text,match:text,discount:percent})).max(20).optional() };
+  pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional() };
 const auditLine=z.strictObject({productId:id,name:text,quantity:z.number().finite().positive(),unitPrice:money,discount:percent,specification:text,unitCost:money.optional(),expectedWholesaleDiscount:percent.optional()});
 export const DEPOT_ACTION_SCHEMAS={
-  erp_amend_estimate:z.strictObject({draftId:z.string().uuid().optional(),addItems:z.array(saleItemSchema).max(500).default([]),removeProductIds:z.array(id).default([]),discountScheme:z.strictObject({percent}).optional()}),
+  erp_amend_estimate:z.strictObject({draftId:z.string().uuid().optional(),addItems:z.array(saleItemSchema).max(500).default([]),removeProductIds:z.array(id).default([]),discountScheme:z.strictObject({percent}).optional(),
+    pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional(),
+    updateItems:z.array(saleItemSchema.extend({productId:id})).max(500).optional()}),
   erp_accept_companions:z.strictObject({draftId:z.string().uuid().optional()}),
   erp_create_site:z.strictObject({customerId:id,name:text,address:text}),
   erp_prepare_site_return:z.strictObject({siteId:z.string().uuid(),invoiceId:id,invoiceItemId:id,quantity:z.number().finite().positive()}),
@@ -40,7 +42,7 @@ export const ERP_ACTION_SCHEMAS = {
     items: z.array(z.strictObject({ name: text, size: text, unit: text, list_price: money,
       category: z.enum(["Pipes","Fittings","Hardware"]).optional(), discount: percent })).min(1) }),
   erp_update_product_price: z.strictObject({ productId: id, newPrice: money, reason: z.string().trim().min(1).max(2000), rateListId: id.optional() }),
-  erp_create_customer: z.strictObject({ name: text, phone: z.string().trim().max(50), address: text, openingBalance: z.number().finite().default(0), creditLimit: money.default(0) }),
+  erp_create_customer: z.strictObject({ name: text, phone: z.string().trim().max(50).nullish(), address: z.string().trim().max(200).nullish(), openingBalance: z.number().finite().default(0), creditLimit: money.default(0) }),
   erp_update_customer: z.strictObject({ customerId: id, updates: z.strictObject({ name: text.optional(), phone: z.string().trim().max(50).optional(), address: text.optional(), creditLimit: money.optional() }) }),
   erp_record_payment: z.strictObject({ customerId: id, amount: z.number().finite().positive(), paymentMethod: z.enum(["CASH","BANK_TRANSFER","CARD","CHEQUE","OTHER"]),
     reference: z.string().trim().max(200).optional(), notes: z.string().trim().max(2000).optional(), paymentDate: date.optional(),
@@ -49,6 +51,7 @@ export const ERP_ACTION_SCHEMAS = {
   erp_customer_return: z.strictObject({ customerId: id, productId: id, qty: z.number().finite().positive(),
     invoiceId: id.optional(), warehouseId: id.optional(), reason: z.string().trim().min(1).max(2000) }),
   erp_convert_estimate_to_invoice: z.strictObject({ estimateId: id, warehouseId: id.optional(),
+    paidAmount: money.default(0),
     unitCosts: z.array(z.strictObject({ productId: id, unitCost: money })).optional() }),
   erp_create_invoice: z.strictObject({ ...sale, customerId: id, discount: percent.optional(), warehouseId: id.optional(), carriageCharges: money.default(0), paidAmount: money.default(0) }),
   erp_get_business_report: z.strictObject({ reportType: z.enum(["daily_sales","customer_balances","low_stock","profit_margin"]),
@@ -73,7 +76,7 @@ export const ERP_ACTION_PERMISSIONS: Record<ErpActionName, PermissionCode> = {
   erp_customer_return:"returns.create",
 };
 const descriptions: Record<ErpActionName,string> = {
-  erp_amend_estimate:"Amend the current unconfirmed estimate: append all specified lines, remove product IDs or change the discount while retaining customer, brand and every other line. Omit draftId to use working context. Produces one fresh preview, no write.",
+  erp_amend_estimate:"Amend the current unconfirmed estimate while retaining customer, brand and every slip line. Use pricingRules for category/brand discounts (pipe 50%, fittings 52%), updateItems for quantity/discount corrections by resolved productId, addItems for additions, removeProductIds for removals. Omit draftId to use working context. Recalculates one fresh preview, no posting.",
   erp_accept_companions:"After the merchant explicitly asks to include suggested installation companions (ہاں ڈال دو), prepare a fresh estimate with them. Omit draftId for working context. No prices, sizes or alternative brands may be invented; ambiguous catalog matches require clarification.",
   erp_create_site:"Prepare a named customer sub-project/site with address.",
   erp_prepare_site_return:"Prepare a pending-pickup site return memo bound to the exact historical invoice item NET rate. It is a reservation, not yet a credit or warehouse receipt.",
@@ -98,7 +101,7 @@ const descriptions: Record<ErpActionName,string> = {
   erp_convert_estimate_to_invoice:"Prepare conversion of a persisted active estimate to an invoice, with stock, receivables and accounting. Warehouse is required if more than one exists. Costs come from reconciled movement valuation or explicit reviewed unitCosts; never guess.",
   erp_create_invoice:"Prepare a direct invoice including discounts, carriage and any payment in one atomic transaction. Current sale rates and verified inventory costs are required. Use unitCost only when explicitly provided by the user.",
   erp_get_business_report:"Read a date-bounded authoritative daily sales, customer balances, low-stock or realized profit report. No approval/write is required.",
-  erp_customer_return:"Prepare a return bound to this customer's exact historical invoice line and NET billed rate/discount. Never supply prices. Uses the latest posted sale unless the user specifies its invoiceId. Requires approval before credit.",
+  erp_customer_return:"Prepare a return bound to this customer's exact historical invoice line and NET billed rate/discount. Never supply prices. The server asks for invoiceId when historical rates differ; pass the owner's chosen source invoice on follow-up. Requires approval before credit and stock restoration.",
 };
 export const ERP_ACTION_DEFINITIONS = Object.entries(ERP_ACTION_SCHEMAS).map(([name,schema]) => ({
   type:"function" as const, name, description:descriptions[name as ErpActionName], strict:false, parameters:z.toJSONSchema(schema),
@@ -108,6 +111,6 @@ export interface PreparedErpAction {
   tool: ErpWriteName;
   input: Record<string,any>;
   data: Record<string,any>;
-  preview: { title:string; summary:string; lines?:unknown[]; totals?:unknown; warnings?:string[];
+  preview: { title:string; summary:string; lines?:unknown[]; totals?:unknown; warnings?:string[]; incomplete?:boolean; partialTotals?:unknown;
     companions?:unknown[];quotation?:unknown;privateMargin?:unknown;challan?:unknown;audit?:unknown };
 }
