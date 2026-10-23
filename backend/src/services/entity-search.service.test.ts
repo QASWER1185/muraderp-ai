@@ -8,6 +8,28 @@ function setup(data: unknown = [row],error: unknown = null) {
   return {rpc,from,search:new SupabaseEntitySearchService(()=>({rpc,from}) as any)};
 }
 describe('database entity search service',()=>{
+  it('selects an exact fitting family over equal-score mixer and angle variants',async()=>{
+    const {search}=setup([{...row,name:'Dura Max Elbow 25 mm',brand_name:'Dura Max'},
+      {...row,id:2,name:'Dura Max Mixer Elbow 25 mm',brand_name:'Dura Max'},
+      {...row,id:3,name:'Dura Max Elbow 45 25 mm',brand_name:'Dura Max'}]);
+    expect(await search.searchProducts('Elbow 25mm',5,scope,'Dura Max')).toMatchObject({resolution:'resolved',bestCandidate:{id:1}});
+  });
+  it.each(['Dura Max PPR-C','Dura Max U-PVC'])('verifies omitted product material through the scoped active catalog heading: %s',async heading=>{
+    const f=setup([{...row,name:'Dura Max Elbow 25 mm',brand_name:'Dura Max'}]);
+    const result=Promise.resolve({data:[{product_id:1,rate_list_versions:{rate_lists:{name:heading}}}],error:null});
+    const table:any={select:()=>table,in:()=>table,eq:vi.fn(()=>table),then:result.then.bind(result)};f.from.mockReturnValue(table);
+    const matched=await f.search.searchProducts('PPR-C Elbow 25mm',5,scope,'Dura Max');
+    expect(matched.resolution).toBe(heading.includes('PPR-C')?'resolved':'no_match');
+    expect(table.eq).toHaveBeenCalledWith('rate_list_versions.rate_lists.organization_id',scope.organizationId);
+  });
+  it.each([
+    ['ایلو 25 ایم ایم','Elbow 25 mm'],['ٹی ساکٹ 32mm','Tee 32mm'],['پی ٹرپ چار انچ','P-Trap 4 inch'],
+    ['Elbow پونا انچ','Elbow 25mm'],['PPRC Pipe ایک انچ','PPR-C Pipe 32mm'],['U-PVC Pipe ایک انچ','U-PVC Pipe 1 inch'],
+    ['Elbow 25','Elbow 25mm'],['PPRC Pipe PN-16 25mm','PPR-C Pipe PN-16 25mm'],
+  ])('preserves shop diameter phonics for %s',async(input,expected)=>{
+    const {search,rpc}=setup([]);await search.searchProducts(input,5,scope);
+    expect(rpc.mock.calls[0]?.[1]).toMatchObject({p_query:expected});
+  });
   it.each([
     ['ELBOW KA KIA RATE HY', 'ELBOW'],
     ['ELBOOW 25*1/2 KA RATE KIA HY', 'elbow 25*1/2'],

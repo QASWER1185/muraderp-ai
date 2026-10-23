@@ -11,7 +11,7 @@ export function erpActionReviewMarkup(review) {
   const preview=review.preview;
   const lines=preview.lines??[];
   const quotation=preview.quotation;
-  const grouped=quotation?.sections?.map(section=>`<section><h4>${escapeHtml(section.brand)}</h4>${section.lines.map(line=>`<p>${escapeHtml(line.name)} · ${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} · نرخ ${escapeHtml(line.rate)} · رقم ${escapeHtml(line.amount)}</p>`).join("")}<p>برانڈ رعایت: PKR ${escapeHtml(section.savings)} · رقم: PKR ${escapeHtml(section.total)}</p></section>`).join("");
+  const grouped=quotation?.sections?.map(section=>`<section><h4>${escapeHtml(section.brand)}</h4><div class="shop-table"><table><thead><tr>${["آئٹم","سائز","مقدار","لسٹ ریٹ PKR","رعایت %","خالص رقم PKR"].map(label=>`<th>${label}</th>`).join("")}</tr></thead><tbody>${section.lines.map(line=>`<tr>${[line.name,line.size??"—",`${line.quantity} ${line.unit}`,line.rate,line.discountPercent??"—",line.amount].map(value=>`<td><bdi dir="auto">${escapeHtml(value)}</bdi></td>`).join("")}</tr>`).join("")}</tbody></table></div><p>برانڈ رعایت: <bdi dir="ltr">PKR ${escapeHtml(section.savings)}</bdi> · رقم: <bdi dir="ltr">PKR ${escapeHtml(section.total)}</bdi></p></section>`).join("");
   return `<article class="review-card confirmation-card" dir="auto"><h3>منظوری کے لیے پری ویو</h3><p>${escapeHtml(preview.summary)}</p><div class="review-lines">${grouped??lines.map((line,index)=>`<div class="review-line"><strong>${index+1}. ${escapeHtml(line.productName??line.name??"")}</strong><p>${escapeHtml(line.quantity??line.qty??"")} ${escapeHtml(line.unit??"")} · نرخ ${escapeHtml(line.unit_price??line.list_price??"")} · رعایت ${escapeHtml(line.discountPercent??0)}%</p></div>`).join("")}</div>${preview.totals?`<p><strong>کل رقم: PKR ${escapeHtml(preview.totals.grand_total)}</strong></p>`:""}${preview.warnings?.length?`<p class="review-warning">${escapeHtml(preview.warnings.join(" "))}</p>`:""}${quotation?`<details><summary>گاہک کا واٹس ایپ کارڈ</summary><pre data-customer-quotation>${escapeHtml(quotation.text)}</pre><button type="button" class="button secondary" data-copy-quotation>متن کاپی کریں</button><button type="button" class="button secondary" data-download-card>کارڈ ڈاؤن لوڈ کریں</button></details>`:""}${preview.privateMargin?`<details class="merchant-scorecard"><summary>صرف دکاندار کے لیے مارجن</summary><p>${preview.privateMargin.costsKnown?`خرید لاگت: PKR ${escapeHtml(preview.privateMargin.cost)} · متوقع مجموعی منافع: PKR ${escapeHtml(preview.privateMargin.grossProfit)}`:"خرید لاگت کی مکمل تصدیق دستیاب نہیں؛ منافع کا اندازہ نہیں لگایا گیا۔"}</p></details>`:""}${preview.challan?`<details open><summary>بغیر نرخ کا ڈسپیچ چلّان</summary><pre data-customer-quotation>${escapeHtml(preview.challan.text)}</pre><button type="button" class="button secondary" data-download-card>چلّان ڈاؤن لوڈ کریں</button></details>`:""}<button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button><button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور محفوظ کریں</button></article>`;
 }
 export function depotReportMarkup(report){
@@ -75,7 +75,7 @@ export function extractionMarkup(extraction,reviewText) {
   if(extraction.transcript && !extraction.document) return `<article class="review-card"><h3>صوتی پیغام کی عبارت</h3>${transcript}<p>گاہک اور سامان کی شناخت کے بعد موجودہ ERP نرخ استعمال ہوں گے۔</p></article>`;
   const doc=extraction.document;
   if(!doc) return "";
-  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3>${transcript}<p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p>${escapeHtml(line.productName)} · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")} · پرچی کا نرخ ${escapeHtml(line.unitRate??"درج نہیں")} · رعایت ${escapeHtml(line.discountPercent??doc.discountPercent??"درج نہیں")}%</p>`).join("")}<p>پرچی کی ابتدائی رقم: ${escapeHtml(doc.subtotal??"درج نہیں")}؛ کل: ${escapeHtml(doc.total??"درج نہیں")}۔ ایسٹیمیٹ کی قیمت فعال ERP ریٹ لسٹ سے لی گئی ہے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
+  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3>${transcript}<p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p><bdi dir="auto">${escapeHtml([line.material,line.productName,line.specification,line.size].filter(Boolean).join(" · "))}</bdi> · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")} · پرچی کا نرخ ${escapeHtml(line.unitRate??"درج نہیں")} · رعایت ${escapeHtml(line.discountPercent??doc.discountPercent??"درج نہیں")}%</p>`).join("")}<p>پرچی کی ابتدائی رقم: ${escapeHtml(doc.subtotal??"درج نہیں")}؛ کل: ${escapeHtml(doc.total??"درج نہیں")}۔ ایسٹیمیٹ کی قیمت فعال ERP ریٹ لسٹ سے لی گئی ہے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
 }
 
 function conversationStorage(){try{return globalThis.sessionStorage;}catch{return null;}}
@@ -112,6 +112,23 @@ export function createCopilotConversation(now = Date.now, storage = conversation
   };
 }
 function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
+/** Small escaped Markdown subset: no HTML, links, images or executable markup. */
+export function formatCopilotAnswer(value){
+  const inline=text=>escapeHtml(text).replace(/\*\*([^*\n]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/(?:PKR\s+[\d,.]+|PN-\d+|\d+(?:\.\d+)?\s*mm\b)/g,'<bdi dir="ltr">$&</bdi>');
+  const lines=String(value??"").split("\n"),parts=[];
+  for(let i=0;i<lines.length;i++){
+    if(/^\s*\|.*\|\s*$/.test(lines[i])&&/^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/.test(lines[i+1]??"")){
+      const cells=line=>line.trim().slice(1,-1).split("|").map(cell=>cell.trim());
+      const headers=cells(lines[i]),rows=[];i+=2;
+      while(i<lines.length&&/^\s*\|.*\|\s*$/.test(lines[i]))rows.push(cells(lines[i++]));i--;
+      parts.push(`<div class="shop-table"><table><thead><tr>${headers.map(cell=>`<th>${inline(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map(row=>`<tr>${headers.map((_,j)=>`<td><bdi dir="auto">${inline(row[j]??"")}</bdi></td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+    }else if(/^\s*[-*]\s+/.test(lines[i])){
+      const items=[];while(i<lines.length&&/^\s*[-*]\s+/.test(lines[i]))items.push(`<li>${inline(lines[i++].replace(/^\s*[-*]\s+/,""))}</li>`);i--;parts.push(`<ul>${items.join("")}</ul>`);
+    }else if(lines[i].trim())parts.push(`<p>${inline(lines[i])}</p>`);
+  }
+  return parts.join("");
+}
 function apiIntent(action) { return action === "purchase" ? "supplier_bill" : action === "return" ? "customer_return" : action; }
 function fieldValue(field) { return field && typeof field === "object" && "value" in field ? field.value : undefined; }
 function humanIntent(intent) { return ({ estimate: "Estimate", supplier_bill: "Supplier bill", customer_return: "Customer return", inventory_adjustment: "Stock adjustment", rate_list_update: "Rate list update", invoice: "Invoice" })[intent] ?? "ERP action"; }
@@ -242,7 +259,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   function appendMessage(role, body, className = "") {
     const message = document.createElement("div");
     message.className = `chat-message ${role} ${className}`.trim();
-    message.innerHTML = role === "assistant" ? `<span class="assistant-mark">${icon("sparkles")}</span><div class="message-body">${body}</div>` : `<div class="message-body">${body}</div>`;
+    message.innerHTML = role === "assistant" ? `<span class="assistant-mark">${icon("sparkles")}</span><div class="message-body" dir="auto">${body}</div>` : `<div class="message-body" dir="auto">${body}</div>`;
     thread.append(message); scrollThread(); return message;
   }
   function welcome() {
@@ -456,7 +473,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         if(response.data.status!=="rate_limited"){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         activeDraft = null; preparedConversation = null;
-        appendMessage("assistant", `<p>${escapeHtml(response.data.answer).split("\n\n").join("</p><p>").replace(/\n/g,"<br>")}</p>`);
+        appendMessage("assistant",formatCopilotAnswer(response.data.answer));
         if (response.data.status !== "rate_limited" && response.data.preparation?.intent === "customer_create") {
           customerPreparationScope = { ...context, userId };
           appendMessage("assistant", customerPreparationMarkup());

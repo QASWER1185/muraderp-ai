@@ -20,6 +20,9 @@ import { ANALYTICS_DEFINITIONS, ANALYTICS_SCHEMAS, ANALYTICS_PERMISSIONS, isAnal
 import { auditDuraCatalog } from "../catalogIntegrity.js";
 import { isEnglishRequest } from "./language.js";
 import { normalizeProductSearchQuery } from "../../services/entity-search.service.js";
+import {brandRates} from "./brand-rates.js";
+import {estimateCaptionChoices} from "./multimodal-input.js";
+import {canonicalSlipWords} from "../conversationalMunshi.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -64,6 +67,7 @@ const CUSTOMER_CREATE_TOOL = defineTool({ name: "prepare_customer_create", descr
   } });
 
 export const ERP_TOOLS = [
+  defineTool({name:"erp_compare_brand_rates",description:"Compare active catalog list prices, merchant standard trade discounts and net customer rates for Dura Max, Popular and Turk Plast. Use when a rate question has no specific brand or requests several companies. Preserve full material, diameter and angle; unavailable or ambiguous brands have no invented price. An explicit discount_percent overrides comparison defaults. Read only.",schema:lookup.extend({brands:z.array(query).min(1).max(5).default(["Dura Max","Popular","Turk Plast"]),quantity:z.number().positive().default(1),discount_percent:z.number().min(0).max(100).optional()}),permission:"sales.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async(input,scope,services,signal)=>brandRates(input,scope,services,signal)}),
   defineTool({name:"erp_get_product_sale_rate",description:"Answer a standalone product rate question in ONE read. Supply the full product name, brand, material, size and angle. The server resolves the item and its active global sale rate automatically; never guess product or rate-list IDs. For customer-specific negotiated prices use the customer-aware lookup_current_sale_rate workflow.",schema:lookup.extend({brand:query.optional(),quantity:z.number().finite().positive().default(1)}),permission:"sales.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async({query,limit,brand,quantity},scope,{search,pricing,rateLists,tenant},signal)=>{
     await tenant.assertPermission(scope,"products.read");
     const match=await search.searchProducts(query,limit,scope,brand);
@@ -183,6 +187,20 @@ export class ErpToolRegistry {
       return {analytics:true,answer:analyticsAnswer(report,_originalMessage??""),report};
     }
     const mixed=brandsInText(_originalMessage??"").length>1;
+    if(["search_products","erp_get_product_sale_rate","erp_compare_brand_rates"].includes(name)&&_originalMessage&&raw&&typeof raw==="object"&&!Array.isArray(raw)){
+      const percent=estimateCaptionChoices(_originalMessage).percent;
+      const brand=explicitBrand(_originalMessage);
+      const isRate=name==="erp_compare_brand_rates"||/ریٹ|قیمت|نرخ|\b(?:rate|price)\b/iu.test(_originalMessage);
+      if(isRate&&name!=="search_products"&&(name==="erp_compare_brand_rates"||!brand||percent!==undefined)){
+        const given=raw as Record<string,unknown>;
+        const withoutDiscount=_originalMessage.replace(/\s*\d+(?:\.\d+)?\s*(?:%|فیصد|پرسنٹ|percent\b)\s*(?:پر)?/giu,"");
+        const originalQuery=canonicalSlipWords(normalizeProductSearchQuery(withoutDiscount));
+        const hasProduct=/\b(?:pipe|elbow|tee|socket|trap|valve|union|adapter|reducer|solvent)\b/i.test(originalQuery);
+        const query=(hasProduct?originalQuery:String(given.query??""))
+          .replace(/\b(?:Dura\s*Max|Popular|Turk\s*Plast|HE\s*China)\b/giu,"").replace(/\s+/g," ").trim();
+        if(query.length<=120)return this.execute("erp_compare_brand_rates",{query,limit:given.limit??10,quantity:given.quantity??1,brands:brand?[brand]:mixed?brandsInText(_originalMessage):given.brands??["Dura Max","Popular","Turk Plast"],...(percent!==undefined?{discount_percent:percent}:{})},scope,state,undefined,signal);
+      }
+    }
     if(["search_products","erp_get_product_sale_rate"].includes(name)&&_originalMessage&&raw&&typeof raw==="object"&&!Array.isArray(raw)){
       // Preserve the user's exact specs when removing recognized rate-question
       // wording. A model refinement must not silently drop an angle or size.

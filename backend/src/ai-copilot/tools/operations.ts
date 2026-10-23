@@ -163,7 +163,7 @@ export class DefaultErpOperations implements ErpOperations {
       await this.memory.assertFloor(scope,product.id,rate.unit_price,item.qty*rate.unit_price===0?0:discountAmount/(item.qty*rate.unit_price)*100,product.unit,rate.currency_code,cost?.unitCost);
       if(classifyMaterial([brand,product.name].join(" "))==="GI" && /brass|براس|پیتل/iu.test(product.name))
         requireChoice("HE China صرف G.I. فٹنگ ہے؛ اسے پیتل یا Brass کے طور پر شامل نہیں کیا جا سکتا۔");
-      return {line_number:offset+index+1,product_id:product.id,productName:product.name,brandName:brand??explicitBrand(product.name)??"دیگر سامان",quantity:item.qty,unit:product.unit,unit_price:rate.unit_price,
+      return {line_number:offset+index+1,product_id:product.id,productName:product.name,...(item.size?{size:item.size}:{}),brandName:brand??explicitBrand(product.name)??"دیگر سامان",quantity:item.qty,unit:product.unit,unit_price:rate.unit_price,
         discount_amount:discountAmount,discountPercent:discount,pricing_source:"RESOLVED_RATE",
         rate_list_id:rate.rate_list_id,rate_list_version_id:rate.rate_list_version_id,resolved_price:rate,
         ...(merchantCost!=null?{merchantUnitCost:merchantCost}:{}),

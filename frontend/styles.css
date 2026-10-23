@@ -134,3 +134,17 @@ label{display:grid;gap:6px;color:#465467;font-size:12px;font-weight:650}input,te
 }
 .merchant-scorecard { border:1px dashed #9c7a25; padding:.5rem; }
 [data-customer-quotation] { white-space:pre-wrap; font-family:inherit; line-height:1.8; }
+
+/* Urdu chat: self-hosted OFL font, comfortable shaping and isolated technical tokens. */
+@font-face { font-family:'Noto Sans Arabic'; src:url('/fonts/NotoSansArabic.ttf') format('truetype'); font-style:normal; font-weight:100 900; font-display:swap; }
+.copilot-panel { font-family:'Noto Sans Arabic','Google Sans',system-ui,-apple-system,sans-serif; }
+.copilot-panel .message-body,.copilot-panel textarea { font-size:15px; line-height:1.85; }
+.copilot-panel .message-body { text-align:start; unicode-bidi:plaintext; min-width:0; overflow-wrap:anywhere; }
+.copilot-panel .message-body:dir(rtl) { text-align:right; }
+.copilot-panel .message-body p,.copilot-panel .message-body li { font-size:15px; line-height:1.85; }
+.copilot-panel bdi { unicode-bidi:isolate; }
+.copilot-panel .shop-table { max-width:100%; overflow-x:auto; margin:12px 0; overscroll-behavior-inline:contain; }
+.shop-table table { width:100%; border-collapse:collapse; font-size:15px; }
+.shop-table th,.shop-table td { padding:9px 12px; border-bottom:1px solid var(--line); text-align:start; white-space:nowrap; vertical-align:top; }
+.shop-table th { background:var(--surface-soft); }
+.copilot-panel .review-line-title strong { font-size:15px; line-height:1.85; }

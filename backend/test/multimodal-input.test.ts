@@ -57,12 +57,28 @@ describe("Part 4 concrete extraction and media validation",()=>{
     expect(result.message).toContain("Voice instruction (transcribed): وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں");
     expect(result.extraction).toMatchObject({transcript:"وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں",document:{customerName:"Qasim"}});
   });
-  it.each(["confidence","line confidence","warning","missing quantity","empty lines"])("requires review for %s without inventing a field",async reason=>{
+  it.each(["warning","missing quantity","empty lines"])("requires review for %s without inventing a field",async reason=>{
     const f=fixture(),doc=structuredClone(document);
-    if(reason==="confidence")doc.confidence=.4;if(reason==="line confidence")doc.lines[0]!.confidence=.4;
     if(reason==="warning")doc.warnings=["Unreadable line"];if(reason==="missing quantity")doc.lines[0]!.quantity=null;if(reason==="empty lines")doc.lines=[];
     f.provider.generate.mockResolvedValue(doc);const result=await f.input.normalize({source:"image",media:png()},scope);
     expect(result.reviewRequired).toBe(true);if(reason==="missing quantity")expect(result.message).toContain('"quantity":null');
+  });
+  it("does not halt readable sized rows solely for low confidence",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue({...document,confidence:.3,lines:[{...document.lines[0]!,size:"25mm",confidence:.3}]});
+    const result=await f.input.normalize({source:"image",media:png()},scope);
+    expect(result.reviewRequired).toBe(false);expect(result.estimateRequest).toMatchObject({items:[{size:"25mm",qty:20}]});
+  });
+  it("carries mandatory plumber size, material and specification into the estimate without stripping them",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:"PPRC Female Elbow 25mm x 1/2 inch 4pcs",item_name:"Elbow",material:"PPR-C",size:"25mm x 1/2 inch",specification:"Female Threaded",quantity:4,unit:"pcs"}]} as any);
+    const result=await f.input.normalize({source:"image",media:png(),message:"کسٹمر وسیم مظہر ہے اتحاد ٹاؤن لاہور کا، ڈیورا میکس 50 پرسنٹ ڈسکاؤنٹ پر بل بناؤ"},scope);
+    expect(result.reviewRequired).toBe(false);expect(result.estimateRequest).toMatchObject({customerName:"وسیم مظہر",customerAddress:"اتحاد ٹاؤن لاہور",brand:"Dura Max",discountScheme:{percent:50},items:[{name:"PPR-C Elbow Female Threaded",size:"25mm x 1/2 inch",qty:4,discount:50}]});
+    expect(result.extraction.document?.lines[0]).toMatchObject({rawShorthand:expect.stringContaining("25mm"),material:"PPR-C",specification:"Female Threaded"});
+  });
+  it("preserves a missing diameter for correction instead of pricing a different size",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:"Elbow 4 pcs",item_name:"Elbow",material:"PPR-C",size:null,specification:"Plain",quantity:4,unit:"pcs"}]} as any);
+    const result=await f.input.normalize({source:"image",media:png(),message:"ایسٹیمیٹ بنائیں"},scope);
+    expect(result.reviewRequired).toBe(true);expect(result.extraction.document?.warnings.join(" ")).toContain("سائز واضح نہیں");
+    expect((result.estimateRequest?.items as any[])[0]).not.toHaveProperty("size");
   });
   it("uses the catalog unit rather than halting a complete slip for an unprinted unit",async()=>{
     const f=fixture(),doc=structuredClone(document);doc.lines[0]!.unit=null;doc.warnings=["Printed rates ignored; current ERP rates apply."];

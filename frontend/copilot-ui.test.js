@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { attachmentLabel, createCopilotConversation, reviewCardMarkup, selectReviewProduct, sourceForAttachment } from "./copilot-ui.js";
+import { attachmentLabel, createCopilotConversation, reviewCardMarkup, selectReviewProduct, sourceForAttachment,formatCopilotAnswer,erpActionReviewMarkup } from "./copilot-ui.js";
 
 describe("conversational Copilot UI", () => {
+  it("renders Urdu Markdown tables and bullets while escaping source HTML",()=>{
+    const html=formatCopilotAnswer('**جی جناب**\n- PN-16 25mm\n\n| برانڈ | لسٹ ریٹ |\n|---|---:|\n| Dura Max | PKR 54.00 |\n\n<script>alert(1)</script>');
+    expect(html).toContain('<strong>جی جناب</strong>');expect(html).toContain('<table>');expect(html).toContain('<li>');expect(html).toContain('<bdi dir="ltr">PKR 54.00</bdi>');
+    expect(html).not.toContain('<script>');expect(html).toContain('&lt;script&gt;');
+  });
+  it("shows separate sizes, list prices, discounts and net totals on estimate approval",()=>{
+    const html=erpActionReviewMarkup({preview:{summary:'وسیم صاحب کا پری ویو',quotation:{sections:[{brand:'Dura Max',lines:[{name:'Elbow',size:'25mm',quantity:4,unit:'pcs',rate:54,discountPercent:50,amount:108}],savings:108,total:108}],text:'quote'},totals:{grand_total:108}}});
+    expect(html).toContain('<th>سائز</th>');expect(html).toContain('25mm');expect(html).toContain('<th>رعایت %</th>');expect(html).toContain('108');
+  });
   it("reuses the signed token in one conversation and clears it on scope changes or expiry", () => {
     let clock = 0;
     const conversation = createCopilotConversation(() => clock);

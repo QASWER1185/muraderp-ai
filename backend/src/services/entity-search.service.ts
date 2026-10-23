@@ -35,6 +35,7 @@ export function normalizeProductSearchQuery(query: string): string {
   return query.trim().replace(/[?؟.]+$/u, "")
     .replace(/^(?:what\s+(?:is\s+)?(?:the\s+)?(?:rate|price)\s+(?:of\s+)?|what\s+|(?:please\s+)?(?:show|tell|give)(?:\s+me)?\s+(?:the\s+)?(?:rate|price)\s+(?:of\s+)?)/iu,"")
     .replace(/\s+(?:کا|کی)\s+(?:ریٹ|قیمت)(?:\s+(?:بتاؤ|بتائیں|بتا دیں|کیا ہے))?$/u,"")
+    .replace(/\s+(?:کمپنیوں|برانڈز)\s+کے\s+(?:ریٹ|قیمت)(?:\s+(?:بتاؤ|بتائیں|بتا دیں))?$/u,"")
     .replace(/\belboow\b/giu, "elbow")
     .replace(/\s+(?:(?:ka|ki)\s+)?(?:kia|kya)\s+rate\s+(?:hy|hai)$/iu, "")
     .replace(/\s+(?:(?:ka|ki)\s+)?rate\s+(?:(?:kia|kya)\s+)?(?:hy|hai)$/iu, "")
@@ -77,9 +78,31 @@ export class SupabaseEntitySearchService implements EntitySearchService {
 
   async searchProducts(query: string, limit: number, scope: SearchScope, brand?: string) {
     const restriction=brand ?? explicitBrand(query);
-    const catalogQuery=canonicalCatalogQuery(canonicalSlipWords(normalizeProductSearchQuery(query)),restriction);
-    const rows = await this.search("search_products_fuzzy",catalogQuery,limit,scope,restriction);
-    return resolveCandidates(rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(catalogQuery,String(r.name)+" "+String(r.sku))).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
+    let words=canonicalSlipWords(normalizeProductSearchQuery(query));
+    // Spoken nominal PPR sizes differ from literal U-PVC / G.I. inch sizes.
+    if(!/\bu-pvc\b|\bg\.?i\.?\b/i.test(words)&&/پونا\s*انچ|پون\s*انچ|ایک\s*انچ/u.test(query))words=words.replace(/3\/4 inch/g,"25mm").replace(/1 inch/g,"32mm");
+    if(/\b(?:elbow|tee|socket|pipe)\b/i.test(words)&&!/(?:\bmm\b|inch|["″x×*/])/i.test(words))words=words.replace(/(?<![\w-])(16|20|25|32|40|50|63)\b(?!\s*°)/g,"$1mm");
+    const catalogQuery=canonicalCatalogQuery(words,restriction);
+    // Plain and threaded are semantic fitting variants; legacy catalog labels
+    // often omit those words. Keep them for validation, not lexical retrieval.
+    const lookupQuery=catalogQuery.replace(/\bplain\b/giu,"").replace(/\bthreaded\b/giu,"").replace(/\s+/g," ").trim();
+    const rows = await this.search("search_products_fuzzy",lookupQuery,limit,scope,restriction);
+    const headings=new Map<number,string>();
+    const needsHeading=rows.filter(row=>(!restriction||sameBrand(row.brand_name as string|null,restriction))&&/\bppr[\s-]?c\b/i.test(catalogQuery)&&!/\bppr[\s-]?c\b/i.test(String(row.name)));
+    if(needsHeading.length){
+      const {data,error}=await (this.clientFactory() as any).from("rate_list_items")
+        .select("product_id,rate_list_versions!inner(status,rate_lists!inner(name,organization_id,is_active,price_type))")
+        .in("product_id",needsHeading.map(row=>row.id)).eq("rate_list_versions.status","ACTIVE")
+        .eq("rate_list_versions.rate_lists.organization_id",scope.organizationId).eq("rate_list_versions.rate_lists.is_active",true).eq("rate_list_versions.rate_lists.price_type","SALE");
+      if(error)throw new ApiError(503,"ENTITY_SEARCH_UNAVAILABLE","Catalog material lookup unavailable");
+      for(const row of data??[]){const name=row.rate_list_versions?.rate_lists?.name;if(typeof name==="string")headings.set(Number(row.product_id),(headings.get(Number(row.product_id))??"")+" "+name);}
+    }
+    const eligible=rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(catalogQuery,String(r.name)+" "+String(r.sku)+" "+(headings.get(Number(r.id))??"")));
+    const identity=(name:string)=>canonicalSlipWords(name).toLowerCase().replace(/\b(?:dura\s*max|popular|turk\s*plast|he\s*china|ppr[\s-]?c|u[\s-]?pvc|plain|threaded)\b/gi,"").replace(/["″]/g,"inch").replace(/[^\p{L}\p{N}]/gu,"");
+    // An exact family + complete dimensions beats a different family/angle,
+    // while duplicate exact catalog records still require clarification.
+    const exact=eligible.filter(row=>identity(String(row.name))===identity(catalogQuery));
+    return resolveCandidates((exact.length?exact:eligible).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
       sku: String(r.sku), unit: String(r.unit), category: String(r.category),
       brandName: r.brand_name == null ? null : String(r.brand_name), confidence: Number(r.confidence), match_kind: String(r.match_kind) })),limit);
   }

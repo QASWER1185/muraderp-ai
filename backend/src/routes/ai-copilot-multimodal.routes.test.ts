@@ -124,8 +124,8 @@ describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=
     await request(f.app).post("/copilot/drafts/55555555-5555-4555-8555-555555555555/confirm").set(headers).set("Cookie",f.cookieFor(scope.userId)).set("Idempotency-Key","server-review").send({});
     expect(f.runtime.confirmAndExecute).toHaveBeenCalledOnce();
   });
-  it("pauses weak OCR before model/tool calls and preserves conversation choices while invalidating approval",async()=>{
-    const f=setup();f.state.draft={id:"55555555-5555-4555-8555-555555555555",revision:1,preparedRevision:1,lines:[]};f.provider.generate.mockResolvedValue({...document,confidence:.2});
+  it("pauses missing quantities before model/tool calls and preserves conversation choices while invalidating approval",async()=>{
+    const f=setup();f.state.draft={id:"55555555-5555-4555-8555-555555555555",revision:1,preparedRevision:1,lines:[]};f.provider.generate.mockResolvedValue({...document,confidence:.2,lines:[{...document.lines[0]!,quantity:null}]} as any);
     const result=await f.post("agent/input",{source:"image",media:media(),conversationToken:writeBusinessState(f.state),conversationId:f.state.conversationId});
     expect(result.status).toBe(200);expect(result.body.data).toMatchObject({status:"clarification",toolNames:[],requiresConfirmation:false,conversationId:f.state.conversationId,reviewText:expect.stringContaining("EBOW")});
     const state=readBusinessState(result.body.data.conversationToken,scope,result.body.data.conversationId);

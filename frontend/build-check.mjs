@@ -34,5 +34,7 @@ writeFileSync(resolve(dist, "public-config.js"), `globalThis.MURADERP_PUBLIC_CON
 mkdirSync(resolve(dist, "icons"), { recursive: true });
 writeFileSync(resolve(dist, "icons", "icon.svg"), readFileSync(resolve(root, "icons", "icon.svg")));
 const assets = [...required, "icons/icon.svg"];
+mkdirSync(resolve(dist,"fonts"),{recursive:true});
+for(const font of ["NotoSansArabic.ttf","OFL.txt"]){writeFileSync(resolve(dist,"fonts",font),readFileSync(resolve(root,"fonts",font)));assets.push("fonts/"+font);}
 writeFileSync(resolve(dist, "BUILD-MANIFEST.json"), JSON.stringify({name:"MuradERP-AI",productionGate:"PASS",assets}, null, 2));
 console.log(`Frontend production build PASS: ${assets.length} assets validated and staged in dist/.`);

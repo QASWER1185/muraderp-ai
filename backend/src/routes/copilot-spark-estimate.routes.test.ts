@@ -20,7 +20,7 @@ const scope={userId:"11111111-1111-4111-8111-111111111111",organizationId:"22222
 const jpeg=createCanvas(64,32).toBuffer("image/jpeg").toString("base64");
 const caption="Arslan Shahnawaz Sb, Ittehad Town, Dera Max 50% estimate";
 function document(index=0){return {customerName:null,customerAddress:null,requestedBrand:null,vendorName:null,warehouseName:null,documentNumber:null,documentDate:null,currencyCode:"PKR",
-  lines:[{productName:"PPR-C Elbow",size:index%2?"32mm":"25mm",productCode:null,brandHint:null,quantity:3,unit:null,unitRate:99999,discountPercent:20,confidence:.99}],
+  lines:[{raw_line:"PPR-C Elbow "+(index%2?"32mm":"25mm")+" 3pcs",item_name:"Elbow",material:"PPR-C",size:index%2?"32mm":"25mm",specification:null,quantity:3,unit:null}],
   observedLineCount:1,ignoredLineCount:0,discountPercent:20,subtotal:null,total:null,confidence:.7,warnings:["Printed rates are observations only."]};}
 function setup(){
   let index=0;
