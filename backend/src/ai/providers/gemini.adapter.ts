@@ -72,8 +72,10 @@ export class GeminiAdapter implements AiProviderContract {
       if(!(error instanceof ApiError) || error.code!=="AI_PROVIDER_BAD_REQUEST")throw error;
       // Some model versions reject nested function-proposal schemas. Retry this
       // read-only extraction once using JSON output; full local validation stays.
-      const fallback=await this.request(model,{systemInstruction:{parts:[{text:instructions}]},contents:[{role:"user",parts}],
-        generationConfig:{maxOutputTokens:8000,responseMimeType:"application/json",responseJsonSchema:z.toJSONSchema(schema)}},undefined,!!options?.recoverIncomplete);
+      const fallback=await this.request(model,{systemInstruction:{parts:[{text:instructions+"\nReturn only JSON conforming to this schema. Missing nullable observations must be null; do not invent values: "+JSON.stringify(z.toJSONSchema(schema))}]},contents:[{role:"user",parts}],
+        // A rejected nested native schema must not be sent unchanged through
+        // another constrained-output API. Local Zod validation stays mandatory.
+        generationConfig:{maxOutputTokens:options?.maxOutputTokens??8000,responseMimeType:"application/json"}},undefined,!!options?.recoverIncomplete);
       const raw=fallback.parts.filter(part=>!part.thought&&typeof part.text==="string").map(part=>part.text).join("");
       return parseStructuredOutput(schema,raw,options,fallback.incomplete);
     }

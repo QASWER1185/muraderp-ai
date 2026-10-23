@@ -11,6 +11,8 @@ describe("one-to-one Dura catalog variants",()=>{
     expect(canonicalCatalogQuery('Dura Max Gate Valve 25mm',"Dura Max")).toContain("Plastic");
     expect(canonicalCatalogQuery('Dura Max Gate Valve Metal 25mm',"Dura Max")).not.toContain("Plastic");
     expect(canonicalCatalogQuery('Popular U-PVC Pipe 4 inch',"Popular")).not.toContain("Medium");
+    expect(canonicalCatalogQuery('Dura Max PPR-C Pipe 25mm',"Dura Max")).toContain("PN-16");
+    expect(canonicalCatalogQuery('Dura Max PPR-C Pipe PN-20 25mm',"Dura Max")).not.toContain("PN-16");
   });
   it.each([
     ['Medium Pipe 4 inch','Class O Pipe 4 inch'],

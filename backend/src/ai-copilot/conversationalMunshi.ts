@@ -2,7 +2,7 @@
 export function canonicalSlipWords(value:string):string {
   return value.normalize("NFKC").replace(/\p{M}/gu,"").replace(/ایلبو|البو|\belbo\b/giu,"Elbow")
     .replace(/ساکٹ|سوکٹ/gu,"Socket").replace(/\btee\b|ٹی جوائنٹ/giu,"Tee")
-    .replace(/یو\s*پی\s*وی\s*سی|\bu\s*-?\s*pvc\b/giu,"U-PVC").replace(/پی\s*پی\s*آر\s*سی|\bpprc\b/giu,"PPR-C")
+    .replace(/(?:یو\s*)?پی\s*وی\s*سی|\b(?:u\s*-?\s*)?pvc\b/giu,"U-PVC").replace(/پی\s*پی\s*آر\s*سی|\bpprc\b/giu,"PPR-C")
     .replace(/ڈگری|\bdegrees?\b/giu,"°").replace(/انچ/gu,"inch")
     .replace(/\b(elbow|bend)\s+(45|90)(?!\d)(?!\s*°)/giu,"$1 $2°")
     .replace(/\bdera\s*max\b|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس/giu,"Dura Max")

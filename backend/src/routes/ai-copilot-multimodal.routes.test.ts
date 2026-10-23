@@ -30,6 +30,30 @@ function setup(){
   return {...f,app,provider,runtime,cookieFor,post};
 }
 describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=>{
+  it("extracts every image in a multipart three-slip request and preserves the explicit Urdu customer",async()=>{
+    const f=setup();f.provider.generate.mockResolvedValue({...document,customerName:"Incorrect heading",lines:[{...document.lines[0],unit:null}]} as any);
+    f.script({output:[],text:"review extracted lines"});
+    let req=request(f.app).post("/copilot/chat").set(headers).set("Cookie",f.cookieFor(scope.userId)).field("message","اس کسٹمر کا نام فیصل بٹ ہے اور اس کو ڈورا میکس کا ایسٹیمیٹ بنا دیں");
+    for(let i=0;i<3;i++)req=req.attach("images",Buffer.from(media().base64,"base64"),{filename:`WA006${i}.png`,contentType:"image/png"});
+    const result=await req;
+    expect(result.status).toBe(200);expect(f.provider.generate).toHaveBeenCalledTimes(3);
+    expect(result.body.data.extraction.document).toMatchObject({customerName:"فیصل بٹ",lines:[{quantity:20},{quantity:20},{quantity:20}]});
+    expect(f.erpWrite).not.toHaveBeenCalled();
+  });
+  it("rejects unsupported multipart fields before calling vision",async()=>{
+    const f=setup();const result=await request(f.app).post("/copilot/chat").set(headers).set("Cookie",f.cookieFor(scope.userId)).field("product_id","99").attach("images",Buffer.from(media().base64,"base64"),"slip.png");
+    expect(result.status).toBe(422);expect(f.provider.generate).not.toHaveBeenCalled();
+  });
+  it("retains the extracted slip and a useful correction preview when ERP preparation fails",async()=>{
+    const f=setup(),definitions=f.tools.definitions.bind(f.tools);
+    vi.spyOn(f.tools,"definitions").mockImplementation(()=>[...definitions(),{name:"erp_create_estimate"}] as any);
+    vi.spyOn(f.tools,"execute").mockRejectedValue(new Error("private database detail"));
+    const result=await f.post("agent/input",{source:"image",media:media(),message:"اس کسٹمر کا نام فیصل بٹ ہے، ایسٹیمیٹ بنا دیں"});
+    expect(result.status).toBe(200);expect(result.body.data.status).toBe("clarification");
+    expect(result.body.data.extraction.document.lines).toHaveLength(1);
+    expect(result.body.data.answer).toContain("لائنیں پڑھ لی ہیں");
+    expect(result.body.data.answer).not.toContain("private database detail");expect(f.erpWrite).not.toHaveBeenCalled();
+  });
   const conduitCatalog={documentType:"rate_list",name:"Dura Max Electric Conduit Pipes & Fittings",standardDiscountPercent:0,complete:true,confidence:1,warnings:[],
     items:Array.from({length:35},(_,i)=>({brand:"Dura Max",category:i<10?"Pipes":"Fittings",name:i<10?"Conduit Pipe":"Conduit Elbow",size:(16+i)+"mm",unit:i<10?"length":"pcs",list_price:100+i}))};
   it.each(["درج کر دیں","JO RATE LIST MEIN DARJ KER DEIN","rates darj ker dein","jo darj ker dein"])("binds upload preview to the exact saved action for %s",async phrase=>{

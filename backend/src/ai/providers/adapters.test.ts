@@ -130,6 +130,8 @@ describe("Gemini extraction compatibility",()=>{
     const bodies=fetcher.mock.calls.map(([,init])=>JSON.parse(String(init!.body)));
     expect(bodies.map(body=>body.contents[0].parts[0].inlineData)).toEqual([{mimeType:"image/jpeg",data:"YQ=="},{mimeType:"image/jpeg",data:"YQ=="}]);
     expect(bodies[1].generationConfig.responseMimeType).toBe("application/json");expect(bodies[1]).not.toHaveProperty("tools");
+    expect(bodies[1].generationConfig).not.toHaveProperty("responseJsonSchema");
+    expect(bodies[1].systemInstruction.parts[0].text).toContain('"value"');
   });
 });
 

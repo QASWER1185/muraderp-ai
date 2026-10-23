@@ -15,6 +15,21 @@ export function wav(silent=false){const b=Buffer.alloc(1644);b.write("RIFF");b.w
 function pdf(pages=1){const doc=new PDFDocument();for(let i=0;i<pages;i++){const ctx=doc.beginPage(120,60);ctx.fillText("Qasim estimate",5,20);doc.endPage();}return {mimeType:"application/pdf",base64:doc.close().toString("base64")};}
 function fixture(){const provider={name:"gemini" as const,generate:vi.fn(async(_schema:unknown,_instructions:string,_content:unknown[])=>structuredClone(document)),transcribe:vi.fn(async()=>"قاسم کے لیے پاپولر پچیس ایم ایم پائپ چالیس فیصد ڈسکاؤنٹ پر بنا دو")};const adapter=new ProviderBusinessInput(provider);return {provider,adapter,input:new MultimodalAgentInput(adapter)};}
 describe("Part 4 concrete extraction and media validation",()=>{
+  it("keeps readable pages for correction instead of discarding all slips when one fails",async()=>{
+    const f=fixture();f.provider.generate.mockRejectedValueOnce(new Error("unreadable page"));
+    const result=await f.input.normalize({source:"image",message:"اس کسٹمر کا نام فیصل بٹ ہے، ایسٹیمیٹ بنا دیں",attachments:[{media:png()},{media:png()},{media:png()}]},scope);
+    expect(result.reviewRequired).toBe(true);expect(result.extraction.document?.lines).toHaveLength(2);
+    expect(result.extraction.document?.warnings.join(" ")).toContain("پرچی 1 نہیں پڑھی");
+  });
+  it("keeps the typed Faisal Butt name and lets ERP recall Dura discounts instead of an OCR default zero",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue({...document,customerName:"wrong heading",discountPercent:0,lines:[{...document.lines[0]!,discountPercent:0}]});
+    const message="اس کسٹمر کا نام فیصل بٹ ہے اور اس کو ڈورا میکس کا ایسٹیمیٹ بنا دیں";
+    const result=await f.input.normalize({source:"image",message,media:png()},scope);
+    expect(result.estimateRequest).toMatchObject({customerName:"فیصل بٹ",brand:"Dura Max"});
+    expect(result.estimateRequest).not.toHaveProperty("discountScheme");expect((result.estimateRequest!.items as any[])[0]).not.toHaveProperty("discount");
+    const explicit=await f.input.normalize({source:"image",message:message+" 0%",media:png()},scope);
+    expect(explicit.estimateRequest).toMatchObject({discountScheme:{percent:0},items:[{discount:0}]});
+  });
   it("extracts the named customer and address from a natural Urdu multi-slip request",async()=>{
     const f=fixture();
     const message="ان پرچیوں سے آپ ارسلان شاہنواز صاحب اتحاد ٹاؤن ڈرائیونڈ لاہور کے گاہک ہیں ان کو ایز اے کسٹمر ایڈ کریں اور ان پرچیوں سے ڈیورا میکس کا ایسٹیمیٹ بنا دیں";

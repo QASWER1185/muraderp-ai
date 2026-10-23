@@ -413,20 +413,25 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     refreshReviewControls();
   }
 
-  async function analyze(selection) {
+  async function analyze(selection, submission) {
     if (operationBusy) return;
     const context = contextOrThrow();
-    const text = input.value.trim();
-    if (!text && !attachment && !voiceAudio) throw new Error("Write a message or add an attachment first.");
-    const action = task.value;
-    const source = attachments.length ? sourceForAttachment(attachments[0], attachmentFromCamera) : voiceAudio ? "voice" : "text";
+    const text = submission?.text??input.value.trim();
+    const files=submission?.files??attachments, audio=submission?.audio??voiceAudio, audioName=submission?.audioName??voiceAudioName;
+    const camera=submission?.camera??attachmentFromCamera;
+    if(submission&&(submission.userId!==getAuthenticatedUserId()||submission.organizationId!==context.organizationId||submission.branchId!==context.branchId))throw new Error("Workspace changed. Please resend in the active workspace.");
+    if (!text && !files.length && !audio) throw new Error("Write a message or add an attachment first.");
+    const action = submission?.action??task.value;
+    const source = files.length ? sourceForAttachment(files[0], camera) : audio ? "voice" : "text";
     if(recorder?.state==="recording") throw new Error("Stop recording before sending.");
     const display = text || (source === "voice" ? "Voice note" : fromCameraLabel(source));
-    appendMessage("user", `<p>${escapeHtml(display)}</p>${attachments.map(file=>`<small>${escapeHtml(attachmentLabel(file))}</small>`).join("")}${voiceAudio?`<small>♫ ${escapeHtml(voiceAudioName||"صوتی پیغام")}</small>`:""}`);
-    const sentAttachment = attachment;
-    const sentAttachments=[...attachments];
-    const sentVoiceAudio=voiceAudio;
-    const sentVoiceAudioName=voiceAudioName;
+    appendMessage("user", `<p>${escapeHtml(display)}</p>${files.map(file=>`<small>${escapeHtml(attachmentLabel(file))}</small>`).join("")}${audio?`<small>♫ ${escapeHtml(audioName||"صوتی پیغام")}</small>`:""}`);
+    const sentAttachment = files[0];
+    const sentAttachments=[...files];
+    const sentVoiceAudio=audio;
+    const sentVoiceAudioName=audioName;
+    const snapshot={text,files:sentAttachments,audio:sentVoiceAudio,audioName:sentVoiceAudioName,camera,action,userId:getAuthenticatedUserId(),organizationId:context.organizationId,branchId:context.branchId};
+    input.value="";input.style.height="auto";clearAttachment();
     const version=++operationVersion;
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
@@ -483,7 +488,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
           preparedConversation = { token: response.data.conversationToken, conversationId: response.data.conversationId, kind: "payment" };
         }
         if(response.data.status==="rate_limited") {
-          showError(new Error("The AI provider is temporarily rate limited. Your message and attachment are ready to retry."),()=>analyze(selection));
+          showError(new Error("The AI provider is temporarily rate limited. Your message and attachment are ready to retry."),()=>analyze(selection,snapshot));
           return;
         }
         return;
@@ -502,7 +507,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       review = response.data;
       quoteVersions.clear();
       appendMessage("assistant", reviewCardMarkup(review));
-    } finally { if(version===operationVersion) setBusy(false); }
+    } catch(error) {if(version===operationVersion)showError(error,()=>analyze(selection,snapshot));}
+    finally { if(version===operationVersion) setBusy(false); }
   }
   function fromCameraLabel(source) { return source === "camera" ? "Photo for review" : source === "image" ? "Attachment for review" : "ERP request"; }
 

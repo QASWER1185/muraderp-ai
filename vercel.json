@@ -5,11 +5,64 @@
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "rewrites": [
-    { "source": "/api/copilot", "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot" },
-    { "source": "/api/copilot/:path*", "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot/:path*" },
+    {
+      "source": "/api/copilot",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot"
+    },
+    {
+      "source": "/api/copilot/:path*",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot/:path*"
+    },
     {
       "source": "/api/v1/:path*",
       "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "headers": [
+        {
+          "value": "no-cache, max-age=0, must-revalidate",
+          "key": "Cache-Control"
+        }
+      ],
+      "source": "/"
+    },
+    {
+      "headers": [
+        {
+          "value": "no-cache, max-age=0, must-revalidate",
+          "key": "Cache-Control"
+        }
+      ],
+      "source": "/index.html"
+    },
+    {
+      "headers": [
+        {
+          "value": "no-cache, max-age=0, must-revalidate",
+          "key": "Cache-Control"
+        }
+      ],
+      "source": "/sw.js"
+    },
+    {
+      "headers": [
+        {
+          "value": "no-cache, max-age=0, must-revalidate",
+          "key": "Cache-Control"
+        }
+      ],
+      "source": "/copilot-ui.js"
+    },
+    {
+      "headers": [
+        {
+          "value": "no-cache, max-age=0, must-revalidate",
+          "key": "Cache-Control"
+        }
+      ],
+      "source": "/styles.css"
     }
   ]
 }

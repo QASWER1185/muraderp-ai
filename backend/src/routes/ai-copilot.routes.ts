@@ -20,6 +20,7 @@ import { confirmConversationAction, isAffirmation } from "../ai-copilot/tools/co
 import { AutonomousChainingLoop } from "../ai-copilot/autonomousChainingLoop.js";
 import { munshiErrorMessage } from "../ai-copilot/conversationalMunshi.js";
 import { isAnalyticsTool } from "../ai-copilot/analytics.js";
+import { copilotMultipart } from "../ai-copilot/agent/multipart-input.js";
 
 const idSchema = z.coerce.number().int().positive();
 const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
@@ -203,7 +204,7 @@ export function createAiCopilotRouter(
     response.json({ data: { connected: true, ...(upstreamStatus === undefined ? {} : { httpStatus: upstreamStatus }) } });
   });
 
-  router.post(["/agent/input","/chat"], authorize, async (request, response, next) => {
+  router.post(["/agent/input","/chat"], authorize, ...copilotMultipart, async (request, response, next) => {
     if(request.path==="/chat" && !request.body?.attachments && !request.body?.media){next();return;}
     const userId = request.browserPrincipal?.userId;
     if (!userId) throw new ApiError(401,"UNAUTHORIZED","A browser user session is required.");
@@ -264,8 +265,11 @@ export function createAiCopilotRouter(
         response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
           conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:true,toolNames:["erp_create_estimate"]}});
       } catch(error) {
-        if(!(error instanceof ApiError) || !["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code))throw error;
-        response.json({data:{answer:munshiErrorMessage(error.code,error.message),status:"clarification",extraction:normalized.extraction,reviewText:normalized.message,
+        if(error instanceof ApiError && [401,403].includes(error.status))throw error;
+        const known=error instanceof ApiError && ["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code);
+        request.log?.warn({errorCode:error instanceof ApiError?error.code:"SLIP_ESTIMATE_PREPARATION_FAILED"},"Slip extracted; ERP preview needs correction");
+        const answer=known?munshiErrorMessage(error.code,error.message):`جناب، پرچیوں کی ${normalized.extraction.document?.lines.length??0} لائنیں پڑھ لی ہیں، مگر ERP نرخ یا گاہک کی تصدیق مکمل نہیں ہوئی۔ نیچے پڑھی گئی تفصیل موجود ہے؛ درست کر کے دوبارہ پری ویو تیار کریں۔`;
+        response.json({data:{answer,status:"clarification",extraction:normalized.extraction,reviewText:normalized.message,
           conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:false,toolNames:[]}});
       }
       return;

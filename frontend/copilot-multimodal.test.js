@@ -24,6 +24,15 @@ function setup(){
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it("clears text and all thumbnails before the pending network request completes",async()=>{
+    const f=setup();let finish;mocks.media.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+    f.attach([image(),image(),image()]);f.query("#copilot-input").value="فیصل بٹ کا ایسٹیمیٹ";
+    f.query("#copilot-send").listeners.get("click")();
+    await vi.waitFor(()=>expect(mocks.media).toHaveBeenCalledOnce());
+    expect(f.query("#copilot-input").value).toBe("");expect(f.query("#copilot-attachment").hidden).toBe(true);
+    expect(mocks.media.mock.calls[0][0].attachments).toHaveLength(3);
+    finish({data:{answer:"پری ویو تیار ہے",status:"review"}});await new Promise(resolve=>setTimeout(resolve,0));
+  });
   it("sends a BI follow-up as text without reusing the previous three slips or audio",async()=>{
     const f=setup();f.attach([image(),image(),image(),new File(["voice"],"note.webm",{type:"audio/webm"})]);await f.send("ارسلان شاہنواز کا ایسٹیمیٹ بنائیں");
     expect(mocks.media.mock.calls[0][0].attachments).toHaveLength(4);expect(f.query("#copilot-attachment").hidden).toBe(true);expect(f.query("#copilot-input").value).toBe("");
@@ -48,7 +57,7 @@ describe("Part 4 multimodal browser workflow",()=>{
     f.attach(files);expect(f.query("#copilot-attachment").innerHTML).toContain("slip-3.png");
     mocks.media.mockRejectedValueOnce(new Error("retry"));
     await f.send("Waseem Mazhar Bhai, Ittehad Town Lahore, Dura Max 50% estimate");
-    expect(f.query("#copilot-attachment").hidden).toBe(false);
+    expect(f.query("#copilot-attachment").hidden).toBe(true);
     expect(mocks.media.mock.calls[0][0].attachments).toHaveLength(3);
     expect(mocks.media.mock.calls[0][0]).not.toHaveProperty("media");
     await f.click("[data-copilot-retry]");
@@ -89,7 +98,7 @@ describe("Part 4 multimodal browser workflow",()=>{
   });
   it("keeps media and wording for retry after a provider failure",async()=>{
     const f=setup();f.attach(image());mocks.media.mockRejectedValueOnce(new Error("Provider unavailable"));await f.send("Qasim");
-    expect(f.query("#copilot-input").value).toBe("Qasim");expect(f.query("#copilot-attachment").hidden).toBe(false);
+    expect(f.query("#copilot-input").value).toBe("");expect(f.query("#copilot-attachment").hidden).toBe(true);
     await f.click("[data-copilot-retry]");expect(mocks.media).toHaveBeenCalledTimes(2);expect(f.query("#copilot-attachment").hidden).toBe(true);
   });
   it("discards late media responses after reset",async()=>{
@@ -100,8 +109,8 @@ describe("Part 4 multimodal browser workflow",()=>{
     const f=setup();await f.send("existing estimate");f.attach(image());
     mocks.media.mockResolvedValueOnce({data:{answer:"Provider quota reached",status:"rate_limited",conversationToken:"quota-signed",conversationId:"id",draft:{id:"same",lines:[],prepared:false}}});
     await f.send("change discount");
-    expect(f.query("#copilot-input").value).toBe("change discount");
-    expect(f.query("#copilot-attachment").hidden).toBe(false);
+    expect(f.query("#copilot-input").value).toBe("");
+    expect(f.query("#copilot-attachment").hidden).toBe(true);
     expect(f.markup()).toContain("عارضی حد");
     expect(f.markup()).not.toContain("data-prepare-conversation-draft");
     expect(mocks.prepare).not.toHaveBeenCalled();expect(mocks.confirm).not.toHaveBeenCalled();

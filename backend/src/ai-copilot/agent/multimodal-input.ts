@@ -11,6 +11,8 @@ export function estimateCaptionChoices(message: string): {customerName?:string;c
   const text=message.replace(/[۰-۹٠-٩]/g,char=>String("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩".indexOf(char)%10));
   const percentages=[...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|فیصد|percent\b)/giu)].map(match=>Number(match[1]));
   const percent=percentages.length===1 && percentages[0]!<=100 && brandsInText(text).length<=1?percentages[0]:undefined;
+  const named=text.match(/(?:کسٹمر|گاہک)\s+کا\s+نام\s+(?<name>[\p{L}][\p{L}\s]{0,70}?)\s+ہے(?:\s|[۔،,.]|$)/u);
+  if(named?.groups?.name)return {customerName:named.groups.name.trim(),...(percent!==undefined?{percent}:{})};
   // Urdu voice/text requests often identify the customer inline rather than
   // as comma-separated fields. Honorifics provide a reliable boundary between
   // the person's name and the address in phrases such as "ارسلان شاہنواز صاحب
@@ -54,19 +56,31 @@ export class MultimodalAgentInput {
       return this.normalizeCombined(input,files,visualFiles,scope);
     }
     if(audioFiles.length&&files.length>1)throw new ApiError(422,"INVALID_MEDIA","ایک درخواست میں صرف ایک صوتی نوٹ شامل کیا جا سکتا ہے۔");
-    const results=[];
-    for(let index=0;index<files.length;index+=3)results.push(...await Promise.all(files.slice(index,index+3).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope))));
-    if(results.length===1)return results[0]!;
+    const results:NormalizedInput[]=[],failed:string[]=[];
+    for(let index=0;index<files.length;index+=3){
+      const batch=await Promise.allSettled(files.slice(index,index+3).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope)));
+      for(const [offset,result] of batch.entries()){
+        if(result.status==="fulfilled")results.push(result.value);
+        else{
+          if(result.reason instanceof ApiError&&(!result.reason.code.startsWith("AI_")||[401,403].includes(result.reason.status)||input.task==="rate_list_update"))throw result.reason;
+          failed.push(`پرچی ${index+offset+1} نہیں پڑھی جا سکی؛ اس کی واضح تصویر دوبارہ شامل کریں۔`);
+        }
+      }
+    }
+    if(!results.length)throw new ApiError(422,"SLIP_EXTRACTION_FAILED","جناب، منسلک پرچیوں کا متن نہیں پڑھا جا سکا۔ واضح تصاویر دوبارہ بھیجیں؛ کوئی آئٹم یا مقدار خود سے شامل نہیں کی گئی۔");
+    if(results.length===1&&!failed.length)return results[0]!;
     const catalogs=results.flatMap(result=>"catalog" in result&&result.catalog?[result.catalog]:[]);
     if(catalogs.length && catalogs.length!==results.length)throw new ApiError(422,"MIXED_DOCUMENTS","ریٹ لسٹ اور گاہک کی پرچیاں الگ پیغامات میں بھیجیں۔");
     if(catalogs.length){
       const catalog=mergeCatalogPages(catalogs);
+      if(failed.length){catalog.complete=false;catalog.warnings.push(...failed);}
       return {message:catalog.items.length+" درست آئٹمز کا پری ویو تیار ہے۔ کیا ERP ریٹ لسٹ میں محفوظ کر دوں؟",reviewRequired:true,catalog,
         extraction:{source:input.source,catalog,mediaRetained:false as const}};
     }
     const documents=results.map(result=>"document" in result.extraction?result.extraction.document:undefined);
     if(documents.some(doc=>!doc))throw new ApiError(422,"INVALID_MEDIA","صرف پرچیوں کی تصاویر یا PDF ایک ساتھ بھیجیں۔");
-    return this.documentResult(mergeBusinessDocuments(documents as BusinessDocument[]),input);
+    const merged=mergeBusinessDocuments(documents as BusinessDocument[]);merged.warnings.push(...failed);
+    return this.documentResult(merged,input);
   }
   private async normalizeCombined(input:MultimodalInput,files:Array<{media:Media;fileName?:string|undefined}>,visualFiles:Array<{media:Media;fileName?:string|undefined}>,scope:AgentScope):Promise<NormalizedInput>{
     const source=input.source==="camera"?"camera":"image";
@@ -121,11 +135,11 @@ export class MultimodalAgentInput {
     const brand=brandsInText(input.message??"").length>1?undefined:explicitBrand(input.message??"")??document.requestedBrand??undefined;
     const estimateRequest={...(document.customerName?{customerName:document.customerName}:{}),
       ...(document.customerAddress?{customerAddress:document.customerAddress}:{}),...(brand?{brand}:{}),
-      ...(document.discountPercent!=null?{discountScheme:{percent:document.discountPercent}}:{}),
+      ...(document.discountPercent!=null && !(brand==="Dura Max"&&document.discountPercent===0&&caption.percent===undefined)?{discountScheme:{percent:document.discountPercent}}:{}),
       items:document.lines.map(line=>({name:line.productName,qty:line.quantity,
         ...(line.unit?{unit:line.unit}:{}),...(line.size?{size:line.size}:{}),
         ...(brand??line.brandHint?{brand:brand??line.brandHint}:{}),
-        ...(caption.percent!==undefined?{discount:caption.percent}:line.discountPercent!=null?{discount:line.discountPercent}:{}),
+        ...(caption.percent!==undefined?{discount:caption.percent}:line.discountPercent!=null&&!(brand==="Dura Max"&&line.discountPercent===0)?{discount:line.discountPercent}:{}),
         ...(line.rawShorthand?{rawShorthand:line.rawShorthand}:{})}))};
     const boundedMessage=message.length>20_000 ? (input.message??"ایسٹیمیٹ تیار کریں۔")+"\n"+document.lines.length+" مکمل لائنیں ساختہ پرچی میں محفوظ ہیں؛ قیمتیں ERP سے لیں۔" : message;
     return { message:boundedMessage, reviewRequired,estimateRequest, extraction: { source: input.source, document,...(transcript?{transcript}:{}), mediaRetained: false as const } };
