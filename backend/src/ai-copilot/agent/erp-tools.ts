@@ -247,7 +247,7 @@ export class ErpToolRegistry {
       const choices:any=parsed.data;
       if(name==="erp_create_estimate" && _originalMessage){
         const observed=estimateCaptionChoices(_originalMessage);
-        if(!choices.customerId && observed.customerName)choices.customerName=observed.customerName;
+        if(!choices.customerId && (observed.customerName??state?.estimateCustomerChoice?.name))choices.customerName=observed.customerName??state!.estimateCustomerChoice!.name;
         const normalize=(value:string)=>value.normalize("NFKC").replace(/\s+/gu," ").trim().toLowerCase();
         if(choices.customerAddress && !normalize(_originalMessage).includes(normalize(choices.customerAddress)) && choices.customerAddress!==state?.estimateCustomerChoice?.address)
           delete choices.customerAddress;

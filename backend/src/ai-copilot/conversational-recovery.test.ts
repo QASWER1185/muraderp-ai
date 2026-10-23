@@ -10,6 +10,16 @@ import {ErpToolRegistry} from "./agent/erp-tools.js";
 
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 describe("shared conversational recovery",()=>{
+  it("retains the customer before a provider failure and never treats a correction's جی as a new name",async()=>{
+    const model={respond:vi.fn(async()=>{throw new ApiError(502,"AI_PROVIDER_ERROR","Provider failed");})};
+    const first=await new UnifiedCopilotAgent(model,{definitions:()=>[],execute:vi.fn()}).run({message:"خادم حسین پلمبر کے لیے دو پائپ کا ایسٹیمیٹ بناؤ"},scope);
+    const state=readBusinessState(first.conversationToken,scope);
+    expect(state.estimateCustomerChoice?.name).toBe("خادم حسین پلمبر");
+    const prepare=vi.fn(async(..._args:any[])=>({draftId:"preview"}));
+    const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{createUnifiedDraft:prepare}} as any);
+    await tools.execute("erp_create_estimate",{customerName:"جی",items:[{productId:11,qty:2}]},scope,state,"جی، اسی ایسٹیمیٹ میں پائپ پر 50 اور فٹنگ پر 52 فیصد لیس کرو");
+    expect(prepare.mock.calls[0]?.[1]).toMatchObject({customerName:"خادم حسین پلمبر"});
+  });
   it("retains the owner's complete customer name and strips an inferred address",async()=>{
     const prepare=vi.fn(async(..._args:any[])=>({draftId:"preview"}));
     const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{createUnifiedDraft:prepare}} as any);

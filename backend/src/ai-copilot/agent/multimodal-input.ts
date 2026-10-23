@@ -32,7 +32,7 @@ export function estimateCaptionChoices(message: string): {customerName?:string;c
   const metadata=parts.findIndex((part,index)=>index>0 && (!!explicitBrand(part)||/%|فیصد|percent\b/iu.test(part)));
   const name=parts[0]?.replace(/^(?:(?:please\s+)?(?:prepare|make|create)\s+(?:an?\s+)?(?:estimate|quotation|quote)\s+for|(?:estimate|quotation|quote)\s+for|for|customer(?:\s+name)?\s*[:=])\s*/iu,"")
     .replace(/\s+کے\s*لیے$/u,"").trim();
-  const customer=metadata>0 && name && !explicitBrand(name) && !/[\d%]|پرچی|تصویر|slip|image|upload/iu.test(name) ?
+  const customer=metadata>0 && name && !/^(?:جی|ہاں|جناب|ٹھیک ہے|yes|ok|okay)$/iu.test(name) && !explicitBrand(name) && !/[\d%]|پرچی|تصویر|slip|image|upload/iu.test(name) ?
     {customerName:name,...(metadata>1?{customerAddress:parts.slice(1,metadata).join(", ")}:{} )}:{};
   return {...customer,...(percent!==undefined?{percent}:{})};
 }

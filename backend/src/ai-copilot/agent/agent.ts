@@ -10,6 +10,7 @@ import { businessAnswer } from "./business-answer.js";
 import { BUSINESS_TOOL_DEFINITIONS, entityNotFoundSchema, type BusinessFact } from "./business-tools.js";
 import { isAffirmation, confirmConversationAction } from "../tools/confirmation.js";
 import { munshiErrorMessage } from "../conversationalMunshi.js";
+import { estimateCaptionChoices } from "./multimodal-input.js";
 
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
@@ -79,6 +80,11 @@ export class UnifiedCopilotAgent {
       const fresh = newBusinessState(scope);
       return { answer: munshiErrorMessage("CONVERSATION_CONTEXT_INVALID",""),
         conversationToken: writeBusinessState(fresh), conversationId: fresh.conversationId, traceId, status: "clarification", toolNames: [] as string[], requiresConfirmation: false };
+    }
+    const suppliedChoice=estimateCaptionChoices(request.message);
+    if(suppliedChoice.customerName && suppliedChoice.customerName.length<=200 && (suppliedChoice.customerAddress?.length??0)<=200 && /\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message)){
+      state.estimateCustomerChoice={name:suppliedChoice.customerName,...(suppliedChoice.customerAddress?{address:suppliedChoice.customerAddress}:{})};
+      if(state.customer && state.customer.name!==suppliedChoice.customerName){delete state.customer;state.customerAmbiguous=false;}
     }
     if(state.workingActionId && (!state.workingActionTool||state.workingActionTool==="erp_create_estimate") && /^(?:جی[، ]*|ہاں[، ]*)?(?:یہ بھی |سب |سامان )?(?:ڈال دو|شامل کر دو|شامل کر دیں|ہاں ڈال دو)[۔.!]*$/u.test(request.message.trim())){
       const prepared:any=await this.tools.execute("erp_accept_companions",{draftId:state.workingActionId},scope,state,request.message);

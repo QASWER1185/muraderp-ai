@@ -286,7 +286,7 @@ export class DefaultErpOperations implements ErpOperations {
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
     const summary=data.incomplete?`جناب، ${data.customerName} کے تمام ${count} آئٹمز مسودے میں شامل ہیں۔ ${data.pendingCount} آئٹمز کا نرخ پینڈنگ تصدیق ہے۔ باقی آئٹمز کی جزوی رقم PKR ${data.totals.grand_total} ہے؛ یہ حتمی کل نہیں۔ ان آئٹمز کی درست ریٹ لسٹ یا سائز بتائیں، یا بعد میں اسی مسودے کو مکمل کریں۔` :tool==="erp_create_estimate" ?
-      "حاجی صاحب! "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
+      "حاجی صاحب! "+data.customerName+(data.newCustomer?(data.newCustomer.city?" ("+data.newCustomer.city+")":"")+" کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
       (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
       " "+count+" آئٹمز کا مکمل ایسٹیمیٹ پری ویو تیار کر دیا گیا ہے۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ تفصیل دیکھ لیں؛ ERP میں محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
       "میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+

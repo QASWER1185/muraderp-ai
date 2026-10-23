@@ -449,8 +449,15 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const sentVoiceAudio=audio;
     const sentVoiceAudioName=audioName;
     const snapshot={text,files:sentAttachments,audio:sentVoiceAudio,audioName:sentVoiceAudioName,camera,action,userId:getAuthenticatedUserId(),organizationId:context.organizationId,branchId:context.branchId};
+    const restoreSubmission=()=>{
+      const current=getWorkspaceContext();
+      if(getAuthenticatedUserId()!==snapshot.userId||current?.organizationId!==snapshot.organizationId||current?.branchId!==snapshot.branchId)return;
+      if(!attachments.length&&!voiceAudio){attachments=[...sentAttachments];voiceAudio=sentVoiceAudio;voiceAudioName=sentVoiceAudioName;attachmentFromCamera=camera;renderAttachments();}
+      if(!input.value)input.value=text;
+    };
     input.value="";input.style.height="auto";clearAttachment();
     const version=++operationVersion;
+    let acceptedForConversation=false;
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
       const encodedAttachments=await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})));
@@ -469,12 +476,20 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         const current=getWorkspaceContext();
         if(getAuthenticatedUserId()!==userId || current?.organizationId!==context.organizationId || current?.branchId!==context.branchId) {conversation.clear();throw new Error("Workspace changed. Please resend in the active workspace.");}
         if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
-        // Consume media once the server accepts the message, before rendering
-        // cards can fail. Subsequent text turns must never resend these files.
-        if(response.data.status!=="rate_limited"){input.value="";input.style.height="auto";clearAttachment();}
+        // A failed planning turn has not handed the slip to a usable draft.
+        // Keep its files and wording available for correction or an exact retry.
+        const retryable=["rate_limited","error","timeout","empty","limit","call_limit","malformed","duplicate"].includes(response.data.status);
+        const needsMedia=retryable || (response.data.status==="clarification" && !response.data.review && !response.data.draft);
+        if(needsMedia)restoreSubmission();
+        acceptedForConversation=!needsMedia;
+        if(!needsMedia){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant",formatCopilotAnswer(response.data.answer));
+        if(retryable && response.data.status!=="rate_limited"){
+          retryAction=()=>analyze(selection,snapshot);
+          appendMessage("assistant",'<div class="review-card copilot-recovery"><p>گفتگو اور منتخب فائلیں اسی قدم کی دوبارہ پڑتال کے لیے موجود ہیں۔</p><button class="button secondary compact" type="button" data-copilot-retry>اسی قدم کی دوبارہ پڑتال</button></div>');
+        }
         if (response.data.status !== "rate_limited" && response.data.preparation?.intent === "customer_create") {
           customerPreparationScope = { ...context, userId };
           appendMessage("assistant", customerPreparationMarkup());
@@ -525,7 +540,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       review = response.data;
       quoteVersions.clear();
       appendMessage("assistant", reviewCardMarkup(review));
-    } catch(error) {if(version===operationVersion)showError(error,()=>analyze(selection,snapshot));}
+    } catch(error) {if(version===operationVersion){if(!acceptedForConversation)restoreSubmission();showError(error,()=>analyze(selection,snapshot));}}
     finally { if(version===operationVersion) setBusy(false); }
   }
   function fromCameraLabel(source) { return source === "camera" ? "Photo for review" : source === "image" ? "Attachment for review" : "ERP request"; }
