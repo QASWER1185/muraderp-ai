@@ -15,11 +15,11 @@ export function wav(silent=false){const b=Buffer.alloc(1644);b.write("RIFF");b.w
 function pdf(pages=1){const doc=new PDFDocument();for(let i=0;i<pages;i++){const ctx=doc.beginPage(120,60);ctx.fillText("Qasim estimate",5,20);doc.endPage();}return {mimeType:"application/pdf",base64:doc.close().toString("base64")};}
 function fixture(){const provider={name:"gemini" as const,generate:vi.fn(async(_schema:unknown,_instructions:string,_content:unknown[])=>structuredClone(document)),transcribe:vi.fn(async()=>"قاسم کے لیے پاپولر پچیس ایم ایم پائپ چالیس فیصد ڈسکاؤنٹ پر بنا دو")};const adapter=new ProviderBusinessInput(provider);return {provider,adapter,input:new MultimodalAgentInput(adapter)};}
 describe("Part 4 concrete extraction and media validation",()=>{
-  it("keeps readable pages for correction instead of discarding all slips when one fails",async()=>{
+  it("continues readable pages while a failed slip stays pending",async()=>{
     const f=fixture();f.provider.generate.mockRejectedValueOnce(new Error("unreadable page"));
     const result=await f.input.normalize({source:"image",message:"اس کسٹمر کا نام فیصل بٹ ہے، ایسٹیمیٹ بنا دیں",attachments:[{media:png()},{media:png()},{media:png()}]},scope);
-    expect(result.reviewRequired).toBe(true);expect(result.extraction.document?.lines).toHaveLength(2);
-    expect(result.extraction.document?.warnings.join(" ")).toMatch(/پرچی [123] نہیں پڑھی/);
+    expect(result.reviewRequired).toBe(false);expect(result.extraction.document?.lines).toHaveLength(2);
+    expect(result.extraction.document?.warnings.join(" ")).toMatch(/پرچی [123] کی تفصیل پینڈنگ/);
   });
   it("keeps the typed Faisal Butt name and lets ERP recall Dura discounts instead of an OCR default zero",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,customerName:"wrong heading",discountPercent:0,lines:[{...document.lines[0]!,discountPercent:0}]});
@@ -57,11 +57,18 @@ describe("Part 4 concrete extraction and media validation",()=>{
     expect(result.message).toContain("Voice instruction (transcribed): وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں");
     expect(result.extraction).toMatchObject({transcript:"وسیم کے لیے ڈیورا میکس کا تخمینہ بنائیں",document:{customerName:"Qasim"}});
   });
-  it.each(["warning","missing quantity","empty lines"])("requires review for %s without inventing a field",async reason=>{
+  it.each(["warning","missing quantity","empty lines"])("continues a partial preview for %s without inventing a field",async reason=>{
     const f=fixture(),doc=structuredClone(document);
     if(reason==="warning")doc.warnings=["Unreadable line"];if(reason==="missing quantity")doc.lines[0]!.quantity=null;if(reason==="empty lines")doc.lines=[];
     f.provider.generate.mockResolvedValue(doc);const result=await f.input.normalize({source:"image",media:png()},scope);
-    expect(result.reviewRequired).toBe(true);if(reason==="missing quantity")expect(result.message).toContain('"quantity":null');
+    expect(result.reviewRequired).toBe(reason==="empty lines");if(reason==="missing quantity")expect(result.message).toContain('"quantity":null');
+  });
+  it("honors an explicit estimate task when its caption asks to use current catalog prices",async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue(document);
+    const result=await f.input.normalize({source:"image",task:"estimate",message:"Prepare an estimate using current catalog prices",media:png()},scope);
+    expect(result.estimateRequest?.items).toHaveLength(document.lines.length);
+    expect(result.catalog).toBeUndefined();
+    expect(f.provider.generate.mock.calls[0]?.[1]).toContain("demand-slip estimate");
   });
   it("does not halt readable sized rows solely for low confidence",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,confidence:.3,lines:[{...document.lines[0]!,size:"25mm",confidence:.3}]});
@@ -77,7 +84,7 @@ describe("Part 4 concrete extraction and media validation",()=>{
   it("preserves a missing diameter for correction instead of pricing a different size",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:"Elbow 4 pcs",item_name:"Elbow",material:"PPR-C",size:null,specification:"Plain",quantity:4,unit:"pcs"}]} as any);
     const result=await f.input.normalize({source:"image",media:png(),message:"ایسٹیمیٹ بنائیں"},scope);
-    expect(result.reviewRequired).toBe(true);expect(result.extraction.document?.warnings.join(" ")).toContain("سائز واضح نہیں");
+    expect(result.reviewRequired).toBe(false);expect(result.extraction.document?.warnings.join(" ")).toContain("سائز واضح نہیں");
     expect((result.estimateRequest?.items as any[])[0]).not.toHaveProperty("size");
   });
   it("uses the catalog unit rather than halting a complete slip for an unprinted unit",async()=>{

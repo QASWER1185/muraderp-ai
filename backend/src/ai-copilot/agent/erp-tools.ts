@@ -26,10 +26,11 @@ import {canonicalSlipWords} from "../conversationalMunshi.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
+  resolveVendor?: (scope:AgentScope,query:string,limit:number)=>Promise<any>;
   analytics?:Pick<CopilotAnalytics,"read">;
   memory?: CustomerMemory;
   tenant: Pick<TenantAccessService, "assertPermission" | "assertBranchAccess">;
-  erp: Pick<ErpService, "getProduct" | "getCustomer">;
+  erp: Pick<ErpService, "getProduct" | "getCustomer"> & Partial<Pick<ErpService, "createCustomer" | "createVendor" | "getVendor" | "listInventory">>;
   catalog: Pick<CopilotCatalogRepository, "getCatalog">;
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
@@ -43,7 +44,7 @@ export type ErpTool<T extends z.ZodType = z.ZodType> = {
   permission: PermissionCode;
   authentication: "required";
   scope: "organization_and_branch";
-  classification: "read" | "prepare";
+  classification: "read" | "prepare" | "create";
   execute: (input: z.output<T>, scope: AgentScope, services: ToolServices, signal?: AbortSignal) => Promise<unknown>;
 };
 
@@ -67,6 +68,22 @@ const CUSTOMER_CREATE_TOOL = defineTool({ name: "prepare_customer_create", descr
   } });
 
 export const ERP_TOOLS = [
+  ...(["customer","vendor"] as const).map(kind=>defineTool({
+    name:"create_"+kind,description:"Resolve or create a missing "+kind+" using the supplied name/location. Missing phone/address may be empty. No opening balances, credit or financial posting. Continue the original task with the returned ID.",
+    schema:z.strictObject({name:query,location:z.string().trim().max(120).default(""),phone:z.string().trim().max(50).default("")}),
+    permission:kind==="customer"?"customers.write":"vendors.write",authentication:"required",scope:"organization_and_branch",classification:"create",
+    execute:async(input,scope,{erp,search,resolveVendor},signal)=>{
+      if(kind==="vendor"&&!resolveVendor)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Vendor resolution is unavailable.");
+      const match=kind==="customer"?await search.searchCustomers(input.name,5,scope):await resolveVendor!(scope,input.name,5);
+      signal?.throwIfAborted();
+      if(match.resolution==="resolved"&&match.bestCandidate)return {entity:kind,created:false,...match.bestCandidate};
+      if(match.resolution!=="no_match")return match;
+      const create=kind==="customer"?erp.createCustomer?.bind(erp):erp.createVendor?.bind(erp);
+      if(!create)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Entity creation is unavailable.");
+      const entity=await create({name:input.name,city:input.location,phone:input.phone},scope.organizationId);
+      return {entity:kind,created:true,id:entity.id,name:entity.name,city:entity.city};
+    },
+  })),
   defineTool({name:"erp_compare_brand_rates",description:"Compare active catalog list prices, merchant standard trade discounts and net customer rates for Dura Max, Popular and Turk Plast. Use when a rate question has no specific brand or requests several companies. Preserve full material, diameter and angle; unavailable or ambiguous brands have no invented price. An explicit discount_percent overrides comparison defaults. Read only.",schema:lookup.extend({brands:z.array(query).min(1).max(5).default(["Dura Max","Popular","Turk Plast"]),quantity:z.number().positive().default(1),discount_percent:z.number().min(0).max(100).optional()}),permission:"sales.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async(input,scope,services,signal)=>brandRates(input,scope,services,signal)}),
   defineTool({name:"erp_get_product_sale_rate",description:"Answer a standalone product rate question in ONE read. Supply the full product name, brand, material, size and angle. The server resolves the item and its active global sale rate automatically; never guess product or rate-list IDs. For customer-specific negotiated prices use the customer-aware lookup_current_sale_rate workflow.",schema:lookup.extend({brand:query.optional(),quantity:z.number().finite().positive().default(1)}),permission:"sales.read",authentication:"required",scope:"organization_and_branch",classification:"read",execute:async({query,limit,brand,quantity},scope,{search,pricing,rateLists,tenant},signal)=>{
     await tenant.assertPermission(scope,"products.read");
@@ -239,6 +256,16 @@ export class ErpToolRegistry {
         if(state?.customer && !state.customerAmbiguous)choices.customerId=state.customer.id;
         else if(state?.estimateCustomerChoice){choices.customerName=state.estimateCustomerChoice.name;choices.customerAddress=state.estimateCustomerChoice.address;}
       }
+      if(["erp_create_estimate","erp_create_invoice"].includes(name) && !choices.customerId && choices.customerName && this.services.erp.createCustomer){
+        // A zero-balance master entity is authorized shop setup, not a sale.
+        // Reuse indexed matches and keep financial writes on their own path.
+        const match=await this.services.search.searchCustomers(choices.customerName,5,scope);
+        if(match.resolution==="resolved"&&match.bestCandidate)choices.customerId=match.bestCandidate.id;
+        else if(match.resolution==="no_match"){
+          const entity:any=await this.execute("create_customer",{name:choices.customerName,location:choices.customerAddress??""},scope,state,_originalMessage,signal);
+          if(entity.id)choices.customerId=entity.id;
+        }
+      }
       if(["erp_amend_estimate","erp_accept_companions"].includes(name) && !choices.draftId)choices.draftId=state?.workingActionId;
       return {review:await this.services.runtime.createUnifiedDraft(name as ErpWriteName,choices,scope,state?.inputSource??"text")};
     }
@@ -260,6 +287,11 @@ export class ErpToolRegistry {
     const input = tool.schema.safeParse(raw);
     if (!input.success) throw new ApiError(400, "INVALID_COPILOT_TOOL_INPUT", "Copilot tool arguments are invalid");
     const result = await tool.execute(input.data, scope, this.services, signal);
+    if(state && (name==="create_customer"||name==="create_vendor") && result && typeof result==="object" && "id" in result && "name" in result){
+      const entity=result as {id:number;name:string};
+      if(name==="create_customer"){state.customer={id:entity.id,name:entity.name.slice(0,160)};state.customerAmbiguous=false;}
+      else {state.vendor={id:entity.id,name:entity.name.slice(0,160)};state.vendorAmbiguous=false;}
+    }
     if (name === "lookup_customers" && this.business && result && typeof result === "object" && "resolution" in result && result.resolution === "no_match") {
       return { ...result, ...await this.business.customerSuggestions(scope, signal) };
     }

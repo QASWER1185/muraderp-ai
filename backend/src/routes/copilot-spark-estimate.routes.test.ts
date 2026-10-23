@@ -65,7 +65,7 @@ describe("authenticated WhatsApp slip → one complete Urdu estimate preview",()
     const body=JSON.parse(String(f.fetcher.mock.calls[0]![1]!.body));
     expect(body.contents[0].parts[0].inlineData).toEqual({mimeType:"image/jpeg",data:jpeg});
     expect(f.noStock).not.toHaveBeenCalled();expect(f.agent.run).not.toHaveBeenCalled();
-    expect(f.deps.memory.assertFloor).toHaveBeenCalled();
+    expect(f.deps.memory.assertFloor).not.toHaveBeenCalled();
     expect(JSON.stringify(response.body.data.review)).not.toContain("Popular");
   });
   it("consolidates ten simultaneous image attachments into one full preview",async()=>{

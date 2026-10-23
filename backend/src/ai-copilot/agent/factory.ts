@@ -27,6 +27,7 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
   const rateLists = new SupabaseRateListRepository();
   const erp = new SupabaseErpService();
   return new ErpToolRegistry({
+    resolveVendor:(scope,query,limit)=>new SupabaseCopilotBusinessRepository().searchVendors(scope,query,limit),
     analytics:new CopilotAnalytics(getSupabaseAdminClient),
     tenant: new TenantAccessService(authorization), erp,
     memory:new CustomerMemoryStore(),

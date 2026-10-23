@@ -12,7 +12,8 @@ export function canonicalSlipWords(value:string):string {
     .replace(/\bdera\s*max\b|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس/giu,"Dura Max")
     .replace(/پاپولر/gu,"Popular").replace(/ترک\s*پلاسٹ/gu,"Turk Plast").replace(/ایچ\s*ای\s*چائنا/gu,"HE China")
     .replace(/پائپ/gu,"Pipe").replace(/ٹیفلون/gu,"Teflon").replace(/سلوشن/gu,"Solvent Solution")
-    .replace(/\bsolvent\s+solution\b/giu,"Solvent")
+    .replace(/\bsolvent\s+(?:solution|cement)\b/giu,"Solvent")
+    .replace(/\bplastic\s+(?:head|cap)\b/giu,"Plastic")
     .replace(/(\d)\s*(?:g|gm|gms|grams?)\b/giu,"$1 g")
     .replace(/یونین/gu,"Union").replace(/پلگ/gu,"Plug").replace(/والو/gu,"Valve")
     .replace(/فیمیل/gu,"Female").replace(/ایڈاپٹر/gu,"Adapter").replace(/میڈیم/gu,"Medium").replace(/کنڈوئٹ/gu,"Conduit").replace(/\s+/g," ").trim();
@@ -21,7 +22,9 @@ export function canonicalUnit(value:string):string {
   const unit=value.trim().toLowerCase();
   if(/^(?:pcs?|pieces?|عدد|پی سیز)$/u.test(unit))return "pcs";
   if(/^(?:kg|kgs|kilograms?|کلو|کلوگرام)$/u.test(unit))return "kg";
-  if(/^(?:length|lengths|pipe length|لمبائی)$/u.test(unit))return "length";
+  if(/^(?:length|lengths|pipe length|لمبائی|لمبائیاں)$/u.test(unit))return "length";
+  if(/^(?:rolls?|رول)$/u.test(unit))return "roll";
+  if(/^(?:cans?|tins?|ڈبہ|ڈبے)$/u.test(unit))return "can";
   return unit;
 }
 

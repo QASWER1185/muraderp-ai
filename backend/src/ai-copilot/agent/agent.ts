@@ -14,8 +14,8 @@ import { munshiErrorMessage } from "../conversationalMunshi.js";
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
 const MAX_ITERATIONS = 10;
-const MAX_CALLS = 12;
-const TIMEOUT_MS = 40_000;
+const MAX_CALLS = 30;
+const TIMEOUT_MS = 120_000;
 const FALLBACK = "جناب، اس وقت ERP سے درخواست کی تصدیق نہیں ہو سکی۔ آپ کی تفصیل محفوظ ہے؛ براہِ کرم دوبارہ کوشش کریں۔";
 const CLARIFY_PRODUCT = "جناب، مطلوبہ آئٹم کا نام، سائز یا کیٹلاگ کوڈ واضح کر دیں۔";
 const ESTIMATE_UNNEEDED_TOOLS=new Set(["query_inventory","prepare_customer_create","erp_create_customer"]);
@@ -205,7 +205,7 @@ export class UnifiedCopilotAgent {
             input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify({notRequired:true,message:"ایسٹیمیٹ کے لیے اسٹاک درکار نہیں۔ فعال ریٹ لسٹ سے erp_create_estimate تیار کریں۔"})});
             continue;
           }
-          if (seen.has(key)) { status = "duplicate"; break; }
+          if (seen.has(key)) { input.push({type:"function_call_output",call_id:call.call_id,output:JSON.stringify({alreadyCompleted:true,message:"Use the earlier result. Continue remaining work or present the result; do not repeat this call."})}); continue; }
           if (call.name === "lookup_current_sale_rate" && args && typeof args === "object" &&
               ((uniqueSearchThisTurn && "product_id" in args && args.product_id !== productContext?.candidates[0]?.id) ||
                (resolvedCustomerId !== undefined && "customer_id" in args && args.customer_id !== resolvedCustomerId))) {

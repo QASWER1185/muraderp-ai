@@ -7,7 +7,7 @@ const percent = z.number().finite().min(0).max(100);
 const date = z.iso.date();
 export const saleItemSchema = z.strictObject({
   productId: id.optional(), name: text.optional(), size: text.optional(), brand: text.optional(),
-  qty: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(),
+  qty: z.number().finite().positive().nullable(), unit: z.string().trim().min(1).max(50).optional(),
   rate: money.optional(), discount: percent.optional(), rateListId: id.optional(),
   unitCost: money.optional(),
   rawShorthand: text.optional(),
@@ -50,7 +50,7 @@ export const ERP_ACTION_SCHEMAS = {
     invoiceId: id.optional(), warehouseId: id.optional(), reason: z.string().trim().min(1).max(2000) }),
   erp_convert_estimate_to_invoice: z.strictObject({ estimateId: id, warehouseId: id.optional(),
     unitCosts: z.array(z.strictObject({ productId: id, unitCost: money })).optional() }),
-  erp_create_invoice: z.strictObject({ ...sale, customerId: id, discount: percent.optional(), warehouseId: id.optional(), carriageCharges: money.default(0), paidAmount: money.default(0) }),
+  erp_create_invoice: z.strictObject({ ...sale, customerId: id.optional(), discount: percent.optional(), warehouseId: id.optional(), carriageCharges: money.default(0), paidAmount: money.default(0) }),
   erp_get_business_report: z.strictObject({ reportType: z.enum(["daily_sales","customer_balances","low_stock","profit_margin"]),
     dateRange: z.strictObject({ from: date, to: date }).optional(), lowStockThreshold: money.optional() }),
 };
@@ -94,7 +94,7 @@ const descriptions: Record<ErpActionName,string> = {
   erp_create_customer:"Prepare customer creation including address, opening receivable balance and credit limit. Do not invent a phone; an explicitly unknown phone can be empty. Approval posts any opening balance through accounting.",
   erp_update_customer:"Prepare a scoped customer name/phone/address/credit-limit update, preserving existing accounting history.",
   erp_record_payment:"Prepare a customer receipt. Explicit invoice allocations are supported; omitted allocations are clearly previewed as an unallocated advance receipt. Never invent an allocation.",
-  erp_create_estimate:"Prepare ALL slip items in one estimate using active Rate List prices. Estimates NEVER require stock, a warehouse or inventory costs. Pass an explicit brand as a HARD filter. Supply customerName and customerAddress when new: one approval creates the customer and saves the estimate atomically; no separate customer creation or phone question.",
+  erp_create_estimate:"Immediately preview ALL slip items using active Rate List prices. Missing catalog rows or rates stay at PKR 0 / پینڈنگ; remaining rows are priced. Missing optional phone/address never blocks preparation. Estimates NEVER require stock, a warehouse or inventory costs. Pass an explicit brand as a HARD filter. Supply customerName and customerAddress when new: one approval creates the customer and saves the estimate atomically; no separate customer creation or phone question.",
   erp_convert_estimate_to_invoice:"Prepare conversion of a persisted active estimate to an invoice, with stock, receivables and accounting. Warehouse is required if more than one exists. Costs come from reconciled movement valuation or explicit reviewed unitCosts; never guess.",
   erp_create_invoice:"Prepare a direct invoice including discounts, carriage and any payment in one atomic transaction. Current sale rates and verified inventory costs are required. Use unitCost only when explicitly provided by the user.",
   erp_get_business_report:"Read a date-bounded authoritative daily sales, customer balances, low-stock or realized profit report. No approval/write is required.",

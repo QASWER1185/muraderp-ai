@@ -26,10 +26,10 @@ describe("shop brand rate comparisons",()=>{
     const result=await f.tools.execute("erp_compare_brand_rates",{query:"Elbow 25mm"},scope) as any;
     expect(result.report.rows[0]).toMatchObject({brand:"Dura Max",listPrice:null,netPrice:null});expect(f.services.pricing.resolvePrice).toHaveBeenCalledTimes(2);
   });
-  it("withholds a discounted net quote when the merchant cost floor rejects it",async()=>{
+  it("displays a read-only discounted quote without a purchase-cost verification deadlock",async()=>{
     const f=setup();f.services.memory={assertFloor:vi.fn(async()=>{throw new ApiError(422,"DISCOUNT_BELOW_COST","cost");})} as any;
     const result=await f.tools.execute("erp_compare_brand_rates",{query:"Elbow 25mm",brands:["Dura Max"]},scope) as any;
-    expect(result.report.rows[0]).toMatchObject({listPrice:54,discountPercent:50,netPrice:null});
+    expect(result.report.rows[0]).toMatchObject({listPrice:54,discountPercent:50,netPrice:27});
   });
   it("checks sales permission before reading comparison catalogs",async()=>{
     const f=setup();vi.mocked(f.services.tenant.assertPermission).mockRejectedValue(new ApiError(403,"FORBIDDEN","denied"));

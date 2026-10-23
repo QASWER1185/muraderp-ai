@@ -23,7 +23,7 @@ describe('database entity search service',()=>{
     expect(table.eq).toHaveBeenCalledWith('rate_list_versions.rate_lists.organization_id',scope.organizationId);
   });
   it.each([
-    ['ایلو 25 ایم ایم','Elbow 25 mm'],['ٹی ساکٹ 32mm','Tee 32mm'],['پی ٹرپ چار انچ','P-Trap 4 inch'],
+    ['ایلو 25 ایم ایم','Elbow 25 mm'],['ٹی ساکٹ 32mm','Tee 32mm'],['پی ٹرپ چار انچ','P-Trap 4 inch Single'],
     ['Elbow پونا انچ','Elbow 25mm'],['PPRC Pipe ایک انچ','PPR-C Pipe 32mm'],['U-PVC Pipe ایک انچ','U-PVC Pipe 1 inch'],
     ['Elbow 25','Elbow 25mm'],['PPRC Pipe PN-16 25mm','PPR-C Pipe PN-16 25mm'],
   ])('preserves shop diameter phonics for %s',async(input,expected)=>{

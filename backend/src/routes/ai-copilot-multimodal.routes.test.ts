@@ -124,12 +124,12 @@ describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=
     await request(f.app).post("/copilot/drafts/55555555-5555-4555-8555-555555555555/confirm").set(headers).set("Cookie",f.cookieFor(scope.userId)).set("Idempotency-Key","server-review").send({});
     expect(f.runtime.confirmAndExecute).toHaveBeenCalledOnce();
   });
-  it("pauses missing quantities before model/tool calls and preserves conversation choices while invalidating approval",async()=>{
+  it("preserves a pending quantity in extracted observations and continues the agent while invalidating stale approval",async()=>{
     const f=setup();f.state.draft={id:"55555555-5555-4555-8555-555555555555",revision:1,preparedRevision:1,lines:[]};f.provider.generate.mockResolvedValue({...document,confidence:.2,lines:[{...document.lines[0]!,quantity:null}]} as any);
     const result=await f.post("agent/input",{source:"image",media:media(),conversationToken:writeBusinessState(f.state),conversationId:f.state.conversationId});
-    expect(result.status).toBe(200);expect(result.body.data).toMatchObject({status:"clarification",toolNames:[],requiresConfirmation:false,conversationId:f.state.conversationId,reviewText:expect.stringContaining("EBOW")});
+    expect(result.status).toBe(200);expect(result.body.data).toMatchObject({status:"empty",toolNames:[],requiresConfirmation:false,conversationId:f.state.conversationId,extraction:{document:{lines:[{quantity:null}]}}});
     const state=readBusinessState(result.body.data.conversationToken,scope,result.body.data.conversationId);
-    expect(state.customer).toEqual(f.state.customer);expect(state.draft?.preparedRevision).toBeUndefined();expect(f.respond).not.toHaveBeenCalled();expect(f.runtime.createConversationDraft).not.toHaveBeenCalled();
+    expect(state.customer).toEqual(f.state.customer);expect(state.draft?.preparedRevision).toBeUndefined();expect(f.respond).toHaveBeenCalled();expect(f.runtime.createConversationDraft).not.toHaveBeenCalled();
   });
   it("preserves an existing text draft when voice modifies its discount",async()=>{
     const f=setup();await f.tools.execute("begin_estimate_draft",{},scope,f.state);await f.tools.execute("add_draft_item",{quantity:20,unit:"MTR"},scope,f.state);

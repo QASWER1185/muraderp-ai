@@ -29,7 +29,7 @@ describe("recovered field-scoped document number normalization", () => {
     const document = businessDocumentSchema.parse(normalizeBusinessNumbers(original));
     const provider = { extract: async () => ({ draftId: "proposal", ...scope, source: "image" as const, intent: "estimate.create" as const, status: "draft" as const, requiresConfirmation: true as const, fields: { document: { value: document, source: "image" as const, confidence: 1 } } }) };
     const result = await new MultimodalAgentInput(provider).normalize({ source: "image", media: { mimeType: "image/png", base64: "test" } }, scope);
-    expect(result.reviewRequired).toBe(true);
+    expect(result.reviewRequired).toBe(false);
     expect(result.extraction.document?.lines[0]?.quantity).toBeNull();
     expect(result.message).not.toContain('"unitRate"');
     expect(result.message).not.toContain('"total"');
