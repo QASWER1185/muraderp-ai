@@ -82,7 +82,9 @@ describe("authenticated WhatsApp slip → one complete Urdu estimate preview",()
     expect(response.status).toBe(400);expect(response.body.error.message).toMatch(/[\u0600-\u06ff]/u);expect(f.fetcher).not.toHaveBeenCalled();
   });
   it("cannot price an explicit product ID at another size",async()=>{
-    const f=setup();await expect(f.operations.prepare("erp_create_estimate",{customerName:"Arslan",brand:"Dura Max",items:[{productId:12,name:"PPR-C Elbow",size:"25mm",qty:1}]},scope)).rejects.toMatchObject({code:"ERP_ACTION_CLARIFICATION"});
+    const f=setup();const pending=await f.operations.prepare("erp_create_estimate",{customerName:"Arslan",brand:"Dura Max",items:[{productId:12,name:"PPR-C Elbow",size:"25mm",qty:1}]},scope);
+    expect(pending.data.incomplete).toBe(true);expect(pending.data.lines[0]).toMatchObject({pending:true,unit_price:null});
+    await expect(f.operations.execute(pending,scope,"must-not-post")).rejects.toMatchObject({code:"ERP_ACTION_CLARIFICATION"});
     expect(f.deps.pricing.resolvePrice).not.toHaveBeenCalled();
   });
 });
