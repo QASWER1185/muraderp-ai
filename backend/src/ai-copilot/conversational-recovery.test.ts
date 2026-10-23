@@ -19,7 +19,7 @@ describe("shared conversational recovery",()=>{
     const prepare=vi.fn(async(..._args:any[])=>({draftId:"preview"}));
     const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{createUnifiedDraft:prepare}} as any);
     const state=newBusinessState(scope);state.workingActionId="a3000000-0000-4000-8000-000000000009";
-    await tools.execute("erp_amend_estimate",{},scope,state,"پائپ پر 50 اور فٹنگ پر 52 فیصد لیس کرو");
+    await tools.execute("erp_amend_estimate",{pricingRules:[{match:"pipes",discount:50},{match:"fitting",discount:52}]},scope,state,"پائپ پر 50 اور فٹنگ پر 52 فیصد لیس کرو");
     expect(prepare.mock.calls[0]?.[1]).toMatchObject({pricingRules:[{match:"pipe",discount:50},{match:"fittings",discount:52}]});
   });
   it("reads full pending source rows under owner scope without exposing stale rates",async()=>{

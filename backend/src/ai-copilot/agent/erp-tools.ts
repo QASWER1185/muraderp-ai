@@ -254,7 +254,7 @@ export class ErpToolRegistry {
       const choices:any=parsed.data;
       if(["erp_create_estimate","erp_amend_estimate"].includes(name)&&_originalMessage){
         const rules=categoryDiscountChoices(_originalMessage);
-        if(rules.length)choices.pricingRules=[...(choices.pricingRules??[]).filter((rule:any)=>!rules.some(choice=>choice.match===rule.match)),...rules];
+        if(rules.length)choices.pricingRules=rules;
       }
       if(name==="erp_create_estimate" && _originalMessage){
         const observed=estimateCaptionChoices(_originalMessage);
