@@ -21,6 +21,7 @@ export function canonicalUnit(value:string):string {
   const unit=value.trim().toLowerCase();
   if(/^(?:pcs?|pieces?|عدد|پی سیز)$/u.test(unit))return "pcs";
   if(/^(?:kg|kgs|kilograms?|کلو|کلوگرام)$/u.test(unit))return "kg";
+  if(/^(?:gaz|guz|گز)$/u.test(unit))return "gaz";
   if(/^(?:length|lengths|pipe length|لمبائی)$/u.test(unit))return "length";
   return unit;
 }

@@ -121,6 +121,7 @@ export class DefaultErpOperations implements ErpOperations {
       {history:[],preferredBrands:[],transactionCount:0,averageTransactionVolume:0,averageOrderIntervalDays:null,context:"",customerId:0};
     const warehouseId=invoice?await this.warehouse(input.warehouseId,scope):undefined;
     const lines:any[]=[];
+    const listNames=new Map<number,Promise<string>>();
     for(let offset=0;offset<input.items.length;offset+=8) {
       const batch=await Promise.all(input.items.slice(offset,offset+8).map(async(original:any,index:number)=>{
       try {
@@ -144,7 +145,10 @@ export class DefaultErpOperations implements ErpOperations {
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
-      if(!matchesProductSpecification([item.name,item.size].filter(Boolean).join(" "),product.name))
+      const specification=[item.name,item.size].filter(Boolean).join(" ");
+      const needsMaterialEvidence=/\bppr/iu.test(specification)&&!/\bppr/iu.test(product.name)&&!/\b(?:u[\s-]*)?pvc\b|\bcpvc\b|\bbrass\b|\bgalvanized\b|\bg[.\s-]*i(?:\b|\.)/iu.test(product.name)&&
+        matchesProductSpecification(specification.replace(/\bppr[\s-]*c\b/giu,""),product.name);
+      if(!needsMaterialEvidence && !matchesProductSpecification(specification,product.name))
         throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
       if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
@@ -153,6 +157,11 @@ export class DefaultErpOperations implements ErpOperations {
       const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
       if(!rate||rate.unit!==product.unit)throw new ApiError(422,"ESTIMATE_RATE_PENDING",product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔",{productId:product.id,productName:product.name,unit:product.unit});
+      if(needsMaterialEvidence){
+        if(!listNames.has(rate.rate_list_id))listNames.set(rate.rate_list_id,Promise.resolve(this.deps.rates?.getRateList(rate.rate_list_id,scope.organizationId)).then(list=>list?.name??""));
+        const listName=await listNames.get(rate.rate_list_id)!;
+        if(!matchesProductSpecification(specification,product.name+" "+listName))throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",`${item.name} کے مٹیریل کی فعال ریٹ لسٹ سے تصدیق درکار ہے؛ درست PPR-C آئٹم منتخب کریں۔`);
+      }
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
       const baseline=duraCatalogBaseline(product.name,brand);
@@ -173,8 +182,9 @@ export class DefaultErpOperations implements ErpOperations {
       }catch(error){
         if(invoice || !(error instanceof ApiError) || !["ESTIMATE_PRODUCT_PENDING","ESTIMATE_RATE_PENDING"].includes(error.code))throw error;
         const pending=error.details as {productId?:number;productName?:string;unit?:string}|undefined;
-        return {line_number:offset+index+1,productName:pending?.productName??original.name??("آئٹم "+original.productId),product_id:pending?.productId??original.productId,
-          quantity:original.qty,unit:pending?.unit??original.unit??"",unit_price:null,discountPercent:original.discount??input.discountScheme?.percent??0,
+        const pendingItem=applyHybridRules<any>(original,input.pricingRules??[]);
+        return {line_number:offset+index+1,productName:pending?.productName??([original.name,original.size].filter(Boolean).join(" ")||"آئٹم "+original.productId),product_id:pending?.productId??original.productId,
+          ...(original.size?{size:original.size}:{}),quantity:original.qty,unit:pending?.unit??original.unit??"",unit_price:null,discountPercent:pendingItem.discount??input.discountScheme?.percent??0,
           pending:true,pendingReason:error.message};
       }
       }));
@@ -210,12 +220,16 @@ export class DefaultErpOperations implements ErpOperations {
       }
       const updates:any[]=input.updateItems??[];
       const previousItems=previous.input.items.map((item:any,index:number)=>({...item,...(previous.data.lines[index]?.product_id?{productId:previous.data.lines[index].product_id}:{})}));
+      const lineUpdates=input.updateLines??[];
+      if(new Set(lineUpdates.map((row:any)=>row.lineNumber)).size!==lineUpdates.length)requireChoice("جناب، ایک ہی سطر کے لیے دو تبدیلیاں آئی ہیں؛ ہر سطر کی حتمی درست تفصیل ایک بار بتا دیں۔");
+      if([...lineUpdates.map((row:any)=>row.lineNumber),...(input.removeLineNumbers??[])].some(number=>number>previousItems.length))requireChoice("جناب، یہ سطر موجودہ مسودے میں نہیں ہے؛ دکھائی گئی سطر کا درست نمبر بتا دیں۔");
       if(updates.some(update=>!previousItems.some((item:any)=>item.productId===update.productId)))requireChoice("جناب، تبدیل کرنے والا آئٹم موجودہ مسودے میں نہیں ملا؛ اصل آئٹم منتخب کر دیں۔");
-      const kept=previousItems.filter((item:any)=>!(input.removeProductIds??[]).includes(item.productId)).map((item:any)=>{
-        const updated={...item,...updates.find(update=>update.productId===item.productId)};
-        if(input.discountScheme && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
-        if(input.pricingRules && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
-        return updated;
+      const kept=previousItems.flatMap((item:any,index:number)=>{
+        if((input.removeProductIds??[]).includes(item.productId)||(input.removeLineNumbers??[]).includes(index+1))return [];
+        const rowChange=lineUpdates.find((row:any)=>row.lineNumber===index+1)?.changes??{};
+        const updated={...item,...updates.find(update=>update.productId===item.productId),...rowChange};
+        if((input.discountScheme||input.pricingRules) && rowChange.discount===undefined && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
+        return [updated];
       });
       const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.discountScheme?{discountScheme:input.discountScheme}:{}),...(input.pricingRules?{pricingRules:input.pricingRules}:{})},scope);
       next.preview.summary="جی جناب، بالکل! آپ کی ہدایت کے مطابق اسی مسودے کی تازہ تفصیل حاضر ہے۔\n"+next.preview.summary;

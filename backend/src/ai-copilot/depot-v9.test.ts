@@ -27,6 +27,12 @@ function operations(){
   return {deps,product,ops:new DefaultErpOperations(deps)};
 }
 describe("V9 installation completeness",()=>{
+  it.each([["kg","سامان 4 کلو"],["gaz","ململ 4 گز"]])("preserves an explicitly written %s line from a demand slip",async(unit,rawLine)=>{
+    const raw={...document(0),lines:[{raw_line:rawLine,item_name:unit==="gaz"?"ململ":"سامان",material:null,size:null,specification:null,quantity:4,unit}]};
+    const provider:any={name:"gemini",generate:vi.fn(async(schema:any)=>schema.parse(raw)),transcribe:vi.fn()};
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"ان پرچیوں کا ایسٹیمیٹ بناؤ",media:media()},scope);
+    expect(result.extraction.document?.lines[0]).toMatchObject({quantity:4,unit,rawShorthand:rawLine});
+  });
   it("keeps an explicit estimate on the slip route when its caption mentions an active rate list",async()=>{
     const provider:any={name:"gemini",generate:vi.fn(async()=>document(0)),transcribe:vi.fn()};
     const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"گاہک کا نام خادم حسین پلمبر ہے۔ پرچیوں کا ایسٹیمیٹ فعال ریٹ لسٹ سے بناؤ",media:media()},scope);

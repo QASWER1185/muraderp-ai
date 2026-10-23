@@ -19,7 +19,8 @@ const auditLine=z.strictObject({productId:id,name:text,quantity:z.number().finit
 export const DEPOT_ACTION_SCHEMAS={
   erp_amend_estimate:z.strictObject({draftId:z.string().uuid().optional(),addItems:z.array(saleItemSchema).max(500).default([]),removeProductIds:z.array(id).default([]),discountScheme:z.strictObject({percent}).optional(),
     pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional(),
-    updateItems:z.array(saleItemSchema.extend({productId:id})).max(500).optional()}),
+    updateItems:z.array(saleItemSchema.extend({productId:id})).max(500).optional(),
+    updateLines:z.array(z.strictObject({lineNumber:id,changes:saleItemSchema.partial()})).max(500).optional(),removeLineNumbers:z.array(id).max(500).optional()}),
   erp_accept_companions:z.strictObject({draftId:z.string().uuid().optional()}),
   erp_create_site:z.strictObject({customerId:id,name:text,address:text}),
   erp_prepare_site_return:z.strictObject({siteId:z.string().uuid(),invoiceId:id,invoiceItemId:id,quantity:z.number().finite().positive()}),
@@ -76,7 +77,7 @@ export const ERP_ACTION_PERMISSIONS: Record<ErpActionName, PermissionCode> = {
   erp_customer_return:"returns.create",
 };
 const descriptions: Record<ErpActionName,string> = {
-  erp_amend_estimate:"Amend the current unconfirmed estimate while retaining customer, brand and every slip line. Use pricingRules for category/brand discounts (pipe 50%, fittings 52%), updateItems for quantity/discount corrections by resolved productId, addItems for additions, removeProductIds for removals. Omit draftId to use working context. Recalculates one fresh preview, no posting.",
+  erp_amend_estimate:"Amend the current unconfirmed estimate while retaining customer, brand and every slip line. Use pricingRules for category/brand discounts (pipe 50%, fittings 52%). Use updateLines with the displayed lineNumber and only changed input fields to correct ONE row, even when two rows share a product; removeLineNumbers removes specific rows. updateItems/removeProductIds affect all rows for that product. addItems appends observed rows. Omit draftId for working context. Recalculates one fresh preview, no posting.",
   erp_accept_companions:"After the merchant explicitly asks to include suggested installation companions (ہاں ڈال دو), prepare a fresh estimate with them. Omit draftId for working context. No prices, sizes or alternative brands may be invented; ambiguous catalog matches require clarification.",
   erp_create_site:"Prepare a named customer sub-project/site with address.",
   erp_prepare_site_return:"Prepare a pending-pickup site return memo bound to the exact historical invoice item NET rate. It is a reservation, not yet a credit or warehouse receipt.",

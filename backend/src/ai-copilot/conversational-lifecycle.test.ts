@@ -16,6 +16,17 @@ function fixture(){
   return {deps,ops:new DefaultErpOperations(deps),persist:(action:any)=>{saved={id:"a3000000-0000-4000-8000-000000000009",status:"DRAFT",user_id:scope.userId,action_plan:{branchId:scope.branchId,unifiedAction:action}};}};
 }
 describe("simulated multi-turn lifecycle (synthetic slip lines)",()=>{
+  it("corrects only the chosen row when two rows share the same product",async()=>{
+    const f=fixture();const first=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:11,qty:2},{productId:11,qty:3}]},scope);f.persist(first);
+    const revised=await f.ops.prepare("erp_amend_estimate",{draftId:"a3000000-0000-4000-8000-000000000009",updateLines:[{lineNumber:1,changes:{qty:4}}]},scope);
+    expect(revised.data.lines.map((line:any)=>line.quantity)).toEqual([4,3]);expect(revised.data.totals.grand_total).toBe(700);
+  });
+  it.each([["Dura Max PPR-C Fittings",false],["Dura Max UPVC Fittings",true]])("requires authoritative material evidence from %s",async(name,pending)=>{
+    const f=fixture();f.deps.erp.getProduct.mockResolvedValue({id:12,name:"Dura Max Elbow 25 mm",category:"Fittings",unit:"pcs",brand_id:5});
+    f.deps.rates={getRateList:vi.fn(async()=>({name}))};
+    const result=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:12,name:"PPR-C Elbow",size:"25mm",qty:1}]},scope);
+    expect(Boolean(result.data.lines[0].pending)).toBe(pending);expect(f.deps.rates.getRateList).toHaveBeenCalledWith(4,scope.organizationId);
+  });
   it("retains a mismatched catalog specification as a pending line",async()=>{
     const f=fixture();
     const pending=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:11,qty:2},{productId:12,name:"PPR-C Elbow",size:"32mm",qty:1}]},scope);
