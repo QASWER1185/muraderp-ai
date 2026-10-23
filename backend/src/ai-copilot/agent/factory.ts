@@ -37,6 +37,7 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
       return new CopilotRuntime(undefined, undefined, fullProvider).createMasterDataDraft(...args);
     },
     createUnifiedDraft:(...args)=>new CopilotRuntime().createUnifiedDraft(...args),
+    reviseUnifiedDraft:(...args)=>new CopilotRuntime().reviseUnifiedDraft(...args),
     getBusinessReport:(...args)=>new CopilotRuntime().getBusinessReport(...args),
     getDepotReport:(...args)=>new CopilotRuntime().getDepotReport(...args),
     confirmAndExecute:(...args)=>new CopilotRuntime().confirmAndExecute(...args),

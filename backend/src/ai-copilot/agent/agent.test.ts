@@ -169,6 +169,6 @@ describe("read-only ERP agent", () => {
     const result = await new ReadOnlyCopilotAgent(model, new ErpToolRegistry(deps)).run({ message: "Pipe" }, scope);
     expect(result.status).toBe("completed");expect(result.answer).toContain("Verified pipe");
     expect(JSON.stringify(respond.mock.calls[1]?.[0])).toContain("UNEXPECTED_TOOL_ERROR");
-    expect(result.answer).toContain("search_products");
+    expect(result.answer).toContain("کیٹلاگ");
   });
 });

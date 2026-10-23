@@ -15,9 +15,9 @@ const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name))
 
 const MAX_ITERATIONS = 10;
 const MAX_CALLS = 12;
-const TIMEOUT_MS = 40_000;
+const TIMEOUT_MS = 120_000;
 const FALLBACK = munshiErrorMessage("AGENT_EMPTY", "");
-const operationStep=(tool:string)=>({erp_create_estimate:"ایسٹیمیٹ کے نرخ اور سامان تیار کرتے وقت",erp_amend_estimate:"موجودہ ایسٹیمیٹ میں آپ کی تبدیلی لگاتے وقت",erp_create_invoice:"فروخت کا بل تیار کرتے وقت",erp_convert_estimate_to_invoice:"ایسٹیمیٹ کو بل میں تبدیل کرتے وقت",erp_customer_return:"اصل بل سے واپسی تیار کرتے وقت",query_inventory:"موجودہ اسٹاک پڑھتے وقت",query_customer_ledger:"گاہک کا کھاتہ پڑھتے وقت",erp_record_payment:"وصولی کے بل اور رقم ملاتے وقت",prepare_supplier_bill:"فراہم کنندہ کا بل تیار کرتے وقت"})[tool]??`ERP کے ${tool} مرحلے پر`;
+const operationStep=(tool:string)=>({erp_create_estimate:"ایسٹیمیٹ کے نرخ اور سامان تیار کرتے وقت",erp_amend_estimate:"موجودہ ایسٹیمیٹ میں آپ کی تبدیلی لگاتے وقت",erp_create_invoice:"فروخت کا بل تیار کرتے وقت",erp_convert_estimate_to_invoice:"ایسٹیمیٹ کو بل میں تبدیل کرتے وقت",erp_customer_return:"اصل بل سے واپسی تیار کرتے وقت",query_inventory:"موجودہ اسٹاک پڑھتے وقت",query_customer_ledger:"گاہک کا کھاتہ پڑھتے وقت",erp_record_payment:"وصولی کے بل اور رقم ملاتے وقت",prepare_supplier_bill:"فراہم کنندہ کا بل تیار کرتے وقت"})[tool]??(/product|rate|catalog/.test(tool)?"کیٹلاگ کے آئٹم اور نرخ تلاش کرتے وقت":/vendor|supplier|purchase/.test(tool)?"فراہم کنندہ کی خریداری کی تفصیل پڑھتے وقت":/customer/.test(tool)?"گاہک کا درست ریکارڈ تلاش کرتے وقت":/payment/.test(tool)?"ادائیگی کی رقم اور بل ملاتے وقت":/draft|estimate/.test(tool)?"موجودہ مسودے کی تفصیل درست کرتے وقت":"منتخب کاروباری ریکارڈ کی پڑتال کرتے وقت");
 const CLARIFY_PRODUCT = "جناب، مطلوبہ آئٹم کا نام، سائز یا کیٹلاگ کوڈ واضح کر دیں۔";
 const ESTIMATE_UNNEEDED_TOOLS=new Set(["query_inventory","prepare_customer_create","erp_create_customer"]);
 export type AgentLogger = { info: (fields: Record<string, unknown>, message: string) => void; warn: (fields: Record<string, unknown>, message: string) => void };
@@ -161,6 +161,11 @@ export class UnifiedCopilotAgent {
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
           if(analyticsAnswers.length){answer=analyticsAnswers.join("\n\n");status="completed";break;}
+          if(estimateRequest && !draftView && !review && !estimateRecoveryUsed){
+            estimateRecoveryUsed=true;requiredToolRetry=true;
+            input.push({role:"user",content:"The requested deliverable is an estimate preview or correction, not a standalone product price. Continue from the original request and all retained lines. Use erp_amend_estimate if workingActionTool is erp_create_estimate; otherwise erp_create_estimate. Missing catalog rows remain pending in the preview. Do not claim a correction was applied from a price lookup alone."});
+            continue;
+          }
           if(missingEstimateCustomer && !estimateRecoveryUsed){
             estimateRecoveryUsed=true;requiredToolRetry=true;
             input.push({role:"user",content:"Continue the original estimate request now with erp_create_estimate, using the supplied customerName/address. Attach the new customer to that combined preview. No separate customer approval or stock lookup is needed."});
@@ -192,6 +197,7 @@ export class UnifiedCopilotAgent {
           }
           if (verifiedResults === 0 && priorProducts?.ambiguous) { answer = CLARIFY_PRODUCT; status = "clarification"; break; }
           if (verifiedResults === 0 && priorProducts?.candidates.length === 1 && !requiredToolRetry) { requiredToolRetry = true; continue; }
+          if(estimateRequest && !draftView && !review){answer=munshiErrorMessage("AGENT_EMPTY","","ایسٹیمیٹ کا مکمل پری ویو تیار کرتے وقت");status="clarification";break;}
           if (step.text && verifiedResults > 0) { answer = draftView ? draftAnswer(draftView, request.message) : step.text.slice(0, 4000); status = "completed"; }
           else status = "empty";
           break;
@@ -235,14 +241,14 @@ export class UnifiedCopilotAgent {
               reports.push(result.report);const report=result.report as any;
               if(typeof report.auditId==="string")state.workingAuditId=report.auditId;
             }
-            if(result && typeof result==="object" && "analytics" in result && result.analytics===true && "answer" in result && typeof result.answer==="string")analyticsAnswers.push(result.answer);
-            if(result&&typeof result==="object"&&"brandRateComparison" in result&&result.brandRateComparison===true){verifiedRate=true;status="completed";break;}
+            if(!estimateRequest && result && typeof result==="object" && "analytics" in result && result.analytics===true && "answer" in result && typeof result.answer==="string")analyticsAnswers.push(result.answer);
+            if(!estimateRequest&&result&&typeof result==="object"&&"brandRateComparison" in result&&result.brandRateComparison===true){verifiedRate=true;status="completed";break;}
             if(result&&typeof result==="object"&&"resolution" in result&&(call.name==="erp_get_product_sale_rate"||("verifiedSaleRate" in result&&result.verifiedSaleRate===true))){
               const match=result as EntityResolution<RankedEntity> & {verifiedSaleRate?:boolean;answer?:string};
               unresolvedProduct=match.requiresClarification?match:undefined;productUnresolved=match.resolution!=="resolved";
               const product=productReference(match.bestCandidate);
               productContext=product?{candidates:[product],ambiguous:false}:undefined;
-              if(match.verifiedSaleRate&&product){
+              if(match.verifiedSaleRate&&product&&!estimateRequest){
                 delete state.clarification;verifiedRate=true;answer=match.answer!;status="completed";break;
               }
               if(match.items.length)state.clarification={kind:"product",candidates:match.items.slice(0,5).map(row=>({id:row.id,name:row.name.slice(0,160)}))};
@@ -364,7 +370,7 @@ export class UnifiedCopilotAgent {
                 continue;
               }
             }
-            const code=error instanceof ApiError?error.code:"UNEXPECTED_TOOL_ERROR";
+            const code=controller.signal.aborted?"AGENT_TIMEOUT":error instanceof ApiError?error.code:"UNEXPECTED_TOOL_ERROR";
             const recovery=munshiErrorMessage(code,error instanceof ApiError?error.message:"",operationStep(call.name));
             if(BUSINESS_TOOLS.has(call.name))businessFacts.push({kind:"unavailable",message:recovery});
             recoveries.push(recovery);

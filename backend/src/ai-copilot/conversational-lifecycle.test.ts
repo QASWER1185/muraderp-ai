@@ -16,6 +16,12 @@ function fixture(){
   return {deps,ops:new DefaultErpOperations(deps),persist:(action:any)=>{saved={id:"a3000000-0000-4000-8000-000000000009",status:"DRAFT",user_id:scope.userId,action_plan:{branchId:scope.branchId,unifiedAction:action}};}};
 }
 describe("simulated multi-turn lifecycle (synthetic slip lines)",()=>{
+  it("retains a mismatched catalog specification as a pending line",async()=>{
+    const f=fixture();
+    const pending=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:11,qty:2},{productId:12,name:"PPR-C Elbow",size:"32mm",qty:1}]},scope);
+    expect(pending.data.lines).toHaveLength(2);expect(pending.data.lines[1].pending).toBe(true);
+    expect(pending.preview).toMatchObject({incomplete:true,partialTotals:{grand_total:200}});
+  });
   it("keeps all three slip lines and the customer while correcting pipes to 50 and fittings to 52 percent",async()=>{
     const f=fixture();
     const first=await f.ops.prepare("erp_create_estimate",{customerName:"خادم حسین پلمبر",items:[{productId:11,qty:2},{productId:12,qty:1},{productId:13,qty:3}]},scope);

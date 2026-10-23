@@ -145,7 +145,7 @@ export class DefaultErpOperations implements ErpOperations {
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
       if(!matchesProductSpecification([item.name,item.size].filter(Boolean).join(" "),product.name))
-        requireChoice(item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
+        throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
       if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       const countedPipe=(/\bpipe\b/i.test(product.name)||/^pipes?$/i.test(product.category))&&["pcs","length"].includes(canonicalUnit(item.unit??""))&&["pcs","length"].includes(canonicalUnit(product.unit));

@@ -9,6 +9,14 @@ import {CopilotRuntime} from "./copilot.runtime.js";
 
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 describe("shared conversational recovery",()=>{
+  it("does not complete an estimate correction with a standalone price read",async()=>{
+    const rateCall={type:"function_call",call_id:"rate",name:"erp_get_product_sale_rate",arguments:"{}"};
+    const prepareCall={type:"function_call",call_id:"preview",name:"erp_create_estimate",arguments:"{}"};
+    const model={respond:vi.fn().mockResolvedValueOnce({output:[rateCall],text:""}).mockResolvedValueOnce({output:[],text:"PKR 100"}).mockResolvedValueOnce({output:[prepareCall],text:""})};
+    const executor={definitions:()=>[],execute:vi.fn(async(name:string)=>name==="erp_get_product_sale_rate"?{resolution:"resolved",items:[],bestCandidate:{id:11,name:"Pipe",sku:"P",unit:"pcs"},verifiedSaleRate:true,analytics:true,answer:"PKR 100"}:{review:{draftId:"a3000000-0000-4000-8000-000000000009",tool:"erp_create_estimate",idempotencyKey:"new",requiresConfirmation:true,preview:{summary:"Updated complete estimate"}}})};
+    const result=await new UnifiedCopilotAgent(model,executor).run({message:"اسی ایسٹیمیٹ میں پائپ پر 50 فیصد لگاؤ"},scope);
+    expect(model.respond).toHaveBeenCalledTimes(3);expect(result.answer).toBe("Updated complete estimate");expect(result.requiresConfirmation).toBe(true);
+  });
   it.each(["erp_create_invoice","erp_record_payment","erp_customer_return","erp_convert_estimate_to_invoice"])("revises %s with original inputs intact under actor/tenant/branch scope",async tool=>{
     const input={customerId:7,items:Array.from({length:100},(_,index)=>({productId:index+1,qty:2})),paidAmount:0};
     const eq=vi.fn();const query:any={select:()=>query,eq:(...args:any[])=>{eq(...args);return query;},maybeSingle:async()=>({data:{status:"DRAFT",action_plan:{branchId:scope.branchId,unifiedAction:{tool,input}}},error:null})};
