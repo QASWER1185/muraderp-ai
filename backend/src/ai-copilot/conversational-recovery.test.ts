@@ -7,9 +7,14 @@ import {ApiError} from "../errors/api-error.js";
 import {CustomerMemoryStore} from "./customerMemoryStore.js";
 import {CopilotRuntime} from "./copilot.runtime.js";
 import {ErpToolRegistry} from "./agent/erp-tools.js";
+import {categoryDiscountChoices} from "./hybridQuotationEngine.js";
 
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 describe("shared conversational recovery",()=>{
+  it("does not interpret pipe and fitting diameters as category discounts",()=>{
+    expect(categoryDiscountChoices("pipe 25mm and fitting 32mm estimate with 50 percent discount")).toEqual([]);
+    expect(categoryDiscountChoices("pipes 50% and fittings 52% discount")).toEqual([{match:"pipe",discount:50},{match:"fittings",discount:52}]);
+  });
   it("carries both explicit category discounts even when the model omits them",async()=>{
     const prepare=vi.fn(async(..._args:any[])=>({draftId:"preview"}));
     const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{createUnifiedDraft:prepare}} as any);

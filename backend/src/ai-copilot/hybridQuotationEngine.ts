@@ -4,8 +4,8 @@ export interface PricingRule {brand?:string;match:string;discount:number}
 export function categoryDiscountChoices(message:string):PricingRule[]{
   if(!/%|فیصد|لیس|\bpercent\b|\bdiscount/iu.test(message))return [];
   const rules:PricingRule[]=[];
-  for(const [match,pattern] of [["pipe",/(?:پائپ|\bpipes?\b)\s*(?:پر|at|on)?\s*(\d+(?:\.\d+)?)/iu],["fittings",/(?:فٹنگز?|\bfittings?\b)\s*(?:پر|at|on)?\s*(\d+(?:\.\d+)?)/iu]] as const){
-    const found=message.match(pattern);if(found&&Number(found[1])<=100)rules.push({match,discount:Number(found[1])});
+  for(const [match,pattern] of [["pipe",/(?:پائپ|\bpipes?\b)\s*(?:(?:پر|at|on)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:%|فیصد|percent))/iu],["fittings",/(?:فٹنگز?|\bfittings?\b)\s*(?:(?:پر|at|on)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:%|فیصد|percent))/iu]] as const){
+    const found=message.match(pattern),discount=Number(found?.[1]??found?.[2]);if(found&&discount<=100)rules.push({match,discount});
   }
   return rules.length===2?rules:[];
 }
