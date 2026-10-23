@@ -89,7 +89,7 @@ export class MultimodalAgentInput {
   }
   private async normalizeCombined(input:MultimodalInput,files:Array<{media:Media;fileName?:string|undefined}>,visualFiles:Array<{media:Media;fileName?:string|undefined}>,scope:AgentScope):Promise<NormalizedInput>{
     const source=input.source==="camera"?"camera":"image";
-    const intent=input.task==="rate_list_update"||isRateListRequest((input.message??"")+" "+visualFiles.map(file=>file.fileName??"").join(" "))?"rate_list.import":"estimate.create";
+    const intent=input.task==="rate_list_update"||(input.task!=="estimate"&&isRateListRequest((input.message??"")+" "+visualFiles.map(file=>file.fileName??"").join(" ")))?"rate_list.import":"estimate.create";
     const draft=await new AiInputPipeline(this.provider,new InMemoryAiInputGateway()).createDraft({...scope,source,intent,media:visualFiles[0]!.media,mediaParts:files.map(file=>file.media),
       ...((input.message||files.some(file=>file.fileName))?{text:(input.message??"")+files.map(file=>file.fileName?"\nFile name (untrusted metadata): "+file.fileName:"").join("")}: {})});
     const document=businessDocumentSchema.parse(draft.fields.document?.value);
@@ -100,7 +100,7 @@ export class MultimodalAgentInput {
   private async normalizeSingle(input:MultimodalInput & {media:Media}, scope:AgentScope):Promise<NormalizedInput> {
     // A request-local gateway cannot leak or retain another tenant's extraction.
     const proposal = await new AiInputPipeline(this.provider, new InMemoryAiInputGateway()).createDraft({
-      ...scope, source: input.source, intent: input.task === "rate_list_update" || isRateListRequest((input.message ?? "") + " " + (input.fileName ?? "")) ? "rate_list.import" : "estimate.create", media: input.media,
+      ...scope, source: input.source, intent: input.task === "rate_list_update" || (input.task!=="estimate" && isRateListRequest((input.message ?? "") + " " + (input.fileName ?? ""))) ? "rate_list.import" : "estimate.create", media: input.media,
       ...((input.message || input.fileName) ? { text: (input.message ?? "") + (input.fileName ? "\nFile name (untrusted metadata): " + input.fileName : "") } : {}),
     });
     if (proposal.userId !== scope.userId) throw new ApiError(403, "INPUT_SCOPE_MISMATCH", "Extracted input scope does not match the user.");

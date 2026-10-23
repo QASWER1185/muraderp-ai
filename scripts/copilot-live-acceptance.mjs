@@ -49,11 +49,15 @@ if(process.argv.includes("--catalog-audit")){
   // It is never stored or logged, and this harness never confirms a mutation.
   const session=Buffer.from(JSON.stringify({userId:scope.userId,exp:Math.floor(Date.now()/1000)+1800})).toString("base64url");
   const cookie="muraderp_session="+session+"."+createHmac("sha256",token).update(session).digest("base64url");
-  const base=process.env.COPILOT_BASE_URL??"https://muraderp-api-jy6eophhla-el.a.run.app";
-  let localAgent;
-  if(process.argv.includes("--local-chat")){
+  let base=process.env.COPILOT_BASE_URL??"https://muraderp-api-jy6eophhla-el.a.run.app";
+  let localAgent,localServer;
+  if(process.argv.includes("--local-chat")||process.argv.includes("--local-http")){
     Object.assign(process.env,{SUPABASE_URL:"https://pmsowmiivjkwtovynhje.supabase.co",SUPABASE_SECRET_KEY:process.env.SUPABASE_SECRET_KEY??secret("muraderp-supabase-secret-key"),INTERNAL_API_TOKEN:token,INTERNAL_API_PRINCIPAL_ID:process.env.INTERNAL_API_PRINCIPAL_ID??secret("muraderp-internal-api-principal-id"),AI_PROVIDER:"gemini",AI_API_KEY:process.env.AI_API_KEY??secret("muraderp-gemini-api-key"),AI_MODEL:"gemini-3.5-flash-lite",AI_VISION_MODEL:"gemini-3.5-flash-lite"});
-    const {createUnifiedAgent}=await import("../backend/dist/ai-copilot/agent/factory.js");localAgent=createUnifiedAgent();
+    if(process.argv.includes("--local-http")){
+      const {createApp}=await import("../backend/dist/app.js");
+      await new Promise(resolve=>{localServer=createApp().listen(0,"127.0.0.1",resolve);});
+      localServer.unref();base="http://127.0.0.1:"+localServer.address().port;
+    }else{const {createUnifiedAgent}=await import("../backend/dist/ai-copilot/agent/factory.js");localAgent=createUnifiedAgent();}
     if(process.argv.includes("--trace")){
       const execute=localAgent.tools.execute.bind(localAgent.tools);
       localAgent.tools.execute=async(name,args,...rest)=>{const result=await execute(name,args,...rest);console.log(JSON.stringify({traceTool:name,args,result}));return result;};
@@ -67,16 +71,24 @@ if(process.argv.includes("--catalog-audit")){
     const {isAffirmation}=await import("../backend/dist/ai-copilot/tools/confirmation.js");
     if(!Array.isArray(selectedQuestions)||selectedQuestions.length>20||selectedQuestions.some(question=>typeof question!=="string"||question.length>20000||isAffirmation(question)))throw new Error("Acceptance questions must be bounded non-approval requests.");
   }
-  const transcripts=[];let conversationToken,conversationId;
+  const transcripts=[];let conversationToken,conversationId,consumedMedia=false;
+  const mediaManifest=process.argv.indexOf("--media-manifest");
+  const attachments=mediaManifest<0?undefined:JSON.parse(readFileSync(process.argv[mediaManifest+1],"utf8")).map(file=>({fileName:file.fileName,media:{mimeType:"image/png",base64:readFileSync(file.path).toString("base64")}}));
   for(const question of selectedQuestions){
     const conversation=conversationToken?{conversationToken,conversationId}:{};
-    const response=localAgent?undefined:await fetch(base+"/api/copilot/chat",{method:"POST",headers:{"Content-Type":"application/json","Cookie":cookie,"X-Branch-Id":scope.branchId},body:JSON.stringify({organizationId:scope.organizationId,userId:scope.userId,message:question,...conversation}),signal:AbortSignal.timeout(180000)});
+    const media=attachments && !consumedMedia?{source:"image",task:"estimate",attachments}:{};
+    if(localAgent && Object.keys(media).length)throw new Error("Media acceptance requires the HTTP extraction route.");
+    const response=localAgent?undefined:await fetch(base+"/api/copilot/chat",{method:"POST",headers:{"Content-Type":"application/json","Cookie":cookie,"X-Organization-Id":scope.organizationId,"X-Branch-Id":scope.branchId},body:JSON.stringify({...(Object.keys(media).length?{}:{organizationId:scope.organizationId,userId:scope.userId}),message:question,...media,...conversation}),signal:AbortSignal.timeout(300000)});
     const result=localAgent?{data:await localAgent.run({message:question,...conversation},scope)}:await response.json(),data=result.data;
     if(data?.conversationToken){conversationToken=data.conversationToken;conversationId=data.conversationId;}
+    if(data?.review||data?.draft)consumedMedia=true;
     const preview=data?.review?.preview;
-    const transcript={question,httpStatus:response?.status??null,transport:localAgent?"local agent / live Gemini and ERP":"production HTTP",status:data?.status,answer:data?.answer??data?.message,toolNames:data?.toolNames,requiresConfirmation:data?.requiresConfirmation,
-      ...(preview?{preview:{incomplete:preview.incomplete??false,lines:preview.lines?.map(line=>({productId:line.product_id,name:line.productName??line.name,size:line.size,quantity:line.quantity??line.qty,unit:line.unit,rate:line.unit_price,discountPercent:line.discountPercent,pending:line.pending??false})),totals:preview.totals,partialTotals:preview.partialTotals}}:{}),error:result.error};
+    const transcript={question,httpStatus:response?.status??null,transport:localAgent?"local agent / live Gemini and ERP":localServer?"local HTTP / live Gemini and ERP":"production HTTP",status:data?.status,answer:data?.answer??data?.message,toolNames:data?.toolNames,requiresConfirmation:data?.requiresConfirmation,
+      ...(preview?{preview:{incomplete:preview.incomplete??false,lines:preview.lines?.map(line=>({productId:line.product_id,name:line.productName??line.name,size:line.size,quantity:line.quantity??line.qty,unit:line.unit,rate:line.unit_price,discountPercent:line.discountPercent,pending:line.pending??false})),totals:preview.totals,partialTotals:preview.partialTotals}}:{}),
+      ...(data?.extraction?.document?{extraction:data.extraction.document}:{}),error:result.error};
     transcripts.push(transcript);console.log(JSON.stringify(transcript));
+    if(response && !response.ok)break;
   }
   const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify({verifiedAt:new Date().toISOString(),base,scope,transcripts},null,2));
+  localServer?.closeAllConnections();localServer?.close();
 }
