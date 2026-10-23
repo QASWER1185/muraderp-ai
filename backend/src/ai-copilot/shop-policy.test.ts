@@ -41,6 +41,11 @@ describe("autonomous shop previews",()=>{
   const f=operations();const action=await f.ops.prepare("erp_create_estimate",{customerId:7,items:[{name:"ایلو",size:"25mm",qty:2,rawShorthand:"ایلو"}]},scope);
   expect(action.data.lines[0].correctionNote).toContain("[ایلو]");expect(action.data.lines[0].unit_price).toBe(1035);
  });
+ it("retains PPR material verified by indexed search when a legacy fitting name omits it",async()=>{
+  const f=operations();f.deps.erp.getProduct.mockResolvedValue({id:11,name:"Dura Max Elbow 25mm",unit:"pcs",brand_id:1,category:"Fittings"});
+  const action=await f.ops.prepare("erp_create_estimate",{customerId:7,brand:"Dura Max",items:[{name:"PPR-C Elbow",size:"25mm",qty:2}]},scope);
+  expect(action.data.lines[0]).toMatchObject({product_id:11,unit_price:1035,quantity:2});
+ });
  it("resolves hardware defaults while preserving explicit sizes/materials",()=>{
   expect(shopItem({name:"Solvent"}).name).toBe("Solvent 500g");expect(shopItem({name:"Solvent 70g"}).name).toBe("Solvent 70 g");
   expect(shopItem({name:"Gate Valve 32mm"}).name).toContain("Plastic");expect(shopItem({name:"Gate Valve Brass 25mm"}).name).not.toContain("Plastic");

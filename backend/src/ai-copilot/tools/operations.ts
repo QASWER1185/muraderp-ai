@@ -151,7 +151,11 @@ export class DefaultErpOperations implements ErpOperations {
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
-      if(!matchesProductSpecification([item.name,item.size].filter(Boolean).join(" "),product.name))
+      // Indexed search already verifies PPR-C through active catalog headings
+      // for legacy fitting names that omit material. Explicit IDs have no such
+      // evidence and must satisfy the full specification themselves.
+      const headingMaterial=!item.productId&&/\bppr[\s-]?c\b/i.test(item.name??"")?" PPR-C":"";
+      if(!matchesProductSpecification([item.name,item.size].filter(Boolean).join(" "),product.name+headingMaterial))
         requireChoice(item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
       if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
