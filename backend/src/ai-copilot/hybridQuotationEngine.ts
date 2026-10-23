@@ -1,6 +1,14 @@
 import { ApiError } from "../errors/api-error.js";
 import { canonicalBrand } from "./productResolver.js";
 export interface PricingRule {brand?:string;match:string;discount:number}
+export function categoryDiscountChoices(message:string):PricingRule[]{
+  if(!/%|فیصد|لیس|\bpercent\b|\bdiscount/iu.test(message))return [];
+  const rules:PricingRule[]=[];
+  for(const [match,pattern] of [["pipe",/(?:پائپ|\bpipes?\b)\s*(?:پر|at|on)?\s*(\d+(?:\.\d+)?)/iu],["fittings",/(?:فٹنگز?|\bfittings?\b)\s*(?:پر|at|on)?\s*(\d+(?:\.\d+)?)/iu]] as const){
+    const found=message.match(pattern);if(found&&Number(found[1])<=100)rules.push({match,discount:Number(found[1])});
+  }
+  return rules.length===2?rules:[];
+}
 export function classifyMaterial(name:string):"GI"|"PPRC"|"UPVC"|"OTHER" {
   if(/he\s*china|ایچ\s*ای\s*چائنا/iu.test(name))return "GI";
   if(/ppr[ -]?c/iu.test(name))return "PPRC";
@@ -11,7 +19,7 @@ export function applyHybridRules<T extends {name?:string;brand?:string;discount?
   const matches=rules.filter(rule=>{
     const category=rule.match.trim().toLowerCase();
     if(/^(?:pipes?|پائپ)$/u.test(category))return /pipe|پائپ/iu.test(item.category??item.name??"");
-    if(/^(?:fittings?|فٹنگ|فٹنگز)$/u.test(category))return /fitting|فٹنگ/iu.test(item.category??"") || /elbow|socket|tee|union|adapter|ساکٹ|ایلبو|یونین/iu.test(item.name??"");
+    if(/^(?:fittings?|فٹنگ|فٹنگز)$/u.test(category))return /fitting|فٹنگ/iu.test(item.category??"") || /elbow|socket|tee|union|adapter|reducer|coupling|end.?cap|trap|valve|plug|ساکٹ|ایلبو|یونین/iu.test(item.name??"");
     return (item.name??"").toLowerCase().includes(category);
   });
   if(matches.length>1)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","اس آئٹم پر دو برانڈ یا رعایت کی شرطیں لگ رہی ہیں؛ انتخاب واضح کر دیں: "+item.name);

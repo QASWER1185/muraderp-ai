@@ -15,6 +15,7 @@ import { DefaultErpOperations } from "../ai-copilot/tools/operations.js";
 import { SupabaseEntitySearchService, resolveCandidates } from "../services/entity-search.service.js";
 import { createAiCopilotRouter } from "./ai-copilot.routes.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import {readBusinessState} from "../ai-copilot/agent/business-state.js";
 
 const scope={userId:"11111111-1111-4111-8111-111111111111",organizationId:"22222222-2222-4222-8222-222222222222",branchId:"33333333-3333-4333-8333-333333333333"};
 const jpeg=createCanvas(64,32).toBuffer("image/jpeg").toString("base64");
@@ -53,6 +54,13 @@ function setup(){
 }
 
 describe("authenticated WhatsApp slip → one complete Urdu estimate preview",()=>{
+  it("keeps an incomplete media estimate active for correction without offering approval",async()=>{
+    const f=setup();f.deps.pricing.resolvePrice.mockResolvedValue(null);
+    const response=await f.post({source:"image",task:"estimate",message:caption,media:{mimeType:"image/jpeg",base64:jpeg}});
+    expect(response.status).toBe(200);expect(response.body.data).toMatchObject({status:"review",requiresConfirmation:false,review:{preview:{incomplete:true}}});
+    const state=readBusinessState(response.body.data.conversationToken,scope);
+    expect(state.workingActionTool).toBe("erp_create_estimate");expect(state.workingActionId).toBeTruthy();expect(state.pendingAction).toBeUndefined();
+  });
   it("normalizes a JPEG data URL, attaches a new customer and prices only the exact Dura size without stock",async()=>{
     const f=setup();
     const response=await f.post({source:"image",task:"estimate",message:caption,fileName:"WhatsApp Image.jpeg",media:{mimeType:"IMAGE/JPG",base64:`data:image/jpg;base64,${jpeg}`}});

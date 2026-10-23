@@ -10,6 +10,13 @@ import {ErpToolRegistry} from "./agent/erp-tools.js";
 
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 describe("shared conversational recovery",()=>{
+  it("carries both explicit category discounts even when the model omits them",async()=>{
+    const prepare=vi.fn(async(..._args:any[])=>({draftId:"preview"}));
+    const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{createUnifiedDraft:prepare}} as any);
+    const state=newBusinessState(scope);state.workingActionId="a3000000-0000-4000-8000-000000000009";
+    await tools.execute("erp_amend_estimate",{},scope,state,"پائپ پر 50 اور فٹنگ پر 52 فیصد لیس کرو");
+    expect(prepare.mock.calls[0]?.[1]).toMatchObject({pricingRules:[{match:"pipe",discount:50},{match:"fittings",discount:52}]});
+  });
   it("reads full pending source rows under owner scope without exposing stale rates",async()=>{
     const eq=vi.fn();const auth=vi.fn();const query:any={select:()=>query,eq:(...args:any[])=>{eq(...args);return query;},maybeSingle:async()=>({data:{status:"DRAFT",action_plan:{branchId:scope.branchId,unifiedAction:{tool:"erp_create_estimate",input:{customerName:"خادم حسین پلمبر",items:[{name:"ململ",qty:4,unit:"gaz"}]},data:{secretCost:100}}}},error:null})};
     const runtime=new CopilotRuntime({} as any,{database:()=>({from:()=>query}),authorization:{assertPermission:auth},branchAccess:{assertBranchAccess:vi.fn()}} as any);

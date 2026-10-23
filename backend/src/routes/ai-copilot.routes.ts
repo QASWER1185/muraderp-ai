@@ -263,7 +263,7 @@ export function createAiCopilotRouter(
         }
         const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,input.message);
         response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
-          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:true,toolNames:["erp_create_estimate"]}});
+          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:prepared.requiresConfirmation,toolNames:["erp_create_estimate"]}});
       } catch(error) {
         if(error instanceof ApiError && [401,403].includes(error.status))throw error;
         const known=error instanceof ApiError && ["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code);

@@ -10,8 +10,11 @@ export class AutonomousChainingLoop {
     const review=result.review;
     if(typeof choices.customerName==="string")state.estimateCustomerChoice={name:choices.customerName,...(typeof choices.customerAddress==="string"?{address:choices.customerAddress}:{})};
     const answer=review.preview.summary;
-    state.pendingAction={draftId:review.draftId,idempotencyKey:review.idempotencyKey,summary:answer.slice(0,1000),expires:Math.min(state.expires,Date.now()+10*60_000)};
+    const requiresConfirmation=review.requiresConfirmation!==false && !review.preview.incomplete;
+    if(requiresConfirmation)state.pendingAction={draftId:review.draftId,idempotencyKey:review.idempotencyKey,summary:answer.slice(0,1000),expires:Math.min(state.expires,Date.now()+10*60_000)};
+    else delete state.pendingAction;
     state.workingActionId=review.draftId;
-    return {answer,review,stages:["پرچی کی تمام لائنیں","گاہک کی شناخت یا مشترکہ نیا گاہک پری ویو","فعال برانڈ ریٹ لسٹ","ساتھ لگنے والے سامان کی جانچ","خرید لاگت اور رعایت کی پڑتال","اردو تخمینہ اور واٹس ایپ کارڈ"]};
+    state.workingActionTool="erp_create_estimate";
+    return {answer,review,requiresConfirmation,stages:["پرچی کی تمام لائنیں","گاہک کی شناخت یا مشترکہ نیا گاہک پری ویو","فعال برانڈ ریٹ لسٹ","ساتھ لگنے والے سامان کی جانچ","خرید لاگت اور رعایت کی پڑتال","اردو تخمینہ اور واٹس ایپ کارڈ"]};
   }
 }

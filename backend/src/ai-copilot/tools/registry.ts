@@ -20,7 +20,7 @@ export const DEPOT_ACTION_SCHEMAS={
   erp_amend_estimate:z.strictObject({draftId:z.string().uuid().optional(),addItems:z.array(saleItemSchema).max(500).default([]),removeProductIds:z.array(id).default([]),discountScheme:z.strictObject({percent}).optional(),
     pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional(),
     updateItems:z.array(saleItemSchema.extend({productId:id})).max(500).optional(),
-    updateLines:z.array(z.strictObject({lineNumber:id,changes:saleItemSchema.partial()})).max(500).optional(),removeLineNumbers:z.array(id).max(500).optional()}),
+    updateLines:z.array(z.strictObject({lineNumber:id,changes:saleItemSchema.partial().extend({size:text.nullable().optional()})})).max(500).optional(),removeLineNumbers:z.array(id).max(500).optional()}),
   erp_accept_companions:z.strictObject({draftId:z.string().uuid().optional()}),
   erp_create_site:z.strictObject({customerId:id,name:text,address:text}),
   erp_prepare_site_return:z.strictObject({siteId:z.string().uuid(),invoiceId:id,invoiceItemId:id,quantity:z.number().finite().positive()}),

@@ -23,6 +23,7 @@ import { normalizeProductSearchQuery } from "../../services/entity-search.servic
 import {brandRates} from "./brand-rates.js";
 import {estimateCaptionChoices} from "./multimodal-input.js";
 import {canonicalSlipWords} from "../conversationalMunshi.js";
+import {categoryDiscountChoices} from "../hybridQuotationEngine.js";
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -251,6 +252,10 @@ export class ErpToolRegistry {
         return this.services.runtime.getDepotReport(name as ErpReadName,choices,scope);
       }
       const choices:any=parsed.data;
+      if(["erp_create_estimate","erp_amend_estimate"].includes(name)&&_originalMessage){
+        const rules=categoryDiscountChoices(_originalMessage);
+        if(rules.length)choices.pricingRules=[...(choices.pricingRules??[]).filter((rule:any)=>!rules.some(choice=>choice.match===rule.match)),...rules];
+      }
       if(name==="erp_create_estimate" && _originalMessage){
         const observed=estimateCaptionChoices(_originalMessage);
         if(!choices.customerId && (observed.customerName??state?.estimateCustomerChoice?.name))choices.customerName=observed.customerName??state!.estimateCustomerChoice!.name;
