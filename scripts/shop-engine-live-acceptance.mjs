@@ -21,6 +21,13 @@ const headers={"Content-Type":"application/json","Cookie":"muraderp_session="+se
 const base=process.env.COPILOT_BASE_URL??"https://muraderp-api-jy6eophhla-el.a.run.app";
 async function post(path,body){const res=await fetch(base+path,{method:"POST",headers,body:JSON.stringify(body),signal:AbortSignal.timeout(240000)});const result=await res.json();return {httpStatus:res.status,...result};}
 const checks=[];
+if(process.argv.includes("--catalog-aliases")){
+ for(const query of ["PPR-C Gate Valve Plastic 32mm","Gate Valve Plastic 32mm","Solvent 500 g","Solvent Cement 500g"]){
+  const matches=await required(db.rpc("search_catalog_products",{p_user_id:owner.user_id,p_organization_id:org.id,p_branch_id:branch.id,p_query:query,p_brand:"Dura Max",p_limit:5}));
+  console.log(JSON.stringify({query,matches}));
+ }
+ process.exit(0);
+}
 for(const message of ["ایلبو 25mm کا ریٹ بتاؤ",'Dura Max Gate Valve 32mm کا 50 فیصد پر ریٹ بتاؤ',"HE China G.I. Elbow 1 inch کا 35 فیصد پر ریٹ بتاؤ"]){
  const result=await post("/api/v1/ai/copilot/agent",{message});const data=result.data;
  checks.push({test:"product_query",message,httpStatus:result.httpStatus,status:data?.status,answer:data?.answer,reports:data?.reports,error:result.error});
@@ -43,7 +50,8 @@ const data=result.data;
 const observation={test:"three_synthetic_slips",httpStatus:result.httpStatus,status:data?.status,answer:data?.answer,extractedLineCount:data?.extraction?.document?.lines?.length,lines:data?.review?.preview?.lines,totals:data?.review?.preview?.totals,warnings:data?.review?.preview?.warnings,error:result.error};
 checks.push(observation);console.log(JSON.stringify(observation));
 const expectedRows=rows.flat().length;
-const passed=checks.slice(0,3).every(row=>row.httpStatus===200&&row.status==="completed") && observation.httpStatus===200&&observation.extractedLineCount===expectedRows&&observation.lines?.length===expectedRows&&observation.lines.some(line=>line.pricing_source==="PENDING_RATE")&&observation.lines.some(line=>line.pricing_source==="RESOLVED_RATE")&&Number.isFinite(observation.totals?.cash_payable);
+const pending=observation.lines?.filter(line=>line.pricing_source==="PENDING_RATE")??[];
+const passed=checks.slice(0,3).every(row=>row.httpStatus===200&&row.status==="completed") && observation.httpStatus===200&&observation.extractedLineCount===expectedRows&&observation.lines?.length===expectedRows&&pending.length===1&&pending[0].productName.includes("Test Connector")&&observation.lines.some(line=>line.pricing_source==="RESOLVED_RATE")&&Number.isFinite(observation.totals?.cash_payable);
 const report={verifiedAt:new Date().toISOString(),base,fixtures:"Synthetic printed demand slips; original WA0060/WA0061/WA0062 were not provided",expectedRows,passed,checks};
 const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify(report,null,2));
 if(!passed)process.exitCode=1;

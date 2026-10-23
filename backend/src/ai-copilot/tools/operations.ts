@@ -22,7 +22,7 @@ import { explicitBrand, sameBrand, canonicalBrand, matchesProductSpecification }
 import { InstallationCompletenessService } from "../installationCompletenessService.js";
 import { applyHybridRules, groupQuotation, quotationCard, classifyMaterial } from "../hybridQuotationEngine.js";
 import { reconcileVendorQuote } from "../vendorQuoteAudit.js";
-import { landedCost,canonicalUnit } from "../conversationalMunshi.js";
+import { landedCost,canonicalUnit,canonicalSlipWords } from "../conversationalMunshi.js";
 import { SiteTransferService, DEPOT_WRITES } from "../siteTransferService.js";
 import type { CompanionLearningStore } from "../companionLearningStore.js";
 import type { DepotIntelligenceStore } from "../depotIntelligenceStore.js";
@@ -137,7 +137,8 @@ export class DefaultErpOperations implements ErpOperations {
       let product=item.productId?await this.deps.erp.getProduct(item.productId,scope.organizationId):null;
       if(!item.productId) {
         if(!item.name)requireChoice("Each item needs a product name or Product ID.");
-        const query=[item.name,item.size].filter(Boolean).join(" ");
+        const size=item.size?canonicalSlipWords(item.size):undefined;
+        const query=[item.name,size&&!item.name.includes(size)?size:undefined].filter(Boolean).join(" ");
         let match=brand ? await this.deps.search.searchProducts(query,5,scope,brand) : await this.deps.search.searchProducts(query,5,scope);
         if(brand) {
           match={...match,items:match.items.filter(row=>sameBrand(row.brandName,brand))};

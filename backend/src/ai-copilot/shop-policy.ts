@@ -4,11 +4,13 @@ import { canonicalBrand, canonicalCatalogQuery } from "./productResolver.js";
 export const SHOP_DISCOUNTS: Record<string, number> = { "Dura Max": 50, Popular: 41, "Turk Plast": 45, "HE China": 35 };
 
 /** Resolve shop defaults without inventing packing counts or changing diameters. */
-export function shopItem<T extends { name?: string; unit?: string; brand?: string }>(item: T, brand?: string): T {
+export function shopItem<T extends { name?: string; size?: string; unit?: string; brand?: string }>(item: T, brand?: string): T {
   if (!item.name) return item;
   let name = canonicalSlipWords(item.name);
-  if (/\b(?:solvent|cement solution)\b/i.test(name) && !/\d\s*(?:g|gm|grams?|kg|کلو)/iu.test(name)) name += " 500g";
+  if (/\bsolvent\b/i.test(name) && item.size && /\d\s*(?:g|gm|grams?|kg)\b/i.test(item.size) && !/\d\s*(?:g|gm|grams?|kg)\b/i.test(name)) name += " "+canonicalSlipWords(item.size);
+  if (/\b(?:solvent|cement solution)\b/i.test(name) && !/\d\s*(?:g|gm|grams?|kg|کلو)/iu.test([name,item.size].join(" "))) name += " 500g";
   name = canonicalCatalogQuery(name, brand ?? item.brand);
+  name=name.replace(/(\d+\s*g)\s+\1\b/giu,"$1");
   return { ...item, name };
 }
 

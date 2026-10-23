@@ -49,6 +49,8 @@ describe("autonomous shop previews",()=>{
  it("resolves hardware defaults while preserving explicit sizes/materials",()=>{
   expect(shopItem({name:"Solvent"}).name).toBe("Solvent 500g");expect(shopItem({name:"Solvent 70g"}).name).toBe("Solvent 70 g");
   expect(shopItem({name:"Gate Valve 32mm"}).name).toContain("Plastic");expect(shopItem({name:"Gate Valve Brass 25mm"}).name).not.toContain("Plastic");
+  expect(shopItem({name:"Gate Valve Plastic Head 32mm"}).name).toBe("Gate Valve Plastic 32mm");
+  expect(shopItem({name:"Solvent Cement",size:"70g"}).name).toBe("Solvent 70 g");
   expect(shopItem({name:'P-Trap 4 inch'}).name).toContain("Single");expect(shopDiscount("HE China")).toBe(35);
   expect(counterTotals({subtotal:100,discount_total:40.4,grand_total:59.6,customer_payable_total:59.6})).toMatchObject({round_off:.4,cash_payable:60});
  });
