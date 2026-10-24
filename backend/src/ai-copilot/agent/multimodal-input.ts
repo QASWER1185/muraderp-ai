@@ -49,7 +49,9 @@ function captionChoices(message: string): {customerName?:string;customerAddress?
 }
 export function estimateCaptionChoices(message:string){
   const choices=captionChoices(message),phone=message.match(/(?:فون|موبائل|phone|mobile)\s*[:：]?\s*(0\d{2,3}[- ]?\d{6,8})(?!\d)/iu)?.[1];
-  return {...choices,...(choices.customerName&&phone?{customerPhone:phone}:{})};
+  const name=message.match(/(?:customer(?:\s+name)?|گاہک(?:\s*کا\s*نام)?)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim();
+  const address=message.match(/(?:address|پتہ|ایڈریس)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim();
+  return {...choices,...(name?{customerName:name}:{}),...(address?{customerAddress:address}:{}),...((choices.customerName||name)&&phone?{customerPhone:phone}:{})};
 }
 
 type Media={mimeType:string;base64:string};
@@ -137,22 +139,36 @@ export class MultimodalAgentInput {
   }
   private documentResult(document:BusinessDocument,input:MultimodalInput,transcript?:string) {
     const caption=estimateCaptionChoices(input.message??"");
+    const chosenBrand=explicitBrand(input.message??'');
+    const pipeSpec=(material:string)=>{
+      const text=input.message??'';
+      return /ppr/iu.test(material)?text.match(/ppr[\s-]*c?\s*(?:pipe|پائپ)?\s*(?:=|:)?\s*(PN[ -]?\d+)/iu)?.[1]?.replace(/PN[ -]?/iu,'PN-'):
+        text.match(/u[\s-]*pvc\s*(?:pipe|پائپ)?\s*(?:=|:)?\s*(Medium|Heavy|Light)/iu)?.[1];
+    };
     document={...document,...(caption.customerName?{customerName:caption.customerName}:{}),
       ...(caption.customerAddress?{customerAddress:caption.customerAddress}:{}),
+      ...(chosenBrand?{requestedBrand:chosenBrand}:{}),
       ...(caption.percent!==undefined?{discountPercent:caption.percent}:{})};
+    // Header observations never veto explicit text/voice choices. Keep real
+    // unreadable-row warnings; remove only overridden metadata conflicts.
+    document.warnings=document.warnings.filter(w=>!(
+      /پرچیوں میں.*مختلف ہے/u.test(w)&&((caption.customerName&&/گاہک کا نام/u.test(w))||
+      (caption.customerAddress&&/گاہک کا پتہ/u.test(w))||(chosenBrand&&/برانڈ/u.test(w))||
+      (demandDiscounts(input.message??'').length&&/رعایت/u.test(w)))));
     document.lines=document.lines.map(line=>{
       const source=canonicalSlipWords([line.productName,line.rawShorthand].filter(Boolean).join(" "));
       const hardware=hardwareKind(source);
       if(hardware){
         const keepSize=!['cloth','thread','teflon'].includes(hardware);
-        const normalized={...line,productName:hardwareLabel(source),material:null,unit:line.unit??(hardware==='cloth'?'gaz':'pcs')};
+        const normalized={...line,productName:hardwareLabel(source),material:null,unit:hardware==='thread'?'pcs':line.unit??(hardware==='cloth'?'gaz':'pcs')};
         if(!keepSize)delete normalized.size;
         return normalized;
       }
       const size=line.size||source.match(/\d+(?:[-\s]+\d+\/\d+|\/\d+|\.\d+)?(?:\s*[x×*]\s*\d+(?:\/\d+|\.\d+)?)*\s*(?:mm\b|inch\b|["″])/iu)?.[0];
       if(!size&&/\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(source))
         document.warnings.push(line.productName+": سائز واضح نہیں؛ قطر درست کر دیں۔");
-      return {...line,...(size?{size}:{} )};
+      const specification=/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined;
+      return {...line,...(size?{size}:{} ),...(chosenBrand?{brandHint:chosenBrand}:{}),...(specification?{specification,productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light)\b/giu,'').trim()}:{} )};
     });
     // Prices/totals are visible observations for review, never fed to tools or
     // signed state as business authority. Only names and user choices enter NLP.

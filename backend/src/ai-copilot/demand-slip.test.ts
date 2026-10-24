@@ -69,10 +69,10 @@ describe('demand slip accounting integrity',()=>{
   expect(model.respond).not.toHaveBeenCalled();expect((result.review as any).preview.lines).toHaveLength(58);expect((result.review as any).preview.partialTotals.grand_total).toBe(8032);expect(result.requiresConfirmation).toBe(false);
  });
  it('saves the complete pending source draft through the scoped durable store, without executing a financial action',async()=>{
-  const runtime=new CopilotRuntime({} as any,{} as any),inspect=vi.spyOn(runtime,'inspectUnifiedDraft').mockResolvedValue({tool:'erp_create_estimate',draftId:'draft',items:Array.from({length:58},()=>({name:'source row'}))} as any);
+  const rpc=vi.fn(async()=>({data:{id:99,estimate_number:'EST-AI-TEST'},error:null}));const runtime=new CopilotRuntime({} as any,{database:()=>({rpc})} as any),inspect=vi.spyOn(runtime,'inspectUnifiedDraft').mockResolvedValue({tool:'erp_create_estimate',draftId:'draft',items:Array.from({length:58},()=>({name:'source row'}))} as any);
   const execute=vi.spyOn(runtime,'confirmAndExecute');
   const result=await runtime.saveDemandDraft('draft',scope);
-  expect(inspect).toHaveBeenCalledWith('draft',scope);expect(result).toMatchObject({lineCount:58,saved:true,storage:'ai_copilot_actions',financialPosting:false});expect(execute).not.toHaveBeenCalled();
+  expect(inspect).toHaveBeenCalledWith('draft',scope);expect(result).toMatchObject({lineCount:58,saved:true,storage:'estimates',financialPosting:false});expect(execute).not.toHaveBeenCalled();
  });
  it('finishes the same 58-row estimate when the owner supplies all six hardware rates',async()=>{
   const f=fixture(),first=await f.ops.prepare('erp_create_estimate',f.input,scope);f.persist(first);

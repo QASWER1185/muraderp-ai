@@ -266,6 +266,7 @@ export class DefaultErpOperations implements ErpOperations {
         return [updated];
       });
       const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.hardwarePricing?{hardwarePricing:input.hardwarePricing}:{}),...(input.hardwareRates?.length?{hardwareRates:[...(previous.input.hardwareRates??[]).filter((x:any)=>!input.hardwareRates.some((y:any)=>y.kind===x.kind)),...input.hardwareRates]}:{}),...(input.discountScheme?{discountScheme:input.discountScheme}:{}),...(input.pricingRules?{pricingRules:input.pricingRules}:{})},scope);
+      if(previous.data.nativeEstimateId)next.data.nativeEstimateId=previous.data.nativeEstimateId;
       next.preview.summary="جی جناب، بالکل! آپ کی ہدایت کے مطابق اسی مسودے کی تازہ تفصیل حاضر ہے۔\n"+next.preview.summary;
       next.preview.warnings=[...(next.preview.warnings??[]),...warnings];return next;
     }
