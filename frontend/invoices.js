@@ -127,7 +127,7 @@ export function mountInvoices(container, options = {}) {
       sourceEstimate = response.data;
       if (sourceEstimate.currency_code !== "PKR") throw new Error("This Invoice form supports PKR estimates only.");
       pendingDraft = null; pendingKey = null; review.hidden = true; action.textContent = "Review Invoice";
-      lineContainer.innerHTML = sourceEstimate.lines.map((line) => {
+      lineContainer.replaceChildren(...sourceEstimate.lines.map((line) => {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = lineMarkup(products, line.product_id);
         const row = wrapper.firstElementChild;
@@ -137,8 +137,8 @@ export function mountInvoices(container, options = {}) {
           row.querySelector(`[name="${name}"]`).disabled = true;
         }
         row.querySelector("[data-invoice-remove-line]").hidden = true;
-        return row.outerHTML;
-      }).join("");
+        return row;
+      }));
       if (![...field("customer_id").options].some((entry) => Number(entry.value) === sourceEstimate.customer_id)) {
         field("customer_id").insertAdjacentHTML("beforeend", option(sourceEstimate.customer_id, `Customer #${sourceEstimate.customer_id}`));
       }
