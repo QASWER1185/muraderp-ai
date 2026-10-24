@@ -1,3 +1,4 @@
+import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import type { PermissionCode } from "../auth/authorization.types.js";
@@ -74,10 +75,7 @@ interface EstimateIdentity {
 }
 
 function sameOrigin(request: Request): void {
-  const origin = request.header("Origin");
-  if (request.header("Sec-Fetch-Site") === "cross-site" || (origin && new URL(origin).host !== request.get("host"))) {
-    throw new ApiError(403, "FORBIDDEN", "Same-origin request required");
-  }
+  assertBrowserSameOrigin(request);
 }
 
 function identityFor(request: Request): EstimateIdentity {

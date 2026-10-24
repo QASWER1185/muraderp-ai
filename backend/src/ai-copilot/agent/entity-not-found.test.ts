@@ -103,7 +103,7 @@ describe("missing entities and Copilot failure recovery", () => {
   it("shows sanitized actionable model and request configuration failures", async () => {
     const f = businessFixture();
     const model = { respond: vi.fn(async () => { throw new ApiError(502, "AI_PROVIDER_BAD_REQUEST", "Safe settings guidance"); }) };
-    const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "hello" }, scope);
+    const result = await new UnifiedCopilotAgent(model, f.tools).run({ message: "warehouse stock" }, scope);
     expect(result.answer).toContain("درخواست کا فارمیٹ");
     expect(result.answer).not.toContain("تصویر JPEG");
     expect(result.answer).not.toContain("Safe settings guidance");

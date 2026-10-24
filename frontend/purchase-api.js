@@ -16,7 +16,7 @@ async function purchaseRequest(path, context, options = {}) {
     },
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new PurchaseApiError(body?.error?.message ?? `Purchase request failed with HTTP ${response.status}`, response.status, body?.error?.code);
+  if (!response.ok) throw new PurchaseApiError((body?.error?.message ?? `Purchase request failed with HTTP ${response.status}`)+(body?.error?.details?" — "+Object.entries(body.error.details).map(([field,messages])=>`${field}: ${Array.isArray(messages)?messages.join("; "):messages}`).join(" · "):""), response.status, body?.error?.code);
   return body;
 }
 

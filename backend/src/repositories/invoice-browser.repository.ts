@@ -48,6 +48,13 @@ export class SupabaseInvoiceBrowserRepository implements InvoiceBrowserRepositor
     return this.clientFactory() as unknown as UntypedClient;
   }
 
+  async getByReference(organizationId:string,branchId:string,reference:string) {
+    if(/^\d+$/.test(reference))return this.getById(organizationId,branchId,Number(reference));
+    const {data,error}=await this.client.from('invoices').select('id').eq('organization_id',organizationId).eq('branch_id',branchId).eq('invoice_number',reference).maybeSingle();
+    if(error)throw new ApiError(502,'INVOICE_READ_FAILED','Invoice could not be loaded');
+    return data?this.getById(organizationId,branchId,data.id):null;
+  }
+
   async list(organizationId: string, branchId: string, limit: number, cursor?: number) {
     let query = this.client.from("invoices").select(invoiceColumns)
       .eq("organization_id", organizationId).eq("branch_id", branchId)

@@ -21,9 +21,9 @@ export function demandEstimateMarkup(review){
   const p=review.preview,lines=p.lines??[],priced=lines.filter(x=>!x.pending),pending=lines.filter(x=>x.pending);
   const money=value=>Number(value).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
   const headers=['#','آئٹم و تفصیل','سائز','تعداد','یونٹ','لسٹ ریٹ','رعایت %','نیٹ ریٹ','کل رقم (PKR)'];
-  const rows=priced.map((x,i)=>{const rate=x.unit_price,net=rate-(x.quantity?Number(x.discount_amount??0)/x.quantity:0);return `<tr>${[x.line_number??i+1,x.productName,x.size??'—',x.quantity,x.unit,money(rate),x.discountPercent??0,money(net),money(x.quantity*rate-Number(x.discount_amount??0))].map(v=>`<td><bdi dir="auto">${escapeHtml(v)}</bdi></td>`).join('')}</tr>`;}).join('');
+  const rows=lines.map((x,i)=>{const rate=x.unit_price,net=rate-(x.quantity?Number(x.discount_amount??0)/x.quantity:0);return `<tr>${[x.line_number??i+1,x.productName,x.size??'—',x.quantity,x.unit,x.pending?'ریٹ مطلوب':money(rate),x.discountPercent??0,x.pending?'ریٹ مطلوب':money(net),x.pending?'ریٹ مطلوب':money(x.quantity*rate-Number(x.discount_amount??0))].map(v=>`<td><bdi dir="auto">${escapeHtml(v)}</bdi></td>`).join('')}</tr>`;}).join('');
   const total=p.partialTotals??p.totals;
-  return `<article class="review-card confirmation-card" dir="rtl" data-demand-estimate><h3>ایسٹیمیٹ کا مسودہ</h3><p>${escapeHtml(p.customer?.name??"")} · ${escapeHtml(p.customer?.address??"")} · <bdi dir="ltr">${escapeHtml(p.customer?.phone??"")}</bdi></p>${formatCopilotAnswer(p.summary)}<section><h4>نرخ والے آئٹمز</h4><div class="shop-table"><table><thead><tr>${headers.map(x=>`<th>${escapeHtml(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><p><strong>${pending.length?'نرخ والے آئٹمز کی جزوی رقم':'کل رقم'}: <bdi dir="ltr">PKR ${money(total?.grand_total??0)}</bdi></strong></p></section>${pending.length?`<section><h4>ریٹ مطلوب</h4><ul>${pending.map(x=>`<li>${escapeHtml(x.productName)} ${escapeHtml(x.size??'')}: ${escapeHtml(x.quantity)} ${escapeHtml(x.unit==='gaz'?'گز':x.unit==='pcs'?'عدد':x.unit)} — ریٹ مطلوب</li>`).join('')}</ul>${p.hardwareQuestion?formatCopilotAnswer(p.hardwareQuestion):'<p>باقی سطروں کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔</p>'}</section>`:''}<button type="button" class="button primary" data-save-demand-draft="${escapeHtml(review.draftId)}">ایسٹیمیٹ کا مسودہ محفوظ کریں</button></article>`;
+  return `<article class="review-card confirmation-card" dir="rtl" data-demand-estimate><h3>ایسٹیمیٹ کا مسودہ</h3><p>${escapeHtml(p.customer?.name??"")} · ${escapeHtml(p.customer?.address??"")} · <bdi dir="ltr">${escapeHtml(p.customer?.phone??"")}</bdi></p>${formatCopilotAnswer(String(p.summary??"").split("\n\n| # |")[0])}<section><h4>تمام آئٹمز</h4><div class="shop-table"><table><thead><tr>${headers.map(x=>`<th>${escapeHtml(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><p><strong>${pending.length?'نرخ والے آئٹمز کی جزوی رقم':'کل رقم'}: <bdi dir="ltr">PKR ${money(total?.grand_total??0)}</bdi></strong></p></section>${pending.length?`<section><h4>ریٹ مطلوب</h4><ul>${pending.map(x=>`<li>${escapeHtml(x.productName)} ${escapeHtml(x.size??'')}: ${escapeHtml(x.quantity)} ${escapeHtml(x.unit==='gaz'?'گز':x.unit==='pcs'?'عدد':x.unit)} — ریٹ مطلوب</li>`).join('')}</ul>${p.hardwareQuestion?formatCopilotAnswer(p.hardwareQuestion):'<p>باقی سطروں کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔</p>'}</section>`:''}<button type="button" class="button primary" data-save-demand-draft="${escapeHtml(review.draftId)}">ایسٹیمیٹ کا مسودہ محفوظ کریں</button></article>`;
 }
 export function depotReportMarkup(report){
   if(report.catalogIntegrity===true)return `<article class="review-card" dir="auto"><h3>کیٹلاگ نرخوں کی پڑتال</h3>${report.rows.map(row=>`<p>${escapeHtml(row.name)} · موجودہ ${escapeHtml(row.currentListPrice??"نامعلوم")} · کیٹلاگ ${escapeHtml(row.expectedListPrice)} · ${row.status==="verified"?"تصدیق شدہ":"درستگی کا پری ویو درکار"}</p>`).join("")}<p>قیمتوں کی تبدیلی الگ پری ویو اور واضح منظوری کے بعد محفوظ ہو گی۔</p></article>`;
@@ -122,7 +122,7 @@ export function createCopilotConversation(now = Date.now, storage = conversation
     clear() { token = null; conversationId = null; scope = null; expiresAt = 0; forget(); },
   };
 }
-function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
+function escapeHtml(value) { return String(value ?? "").replace(/\bCAT-[A-Za-z0-9_-]+\b/g,"کیٹلاگ آئٹم").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
 /** Small escaped Markdown subset: no HTML, links, images or executable markup. */
 export function formatCopilotAnswer(value){
   const inline=text=>escapeHtml(text).replace(/\*\*([^*\n]+)\*\*/g,"<strong>$1</strong>")
@@ -460,12 +460,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const sentVoiceAudio=audio;
     const sentVoiceAudioName=audioName;
     const snapshot={text,files:sentAttachments,audio:sentVoiceAudio,audioName:sentVoiceAudioName,camera,action,userId:getAuthenticatedUserId(),organizationId:context.organizationId,branchId:context.branchId};
-    const restoreSubmission=()=>{
-      const current=getWorkspaceContext();
-      if(getAuthenticatedUserId()!==snapshot.userId||current?.organizationId!==snapshot.organizationId||current?.branchId!==snapshot.branchId)return;
-      if(!attachments.length&&!voiceAudio){attachments=[...sentAttachments];voiceAudio=sentVoiceAudio;voiceAudioName=sentVoiceAudioName;attachmentFromCamera=camera;renderAttachments();}
-      if(!input.value)input.value=text;
-    };
+    const restoreSubmission=()=>{}; // Retry uses the retained message snapshot; sent content never repopulates the composer.
     input.value="";input.style.height="auto";clearAttachment();
     const version=++operationVersion;
     let acceptedForConversation=false;

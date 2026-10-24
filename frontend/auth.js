@@ -21,9 +21,14 @@ export async function signIn(email, password) {
 }
 
 export async function getSession() {
-  const response = await boundedFetch("/api/v1/auth/session", { credentials: "include" });
-  if (!response.ok) return null;
-  return response.json();
+  for (let attempt=0;attempt<2;attempt++) {
+    try {
+      const response = await boundedFetch("/api/v1/auth/session", { credentials: "include", cache: "no-store" });
+      if (response.status===401) return null;
+      if (!response.ok) throw new Error('Your secure session is temporarily unavailable. Please retry.');
+      return await response.json();
+    } catch(error) { if(attempt===1)throw error; }
+  }
 }
 
 export async function signOut() {

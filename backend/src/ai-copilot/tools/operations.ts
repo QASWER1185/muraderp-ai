@@ -1,3 +1,4 @@
+import { demandMarkdownTable } from '../estimate-table.js';
 import { createHash, randomUUID } from "node:crypto";
 import { ApiError } from "../../errors/api-error.js";
 import type { AgentScope } from "../agent/erp-tools.js";
@@ -340,7 +341,7 @@ export class DefaultErpOperations implements ErpOperations {
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
     const billing=["erp_create_invoice","erp_convert_estimate_to_invoice"].includes(tool)?`\nبل کی قابلِ ادائیگی رقم PKR ${data.totals.customer_payable_total}؛ نقد کاؤنٹر وصولی PKR ${input.paidAmount??0}؛ بقایا کھاتہ PKR ${amount(data.totals.customer_payable_total-(input.paidAmount??0))}۔ نقد بل کے لیے پوری وصولی، یا ادھار کے لیے مطلوبہ جزوی وصولی اسی گفتگو میں بتا دیں۔`:"";
     const creditWarnings=billing && data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
-    return {tool,input,data,preview:{title,summary:summary+billing,...(billing?{warnings:creditWarnings}:{}),
+    return {tool,input,data,preview:{title,summary:summary+billing+(data.mode===DEMAND_SLIP_ESTIMATE?"\n\n"+demandMarkdownTable(data.lines):""),...(billing?{warnings:creditWarnings}:{}),
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
       ...(data.mode?{mode:data.mode,customer:{id:data.customerId,name:data.customerName,address:input.customerAddress??data.newCustomer?.city??'',phone:input.customerPhone??data.newCustomer?.phone??''},unmatched_hardware_items:data.unmatched_hardware_items,saveDraftAvailable:true,hardwareQuestion:hardwarePrompt(data.lines,input.hardwarePricing==="catalog")}:{}),
       ...(data.incomplete?{incomplete:true,partialTotals:data.totals}:data.totals?{totals:data.totals}:{}),

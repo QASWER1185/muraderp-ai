@@ -33,3 +33,15 @@ export async function createEstimateDraft(context, input, idempotencyKey) {
   }
   return body;
 }
+
+async function savedEstimateRequest(context, suffix = '', options = {}) {
+  const workspace = normalizeWorkspaceContext(context);
+  if (!workspace) throw new EstimateApiError('Choose your business workspace.',400,'WORKSPACE_REQUIRED');
+  const response = await fetch('/api/v1/estimates'+suffix,{credentials:'include',...options,headers:{'X-Organization-Id':workspace.organizationId,'X-Branch-Id':workspace.branchId,...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});
+  const body=await response.json().catch(()=>({}));
+  if(!response.ok)throw new EstimateApiError(body.error?.message??'Estimate request failed',response.status,body.error?.code);
+  return body;
+}
+export const listEstimates=(context,filters={})=>savedEstimateRequest(context,'?'+new URLSearchParams(Object.entries(filters).filter(([,v])=>v!==''&&v!=null)));
+export const getEstimate=(context,id)=>savedEstimateRequest(context,'/'+encodeURIComponent(id));
+export const updateEstimate=(context,id,changes)=>savedEstimateRequest(context,'/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify(changes)});

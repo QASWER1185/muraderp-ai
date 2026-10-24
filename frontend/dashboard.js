@@ -52,7 +52,7 @@ function trendPeriods() {
 
 export function dashboardMarkup() {
   const quickActions = [
-    ["estimates", "New Estimate", "file"],
+    ["estimates/create", "New Estimate", "file"],
     ["invoices", "New Invoice", "receipt"],
     ["customers", "Add Customer", "users"],
     ["products", "Add Product", "package"],
@@ -192,6 +192,7 @@ export function mountDashboard(container, options = {}) {
 
   root.addEventListener("click", (event) => {
     const metric = event.target.closest("[data-dashboard-metric]")?.dataset.dashboardMetric;
+    if (metric === "estimates") { globalThis.location.hash = "#/estimates/list"; return; }
     if (metric) void loadMetric(metric);
     if (event.target.closest("[data-sales-trend]")) void loadTrend();
     if (event.target.closest("[data-profit-open]")) { profitDialog.showModal(); void loadProfit("daily"); }

@@ -112,6 +112,7 @@ export function mountInvoices(container, options = {}) {
         const ready = await listReadyEstimates(context);
         field("source_estimate_id").innerHTML = `<option value="">Choose ready estimate</option>${(ready.data ?? []).map((item) => option(item.id, `${item.estimate_number} · Customer #${item.customer_id}`)).join("")}`;
         if (!(ready.data ?? []).length) throw new Error("No ready estimates are available in this branch.");
+        if(options.sourceEstimateId){field("source_estimate_id").value=String(options.sourceEstimateId);await loadSourceEstimate();}
       } else lineContainer.insertAdjacentHTML("beforeend", lineMarkup(products));
       field("issue_date").value = new Date().toISOString().slice(0, 10);
       field("invoice_number").focus();
@@ -219,4 +220,5 @@ export function mountInvoices(container, options = {}) {
     if (row) void openDetail(Number(row.dataset.invoiceId));
   });
   void load();
+  if(options.sourceEstimateId)void openEditor(true);
 }

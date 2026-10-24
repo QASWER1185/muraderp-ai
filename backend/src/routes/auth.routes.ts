@@ -15,6 +15,7 @@ authRouter.post("/session", async (request, response) => {
 });
 
 authRouter.get("/session", browserSessionHandler(true), (request, response) => {
+  response.setHeader('Cache-Control','no-store, private');
   response.status(200).json({ data: { authenticated: true, userId: request.browserPrincipal!.userId } });
 });
 
