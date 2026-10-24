@@ -22,6 +22,10 @@ function fixture(){
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
+ it('rounds accumulated PKR totals to cents without floating-point tails',async()=>{
+  const f=fixture();f.deps.pricing.resolvePrice.mockImplementation(async(x:any)=>({product_id:x.product_id,unit_price:x.product_id===11?100.01:200.01,unit:'pcs',currency_code:'PKR',rate_list_id:4,rate_list_version_id:8}));
+  const result=await f.ops.prepare('erp_create_estimate',f.input,scope);expect((result.preview.partialTotals as any).grand_total).toBe(7592.52);expect(result.preview.summary).not.toContain('999999');
+ });
  it('cannot bypass hardware price permission through the generic revision tool',async()=>{
   const revise=vi.fn();const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{reviseUnifiedDraft:revise}} as any);
   const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';
@@ -75,6 +79,7 @@ describe('demand slip accounting integrity',()=>{
   const f=fixture(),first=await f.ops.prepare('erp_create_estimate',f.input,scope);f.persist(first);
   const next=await f.ops.prepare('erp_amend_estimate',{draftId:'a3000000-0000-4000-8000-000000000009',...hardwareInstructions('سافٹ ویئر والے ریٹ لگا دو')},scope);
   expect(next.data.lines).toHaveLength(58);expect(next.data.lines[52]).toMatchObject({unit_price:45,discountPercent:0});expect(next.data.unmatched_hardware_items).toHaveLength(5);
+  expect(next.preview.summary).toContain('آپ کی اجازت سے');expect(next.preview.summary).not.toContain('کیا ان پر');
   expect(f.deps.search.searchProducts).toHaveBeenCalledWith('ململ',5,scope);
  });
  it('discards model-invented hardware permission and rates',async()=>{

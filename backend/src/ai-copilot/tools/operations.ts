@@ -224,6 +224,7 @@ export class DefaultErpOperations implements ErpOperations {
     }
     const priced=lines.filter(line=>!line.pending);
     const totals=calculateEstimateTotals(priced,input.carriageCharges??0);
+    for(const key of Object.keys(totals) as Array<keyof typeof totals>)totals[key]=amount(totals[key]);
     if((input.paidAmount??0)>totals.customer_payable_total)requireChoice("Paid amount exceeds the invoice payable amount.");
     return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf,
       ...(input.mode===DEMAND_SLIP_ESTIMATE?{mode:DEMAND_SLIP_ESTIMATE,unmatched_hardware_items:lines.filter(x=>x.pending&&x.hardware)}:{}),
@@ -330,7 +331,7 @@ export class DefaultErpOperations implements ErpOperations {
     }
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
-    const summary=data.incomplete?`جناب، ${data.customerName} کے تمام ${count} آئٹمز مسودے میں شامل ہیں۔ ${data.pendingCount} آئٹمز کا ریٹ مطلوب ہے۔ نرخ والے آئٹمز کی جزوی رقم PKR ${data.totals.grand_total} ہے؛ یہ حتمی کل نہیں۔\n${hardwarePrompt(data.lines)||'باقی آئٹمز کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔'}` :tool==="erp_create_estimate" ?
+    const summary=data.incomplete?`جناب، ${data.customerName} کے تمام ${count} آئٹمز مسودے میں شامل ہیں۔ ${data.pendingCount} آئٹمز کا ریٹ مطلوب ہے۔ نرخ والے آئٹمز کی جزوی رقم PKR ${data.totals.grand_total} ہے؛ یہ حتمی کل نہیں۔\n${hardwarePrompt(data.lines,input.hardwarePricing==="catalog")||'باقی آئٹمز کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔'}` :tool==="erp_create_estimate" ?
       "حاجی صاحب! "+data.customerName+(data.newCustomer?(data.newCustomer.city?" ("+data.newCustomer.city+")":"")+" کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
       (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
       " "+count+" آئٹمز کا مکمل ایسٹیمیٹ پری ویو تیار کر دیا گیا ہے۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ تفصیل دیکھ لیں؛ ERP میں محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
@@ -340,7 +341,7 @@ export class DefaultErpOperations implements ErpOperations {
     const creditWarnings=billing && data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
     return {tool,input,data,preview:{title,summary:summary+billing,...(billing?{warnings:creditWarnings}:{}),
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
-      ...(data.mode?{mode:data.mode,customer:{id:data.customerId,name:data.customerName,address:input.customerAddress??data.newCustomer?.city??'',phone:input.customerPhone??data.newCustomer?.phone??''},unmatched_hardware_items:data.unmatched_hardware_items,saveDraftAvailable:true,hardwareQuestion:hardwarePrompt(data.lines)}:{}),
+      ...(data.mode?{mode:data.mode,customer:{id:data.customerId,name:data.customerName,address:input.customerAddress??data.newCustomer?.city??'',phone:input.customerPhone??data.newCustomer?.phone??''},unmatched_hardware_items:data.unmatched_hardware_items,saveDraftAvailable:true,hardwareQuestion:hardwarePrompt(data.lines,input.hardwarePricing==="catalog")}:{}),
       ...(data.incomplete?{incomplete:true,partialTotals:data.totals}:data.totals?{totals:data.totals}:{}),
       ...(tool==="erp_create_estimate"?{companions:data.companions,quotation:data.quotation,privateMargin:data.privateMargin,
         warnings:[...data.creditWarnings,new InstallationCompletenessService().prompt(data.companions)].filter(Boolean)}:{}),

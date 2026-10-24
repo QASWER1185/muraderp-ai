@@ -28,8 +28,8 @@ export function hardwareInstructions(message:string){
   const catalog=/(?:سافٹ\s*ویئر|سافٹویئر|software|hardware|ہارڈویئر).{0,30}(?:ریٹ|نرخ|rates?|prices?).{0,20}(?:لگا|استعمال|use|apply)|(?:use|apply).{0,20}(?:software|hardware).{0,20}(?:rates?|prices?)/iu.test(message);
   return {hardwareRates,...(catalog&&!/نہ\s*لگا|مت\s*لگا|نہیں\s*لگا|do\s+not|don't|never|[؟?]/iu.test(message)?{hardwarePricing:'catalog' as const}:{})};
 }
-export function hardwarePrompt(lines:any[]){
+export function hardwarePrompt(lines:any[],catalogApproved=false){
   const rows=lines.filter(x=>x.pending&&x.hardware);
   if(!rows.length)return '';
-  return 'جناب، مندرجہ ذیل متفرق آئٹمز ڈیورا میکس کی لسٹ میں شامل نہیں ہیں:\n'+rows.map((x,i)=>`${i+1}. ${hardwareLabel(x.productName)}${x.size?' '+x.size:''}: ${x.quantity} ${hardwareKind(x.productName)==='thread'?'گولے':x.unit==='gaz'?'گز':x.unit==='pcs'?'عدد':x.unit} — ریٹ مطلوب`).join('\n')+'\nکیا ان پر ہمارے سافٹ ویئر میں موجود عام ہارڈویئر ریٹ لگا دوں، یا آپ ان کی قیمت بتانا پسند کریں گے؟';
+  return (catalogApproved?'جناب، آپ کی اجازت سے عام ہارڈویئر نرخ تلاش کیے؛ ان متفرق آئٹمز کا درست فعال نرخ نہیں ملا:\n':'جناب، مندرجہ ذیل متفرق آئٹمز ڈیورا میکس کی لسٹ میں شامل نہیں ہیں:\n')+rows.map((x,i)=>`${i+1}. ${hardwareLabel(x.productName)}${x.size?' '+x.size:''}: ${x.quantity} ${hardwareKind(x.productName)==='thread'?'گولے':x.unit==='gaz'?'گز':x.unit==='pcs'?'عدد':x.unit} — ریٹ مطلوب`).join('\n')+(catalogApproved?'\nان کا اپنا نرخ بتا دیں یا انہیں ابھی ریٹ مطلوب کے ساتھ محفوظ رکھیں۔':'\nکیا ان پر ہمارے سافٹ ویئر میں موجود عام ہارڈویئر ریٹ لگا دوں، یا آپ ان کی قیمت بتانا پسند کریں گے؟');
 }

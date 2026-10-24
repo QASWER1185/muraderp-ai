@@ -45,6 +45,7 @@ if(process.argv.includes("--catalog-audit")){
   }
 }else{
   const token=process.env.INTERNAL_API_TOKEN??secret("muraderp-internal-api-token");
+  process.env.INTERNAL_API_TOKEN??=token;
   // Exercise the same browser auth/ACL route with a short-lived test cookie.
   // It is never stored or logged, and this harness never confirms a mutation.
   const session=Buffer.from(JSON.stringify({userId:scope.userId,exp:Math.floor(Date.now()/1000)+1800})).toString("base64url");
@@ -72,6 +73,18 @@ if(process.argv.includes("--catalog-audit")){
     if(!Array.isArray(selectedQuestions)||selectedQuestions.length>20||selectedQuestions.some(question=>typeof question!=="string"||question.length>20000||isAffirmation(question)))throw new Error("Acceptance questions must be bounded non-approval requests.");
   }
   const transcripts=[];let conversationToken,conversationId,consumedMedia=false,lastDemandReview;
+  const resumeIndex=process.argv.indexOf('--resume-draft');
+  let resumedFromDraftId;
+  if(resumeIndex>=0){
+    const id=process.argv[resumeIndex+1];
+    if(!/^[0-9a-f-]{36}$/i.test(id??''))throw Error('A saved draft UUID is required.');
+    const {data:source,error}=await db.from('ai_copilot_actions').select('status,action_plan').eq('id',id).eq('organization_id',scope.organizationId).eq('user_id',scope.userId).maybeSingle();
+    if(error||source?.status!=='DRAFT'||source.action_plan?.branchId!==scope.branchId||source.action_plan?.unifiedAction?.tool!=='erp_create_estimate')throw Error('The scoped pending estimate cannot be resumed.');
+    const {newBusinessState,writeBusinessState}=await import('../backend/dist/ai-copilot/agent/business-state.js');
+    const state=newBusinessState(scope);state.workingActionId=id;state.workingActionTool='erp_create_estimate';
+    if(source.action_plan.unifiedAction.input.mode==='DEMAND_SLIP_ESTIMATE')state.workingActionMode='DEMAND_SLIP_ESTIMATE';
+    conversationToken=writeBusinessState(state);conversationId=state.conversationId;consumedMedia=true;resumedFromDraftId=id;
+  }
   const mediaManifest=process.argv.indexOf("--media-manifest");
   const attachments=mediaManifest<0?undefined:JSON.parse(readFileSync(process.argv[mediaManifest+1],"utf8")).map(file=>({fileName:file.fileName,media:{mimeType:"image/png",base64:readFileSync(file.path).toString("base64")}}));
   for(const question of selectedQuestions){
@@ -95,6 +108,6 @@ if(process.argv.includes("--catalog-audit")){
     const response=await fetch(base+'/api/copilot/demand-drafts/'+encodeURIComponent(lastDemandReview.draftId)+'/save',{method:'POST',headers:{'Cookie':cookie,'X-Organization-Id':scope.organizationId,'X-Branch-Id':scope.branchId},signal:AbortSignal.timeout(30000)});
     savedDraft={httpStatus:response.status,...await response.json()};console.log(JSON.stringify({savedDraft}));
   }
-  const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify({verifiedAt:new Date().toISOString(),base,scope,transcripts,...(savedDraft?{savedDraft}:{})},null,2));
+  const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify({verifiedAt:new Date().toISOString(),base,scope,transcripts,...(resumedFromDraftId?{resumedFromDraftId}:{}),...(savedDraft?{savedDraft}:{})},null,2));
   localServer?.closeAllConnections();localServer?.close();
 }
