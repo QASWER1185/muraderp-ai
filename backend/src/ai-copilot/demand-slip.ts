@@ -4,10 +4,10 @@ export const hardwareKinds=['cloth','thread','teflon','connection_pipe','saw_bla
 const labels:Record<string,string>={cloth:'ململ (کپڑا)',thread:'دھاگہ',teflon:'ٹیفلون ٹیپ',connection_pipe:'کنکشن پائپ',saw_blade:'آری بلیڈ',blade:'بلیڈ'};
 export function hardwareKind(name:string):typeof hardwareKinds[number]|undefined{
   if(/ململ|کپڑا|سمل|malmal|muslin|cloth/iu.test(name))return 'cloth';
-  if(/دھاگ|thread\s*(?:ball|roll)|\bthread\b(?!ed)/iu.test(name))return 'thread';
+  if(/دھاگ|دکھار|\bdha+ga\b|thread\s*(?:ball|roll)|\bthread\b(?!ed)/iu.test(name))return 'thread';
   if(/ٹیفلون|ٹیفلن|teflon|ptfe|t[ae]fl[ou]n/iu.test(name))return 'teflon';
   if(/کنکشن|کنیکشن|connection\s*pipe/iu.test(name))return 'connection_pipe';
-  if(/آری|آر[یے]|hacksaw|saw.?blade|ari.?blade/iu.test(name))return 'saw_blade';
+  if(/آری|آر[یے]|hacksaw|saw.?blade|(?:ari|axi).?blade|blade.?\b(?:ari|axi)\b/iu.test(name))return 'saw_blade';
   if(/بلیڈ|blade/iu.test(name))return 'blade';
 }
 export function hardwareLabel(name:string){return labels[hardwareKind(name)??'']??name;}

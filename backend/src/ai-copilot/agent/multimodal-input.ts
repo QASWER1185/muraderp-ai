@@ -6,7 +6,7 @@ import type { AgentScope } from "./erp-tools.js";
 import { RateListCatalogSchema, isRateListRequest, mergeCatalogPages, type RateListCatalog } from "../rate-list-catalog.js";
 import { brandsInText, explicitBrand,matchesProductSpecification } from "../productResolver.js";
 import { canonicalSlipWords } from "../conversationalMunshi.js";
-import {DEMAND_SLIP_ESTIMATE,demandRequested,demandDiscounts,hardwareKind} from '../demand-slip.js';
+import {DEMAND_SLIP_ESTIMATE,demandRequested,demandDiscounts,hardwareKind,hardwareLabel} from '../demand-slip.js';
 
 /** Explicit caption choices outrank OCR; do not infer missing names or discounts. */
 function captionChoices(message: string): {customerName?:string;customerAddress?:string;customerPhone?:string;percent?:number} {
@@ -142,6 +142,13 @@ export class MultimodalAgentInput {
       ...(caption.percent!==undefined?{discountPercent:caption.percent}:{})};
     document.lines=document.lines.map(line=>{
       const source=canonicalSlipWords([line.productName,line.rawShorthand].filter(Boolean).join(" "));
+      const hardware=hardwareKind(source);
+      if(hardware){
+        const keepSize=!['cloth','thread','teflon'].includes(hardware);
+        const normalized={...line,productName:hardwareLabel(source),material:null,unit:line.unit??(hardware==='cloth'?'gaz':'pcs')};
+        if(!keepSize)delete normalized.size;
+        return normalized;
+      }
       const size=line.size||source.match(/\d+(?:[-\s]+\d+\/\d+|\/\d+|\.\d+)?(?:\s*[x×*]\s*\d+(?:\/\d+|\.\d+)?)*\s*(?:mm\b|inch\b|["″])/iu)?.[0];
       if(!size&&/\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(source))
         document.warnings.push(line.productName+": سائز واضح نہیں؛ قطر درست کر دیں۔");

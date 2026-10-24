@@ -176,7 +176,11 @@ export class DefaultErpOperations implements ErpOperations {
       if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       const countedPipe=(/\bpipe\b/i.test(product.name)||/^pipes?$/i.test(product.category))&&["pcs","length"].includes(canonicalUnit(item.unit??""))&&["pcs","length"].includes(canonicalUnit(product.unit));
-      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe)requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔");
+      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe){
+        const reason=product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔";
+        if(input.mode===DEMAND_SLIP_ESTIMATE)throw new ApiError(422,'ESTIMATE_RATE_PENDING',reason,{productId:product.id,productName:product.name,unit:item.unit});
+        requireChoice(reason);
+      }
       const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
       if(!rate||rate.unit!==product.unit)throw new ApiError(422,"ESTIMATE_RATE_PENDING",product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔",{productId:product.id,productName:product.name,unit:product.unit});

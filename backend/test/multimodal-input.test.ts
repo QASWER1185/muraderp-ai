@@ -68,6 +68,12 @@ describe("Part 4 concrete extraction and media validation",()=>{
     const result=await f.input.normalize({source:"image",media:png()},scope);
     expect(result.reviewRequired).toBe(false);expect(result.estimateRequest).toMatchObject({items:[{size:"25mm",qty:20}]});
   });
+  it('uses the preserved source words to distinguish cloth and thread from pipe/plug guesses',async()=>{
+    const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:'4 گز سمل ٹکڑا',item_name:'Pipe',material:'U-PVC',size:'4 inch',specification:null,quantity:4,unit:'gaz'},{raw_line:'دکھار - 08',item_name:'Dakha / Plug',material:'U-PVC',size:null,specification:null,quantity:8,unit:null},{raw_line:'Axi-Blade - 02',item_name:'Blade',material:null,size:null,specification:null,quantity:2,unit:null}]} as any);
+    const result=await f.input.normalize({source:'image',task:'estimate',media:png()},scope);
+    expect(result.reviewRequired).toBe(false);expect(result.estimateRequest?.items).toMatchObject([{name:'ململ (کپڑا)',qty:4,unit:'gaz'},{name:'دھاگہ',qty:8,unit:'pcs'},{name:'آری بلیڈ',qty:2,unit:'pcs'}]);
+    expect((result.estimateRequest?.items as any[])[0]).not.toHaveProperty('size');
+  });
   it("carries mandatory plumber size, material and specification into the estimate without stripping them",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:"PPRC Female Elbow 25mm x 1/2 inch 4pcs",item_name:"Elbow",material:"PPR-C",size:"25mm x 1/2 inch",specification:"Female Threaded",quantity:4,unit:"pcs"}]} as any);
     const result=await f.input.normalize({source:"image",media:png(),message:"کسٹمر وسیم مظہر ہے اتحاد ٹاؤن لاہور کا، ڈیورا میکس 50 پرسنٹ ڈسکاؤنٹ پر بل بناؤ"},scope);
