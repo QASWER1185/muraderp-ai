@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { bootstrapBrowserSession, browserSessionHandler, clearBrowserSession } from "../auth/browser-session.js";
+import { bootstrapBrowserSession, browserSessionHandler, clearBrowserSession, issueBrowserSession } from "../auth/browser-session.js";
 
 const tokenSchema = z.object({ accessToken: z.string().trim().min(20) });
 
@@ -16,6 +16,7 @@ authRouter.post("/session", async (request, response) => {
 
 authRouter.get("/session", browserSessionHandler(true), (request, response) => {
   response.setHeader('Cache-Control','no-store, private');
+  issueBrowserSession(request.browserPrincipal!.userId,response);
   response.status(200).json({ data: { authenticated: true, userId: request.browserPrincipal!.userId } });
 });
 
