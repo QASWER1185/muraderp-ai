@@ -167,7 +167,8 @@ describe("read-only ERP agent", () => {
     vi.mocked(deps.search.searchProducts).mockRejectedValueOnce(new Error("unavailable"));
     const { model, respond } = sequence(step(call("search_products", { query: "pipe" })), step(call("lookup_product", { product_id: 7 }, "recovery")), final("Verified pipe"));
     const result = await new ReadOnlyCopilotAgent(model, new ErpToolRegistry(deps)).run({ message: "Pipe" }, scope);
-    expect(result).toMatchObject({ status: "completed", answer: "Verified pipe" });
-    expect(JSON.stringify(respond.mock.calls[1]?.[0])).toContain("Tool result unavailable");
+    expect(result.status).toBe("completed");expect(result.answer).toContain("Verified pipe");
+    expect(JSON.stringify(respond.mock.calls[1]?.[0])).toContain("UNEXPECTED_TOOL_ERROR");
+    expect(result.answer).toContain("کیٹلاگ");
   });
 });

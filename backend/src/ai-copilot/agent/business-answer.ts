@@ -49,7 +49,7 @@ export function businessAnswer(facts: BusinessFact[], _message: string): string 
           (customers ? customers.length ? ` موجودہ گاہک${fact.hasMore ? " (پہلے 5)" : ""}: ${customers.join("؛ ")}۔` : " ابھی کوئی گاہک درج نہیں۔" : " موجودہ گاہکوں کی فہرست دستیاب نہیں۔") +
           " کوئی فرضی بقایا نہیں بتایا گیا۔");
       } else rendered.push(`جناب، '${fact.query}' کا درست آئٹم نہیں ملا۔ براہِ کرم برانڈ، سائز یا قسم واضح کر دیں۔`);
-    } else if (fact.kind === "unavailable") rendered.push("جناب، متعلقہ ERP معلومات اس وقت دستیاب نہیں؛ تفصیل واضح کر دیں یا دوبارہ کوشش کریں۔");
+    } else if (fact.kind === "unavailable") rendered.push(String(fact.message));
   }
   return rendered.join("\n\n");
 }

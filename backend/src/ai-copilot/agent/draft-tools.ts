@@ -44,6 +44,7 @@ export type DraftView = {
   lines: Array<{ lineId: string; productId: number; productName: string; quantity: number; unit: string;
     discountPercent: number; rateListId?: number; rate: ResolvedPrice | null; amount: number | null; discountAmount: number | null; error?: string }>;
   currencyCode: string | null; totals: ReturnType<typeof calculateEstimateTotals> | null;
+  partialTotals?: ReturnType<typeof calculateEstimateTotals>;
   requiresConfirmation: true; prepared: boolean;
 };
 type RateLookup = (input: unknown, scope: AgentScope, signal?: AbortSignal) => Promise<unknown>;
@@ -123,6 +124,7 @@ export class ConversationalDraftService {
     return { id: state.draft.id, revision: state.draft.revision, customer: state.customer,
       ...(state.brandHint ? { brandHint: state.brandHint } : {}), lines, currencyCode: currency,
       totals: lines.length > 0 && priced.length === lines.length ? calculateEstimateTotals(priced) : null,
+      ...(priced.length>0 && priced.length<lines.length?{partialTotals:calculateEstimateTotals(priced)}:{}),
       requiresConfirmation: true, prepared: state.draft.preparedRevision === state.draft.revision };
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state: BusinessState, signal?: AbortSignal): Promise<DraftView | { contextUpdated: true }> {
@@ -213,9 +215,9 @@ export class ConversationalDraftService {
 }
 
 export function draftAnswer(view: DraftView, _message = ""): string {
-  const rows = view.lines.map(line => `${line.productName}: ${line.quantity} ${line.unit}، رعایت ${line.discountPercent}% — ${line.amount == null ? "اس لائن کا درست نرخ یا یونٹ واضح کر دیں۔" : view.currencyCode + " " + line.amount.toFixed(2)}`);
+  const rows = view.lines.map(line => `${line.productName}: ${line.quantity} ${line.unit}، رعایت ${line.discountPercent}% — ${line.amount == null ? "پینڈنگ تصدیق؛ اس آئٹم کی درست ریٹ لسٹ یا یونٹ بتا دیں۔" : view.currencyCode + " " + line.amount.toFixed(2)}`);
   return [view.customer ? "گاہک: " + view.customer.name : "براہ کرم گاہک کی شناخت واضح کریں۔",
-    ...rows, view.totals ? `کل رقم: ${view.currencyCode} ${view.totals.grand_total.toFixed(2)}` : "تمام ریٹس کی تصدیق تک کل رقم دستیاب نہیں۔",
+    ...rows, view.totals ? `کل رقم: ${view.currencyCode} ${view.totals.grand_total.toFixed(2)}` : view.partialTotals?`تصدیق شدہ آئٹمز کی جزوی رقم: ${view.currencyCode} ${view.partialTotals.grand_total.toFixed(2)}؛ پینڈنگ آئٹمز اس میں شامل نہیں۔`:"تمام ریٹس کی تصدیق تک کل رقم دستیاب نہیں۔",
     view.prepared ? "ایسٹیمیٹ کا مکمل پری ویو تیار ہے؛ محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
       "اسی گفتگو کا مسودہ اپ ڈیٹ ہوگیا ہے؛ ERP میں کوئی ریکارڈ نہیں لکھا گیا۔"].join("\n");
 }

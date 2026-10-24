@@ -1,17 +1,30 @@
 import { ApiError } from "../errors/api-error.js";
 import { canonicalBrand } from "./productResolver.js";
-export interface PricingRule {brand:string;match:string;discount:number}
+export interface PricingRule {brand?:string;match:string;discount:number}
+export function categoryDiscountChoices(message:string):PricingRule[]{
+  if(!/%|فیصد|لیس|\bpercent\b|\bdiscount/iu.test(message))return [];
+  const rules:PricingRule[]=[];
+  for(const [match,pattern] of [["pipe",/(?:پائپ|\bpipes?\b)\s*(?:(?:پر|at|on)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:%|فیصد|percent))/iu],["fittings",/(?:فٹنگز?|\bfittings?\b)\s*(?:(?:پر|at|on)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:%|فیصد|percent))/iu]] as const){
+    const found=message.match(pattern),discount=Number(found?.[1]??found?.[2]);if(found&&discount<=100)rules.push({match,discount});
+  }
+  return rules.length===2?rules:[];
+}
 export function classifyMaterial(name:string):"GI"|"PPRC"|"UPVC"|"OTHER" {
   if(/he\s*china|ایچ\s*ای\s*چائنا/iu.test(name))return "GI";
   if(/ppr[ -]?c/iu.test(name))return "PPRC";
   if(/u[ -]?pvc/iu.test(name))return "UPVC";
   return "OTHER";
 }
-export function applyHybridRules<T extends {name?:string;brand?:string;discount?:number}>(item:T,rules:PricingRule[]):T {
-  const matches=rules.filter(rule=>(item.name??"").toLowerCase().includes(rule.match.toLowerCase()));
+export function applyHybridRules<T extends {name?:string;brand?:string;discount?:number;category?:string}>(item:T,rules:PricingRule[]):T {
+  const matches=rules.filter(rule=>{
+    const category=rule.match.trim().toLowerCase();
+    if(/^(?:pipes?|پائپ)$/u.test(category))return /pipe|پائپ/iu.test(item.category??item.name??"");
+    if(/^(?:fittings?|فٹنگ|فٹنگز)$/u.test(category))return /fitting|فٹنگ/iu.test(item.category??"") || /elbow|socket|tee|union|adapter|reducer|coupling|end.?cap|trap|valve|plug|solvent|solution|cement|سلوشن|ساکٹ|ایلبو|یونین/iu.test(item.name??"");
+    return (item.name??"").toLowerCase().includes(category);
+  });
   if(matches.length>1)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","اس آئٹم پر دو برانڈ یا رعایت کی شرطیں لگ رہی ہیں؛ انتخاب واضح کر دیں: "+item.name);
   const rule=matches[0];
-  return rule?{...item,brand:canonicalBrand(rule.brand),discount:item.discount??rule.discount}:item;
+  return rule?{...item,...(rule.brand?{brand:canonicalBrand(rule.brand)}:{}),discount:item.discount??rule.discount}:item;
 }
 export interface QuotationLine {productName:string;size?:string;brandName?:string;quantity:number;unit:string;unit_price:number;discountPercent?:number;discount_amount?:number;unitCost?:number}
 export function groupQuotation(lines:QuotationLine[]) {

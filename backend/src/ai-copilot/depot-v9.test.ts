@@ -27,6 +27,18 @@ function operations(){
   return {deps,product,ops:new DefaultErpOperations(deps)};
 }
 describe("V9 installation completeness",()=>{
+  it.each([["kg","سامان 4 کلو"],["gaz","ململ 4 گز"]])("preserves an explicitly written %s line from a demand slip",async(unit,rawLine)=>{
+    const raw={...document(0),lines:[{raw_line:rawLine,item_name:unit==="gaz"?"ململ":"سامان",material:null,size:null,specification:null,quantity:4,unit}]};
+    const provider:any={name:"gemini",generate:vi.fn(async(schema:any)=>schema.parse(raw)),transcribe:vi.fn()};
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"ان پرچیوں کا ایسٹیمیٹ بناؤ",media:media()},scope);
+    expect(result.extraction.document?.lines[0]).toMatchObject({quantity:4,unit,rawShorthand:rawLine});
+  });
+  it("keeps an explicit estimate on the slip route when its caption mentions an active rate list",async()=>{
+    const provider:any={name:"gemini",generate:vi.fn(async()=>document(0)),transcribe:vi.fn()};
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"گاہک کا نام خادم حسین پلمبر ہے۔ پرچیوں کا ایسٹیمیٹ فعال ریٹ لسٹ سے بناؤ",media:media()},scope);
+    expect(result.catalog).toBeUndefined();expect(result.extraction.document?.lines).toHaveLength(1);
+    expect(provider.generate.mock.calls[0][1]).toContain("demand-slip estimate");
+  });
   const service=new InstallationCompletenessService();
   it.each([["Commode",7],["Gas Geyser",4],["Electric Geyser",3],["Ceiling Fan",5],["Water Pump",3],["DB Panel",4]])("audits %s without adding items silently",(name,count)=>{
     const result=service.audit([{name,quantity:1}]);expect(result).toHaveLength(count);expect(service.prompt(result)).toContain("حاجی صاحب");expect(result.every(item=>!("price" in item))).toBe(true);
@@ -54,8 +66,9 @@ describe("V9 quotation authority and privacy",()=>{
   });
   it("never lists Popular candidates under an explicit Dura brand restriction",async()=>{
     const f=operations();f.deps.search.searchProducts.mockResolvedValue(resolveCandidates([{...f.product,brandName:"Popular",name:"Popular elbow",confidence:1,match_kind:"exact_name"}],5));
-    await expect(f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope)).rejects.toThrow(/Dura Max/);
-    try{await f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope);}catch(error){expect((error as Error).message).not.toContain("Popular");}
+    const pending=await f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope);
+    expect(pending.data.incomplete).toBe(true);expect(pending.data.lines[0].pendingReason).toContain("Dura Max");
+    expect(JSON.stringify(pending.preview)).not.toContain("Popular");
   });
   it("filters in the database BEFORE ranking and still rejects malformed cross-brand RPC results",async()=>{
     const rpc=vi.fn(async()=>({data:[{id:1,name:"Popular Elbow",sku:"P",category:"Fittings",unit:"pcs",brand_name:"Popular",confidence:1,match_kind:"exact_name"}],error:null}));

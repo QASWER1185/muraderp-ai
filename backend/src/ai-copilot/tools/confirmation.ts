@@ -3,6 +3,7 @@ import { ApiError } from "../../errors/api-error.js";
 import { writeBusinessState, type BusinessState } from "../agent/business-state.js";
 import type { AgentScope } from "../agent/erp-tools.js";
 import type { AgentResult } from "../agent/agent.js";
+import { munshiErrorMessage } from "../conversationalMunshi.js";
 
 /** Whole-turn approval grammar. Negations, questions, quoted text and changed
  * prices/discounts are not permission to execute the saved preview. */
@@ -25,8 +26,17 @@ export async function confirmConversationAction(state:BusinessState,scope:AgentS
   }
   // The runtime rechecks actor, tenant, branch, permissions and idempotency,
   // then verifies the committed ERP record before returning EXECUTED.
-  const completed=await execute(pending,scope);
-  if(completed.status!=="EXECUTED")throw new ApiError(502,"ERP_ACTION_UNVERIFIED","عمل کی ERP میں تصدیق نہیں ہو سکی۔");
+  let completed;
+  try {
+    completed=await execute(pending,scope);
+    if(completed.status!=="EXECUTED")throw new ApiError(502,"ERP_ACTION_UNVERIFIED","ERP record verification is incomplete.");
+  } catch(error) {
+    if(error instanceof ApiError && [401,403].includes(error.status))throw error;
+    // Preserve the exact idempotency key after an uncertain response. Retrying
+    // must never create a second financial posting or claim that nothing posted.
+    return {answer:munshiErrorMessage(error instanceof ApiError?error.code:"ERP_ACTION_UNVERIFIED",error instanceof ApiError?error.message:"","آپ کی منظور شدہ کارروائی محفوظ کرنے کے بعد پڑتال کرتے وقت"),
+      status:"clarification",conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:false,toolNames:["confirm_erp_action"]};
+  }
   const catalog=completed.action_plan?.catalogImport??completed.action_plan?.unifiedAction?.data?.catalog;
   const catalogSummary=catalog ? {name:catalog.name,itemCount:catalog.items.length,brand:[...new Set(catalog.items.map((item:any)=>item.brand))].join(" / ")} : pending.catalog;
   let answer=completed.result?.memoryMessage ?? "ERP میں کامیابی سے درج اور تصدیق ہو گئی ہے۔ ریکارڈ ID: "+String(executionIdentity(completed.result))+"۔";

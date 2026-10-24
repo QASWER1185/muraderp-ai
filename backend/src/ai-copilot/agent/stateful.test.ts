@@ -45,7 +45,9 @@ describe("unified stateful business conversation", () => {
     const state = readBusinessState(result.conversationToken, scope);
     expect(state.brandHint).toBe("Popular");
     expect(state.draft!.lines).toHaveLength(2);
-    expect(JSON.stringify(state)).not.toMatch(/unit_price|grand_total|999999|turns|assistant/);
+    const {recentTurns,...operational}=state;
+    expect(JSON.stringify(operational)).not.toMatch(/unit_price|grand_total|999999|turns|assistant/);
+    expect(recentTurns?.length).toBeGreaterThan(0);
   });
 
   it("corrects quantities, removes lines and recalculates the existing draft", async () => {

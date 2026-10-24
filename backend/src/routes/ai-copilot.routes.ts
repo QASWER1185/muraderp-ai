@@ -263,7 +263,7 @@ export function createAiCopilotRouter(
         }
         const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,input.message);
         response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
-          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:true,toolNames:["erp_create_estimate"]}});
+          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:prepared.requiresConfirmation,toolNames:["erp_create_estimate"]}});
       } catch(error) {
         if(error instanceof ApiError && [401,403].includes(error.status))throw error;
         const known=error instanceof ApiError && ["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code);
@@ -310,6 +310,15 @@ export function createAiCopilotRouter(
     response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review || result.requiresConfirmation) });
   });
 
+  router.post('/demand-drafts/:id/save',authorize,async(request,response)=>{
+    const userId=request.browserPrincipal?.userId;
+    if(!userId)throw new ApiError(401,'UNAUTHORIZED','A browser user session is required.');
+    const organizationId=z.string().uuid().parse(headerValue(request,'X-Organization-Id'));
+    const branchId=z.string().uuid().parse(headerValue(request,'X-Branch-Id'));
+    const id=z.string().uuid().parse(request.params.id);
+    const saved=await getRuntime().saveDemandDraft(id,{userId,organizationId,branchId});
+    response.setHeader('Cache-Control','no-store');response.json({data:saved});
+  });
   router.post("/conversation/drafts", authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required.");

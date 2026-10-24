@@ -23,6 +23,8 @@ import { normalizeProductSearchQuery } from "../../services/entity-search.servic
 import {brandRates} from "./brand-rates.js";
 import {estimateCaptionChoices} from "./multimodal-input.js";
 import {canonicalSlipWords} from "../conversationalMunshi.js";
+import {categoryDiscountChoices} from "../hybridQuotationEngine.js";
+import {hardwareInstructions,demandDiscounts,DEMAND_SLIP_ESTIMATE} from '../demand-slip.js';
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -34,7 +36,7 @@ export type ToolServices = {
   search: EntitySearchService;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<RateListRepository, "listActiveSaleRateLists"> & Pick<RateListLifecycleRepository, "getVersion">;
-  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
+  runtime?: Pick<CopilotRuntime, "createMasterDataDraft"> & Partial<Pick<CopilotRuntime,"createUnifiedDraft"|"reviseUnifiedDraft"|"inspectUnifiedDraft"|"getBusinessReport"|"getDepotReport"|"confirmAndExecute">>;
 };
 export type ErpTool<T extends z.ZodType = z.ZodType> = {
   name: string;
@@ -54,6 +56,7 @@ const lookup = z.strictObject({ query, limit });
 const productId = z.strictObject({ product_id: id });
 const priceInput = z.strictObject({ product_id: id, rate_list_id: id.optional(), customer_id: id.optional(), quantity: z.number().finite().positive().default(1) });
 const customerCreateSchema = z.strictObject({ name: z.string().trim().min(1).max(200), phone: z.string().trim().min(1).max(50), city: z.string().trim().min(1).max(120) });
+const revisionSchema=z.strictObject({draftId:z.string().uuid().optional(),changes:z.record(z.string(),z.unknown())});
 const match = (value: string, term: string) => value.toLocaleLowerCase().includes(term.toLocaleLowerCase());
 
 function defineTool<T extends z.ZodType>(tool: ErpTool<T>): ErpTool<T> { return tool; }
@@ -167,7 +170,10 @@ export class ErpToolRegistry {
   }
   definitions() {
     const reads = [...this.tools.values()].filter(tool => !this.business?.handles(tool.name) && (tool.name !== "prepare_customer_create" || this.services.runtime)).map((tool) => ({ type: "function" as const, name: tool.name, description: tool.description, strict: false, parameters: z.toJSONSchema(tool.schema) }));
-    return [...reads, ...(this.services.analytics?ANALYTICS_DEFINITIONS:[]), ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []), ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
+    return [...reads, ...(this.services.analytics?ANALYTICS_DEFINITIONS:[]), ...(this.services.runtime?.createUnifiedDraft ? ERP_ACTION_DEFINITIONS : []),
+      ...(this.services.runtime?.reviseUnifiedDraft?[{type:"function" as const,name:"revise_pending_action",strict:false,parameters:z.toJSONSchema(revisionSchema),description:"Correct the current unconfirmed invoice, estimate conversion, receipt, return or other ERP action. Omit draftId for working context. Supply ONLY changed original tool input fields in changes (e.g. paidAmount for cash/credit, invoiceId for return source). Every omitted item and field is retained. Creates a fresh validated preview; never edits posted records or approves a posting. For estimate item/category edits use erp_amend_estimate."}]:[]),
+      ...(this.services.runtime?.inspectUnifiedDraft?[{type:"function" as const,name:"inspect_pending_action",strict:false,parameters:z.toJSONSchema(z.strictObject({})),description:"Read all original items and stable lineNumber values in the current unconfirmed action. Call before correcting specific estimate rows; never guess row numbers from truncated dialogue. Returns scoped source inputs, not current prices. Then use erp_amend_estimate updateLines. Unknown observed additions may be added by name/size/qty/unit without productId and stay pending."}]:[]),
+      ...(this.conversationalDrafts ? DRAFT_TOOL_DEFINITIONS : []), ...(this.business ? BUSINESS_TOOL_DEFINITIONS : [])];
   }
   async confirmPendingAction(pending:NonNullable<BusinessState["pendingAction"]>,scope:AgentScope) {
     if(!this.services.runtime?.confirmAndExecute)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP confirmation service is not configured.");
@@ -176,6 +182,23 @@ export class ErpToolRegistry {
   }
   async execute(name: string, raw: unknown, scope: AgentScope, state?: BusinessState, _originalMessage?: string, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
+    if(name==="inspect_pending_action"){
+      await this.assertScope(scope);
+      if(!state?.workingActionId||!this.services.runtime?.inspectUnifiedDraft)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، پہلے اسی گفتگو کا غیر منظور شدہ مسودہ منتخب کریں۔");
+      return this.services.runtime.inspectUnifiedDraft(state.workingActionId,scope);
+    }
+    if(name==="revise_pending_action"){
+      if(!this.services.runtime?.reviseUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Revision service is unavailable.");
+      await this.assertScope(scope);
+      const input=revisionSchema.parse(raw),draftId=input.draftId??state?.workingActionId;
+      if(Object.hasOwn(input.changes,'hardwareRates')||Object.hasOwn(input.changes,'hardwarePricing')){
+        const owner=hardwareInstructions(_originalMessage??'');
+        if(state?.workingActionTool==='erp_create_estimate'&&(owner.hardwareRates.length||owner.hardwarePricing))return this.execute('erp_amend_estimate',{draftId},scope,state,_originalMessage,signal);
+        throw new ApiError(422,'ERP_ACTION_CLARIFICATION','جناب، متفرق آئٹمز کے لیے آپ کا اپنا نرخ یا عام ہارڈویئر نرخ استعمال کرنے کی واضح ہدایت درکار ہے۔');
+      }
+      if(!draftId)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، پہلے مطلوبہ کارروائی کا پری ویو تیار کریں تاکہ اسی کی تفصیل درست کر سکوں۔");
+      return {review:await this.services.runtime.reviseUnifiedDraft(draftId,input.changes,scope,state?.inputSource??"text")};
+    }
     if(isAnalyticsTool(name)){
       if(!this.services.analytics)throw new ApiError(503,"ANALYTICS_UNAVAILABLE","Analytics is not configured.");
       const input=ANALYTICS_SCHEMAS[name].parse(raw);
@@ -235,12 +258,33 @@ export class ErpToolRegistry {
         return this.services.runtime.getDepotReport(name as ErpReadName,choices,scope);
       }
       const choices:any=parsed.data;
+      if(["erp_create_estimate","erp_amend_estimate"].includes(name)&&_originalMessage){
+        // Only the owner's current wording can authorize miscellaneous prices.
+        delete choices.hardwareRates;delete choices.hardwarePricing;
+        const approved=hardwareInstructions(_originalMessage);
+        if(approved.hardwareRates.length)choices.hardwareRates=approved.hardwareRates;
+        if(approved.hardwarePricing)choices.hardwarePricing=approved.hardwarePricing;
+        const rules=choices.mode===DEMAND_SLIP_ESTIMATE?demandDiscounts(_originalMessage):categoryDiscountChoices(_originalMessage);
+        if(rules.length)choices.pricingRules=rules;
+      }
+      if(name==="erp_create_estimate" && _originalMessage){
+        const observed=estimateCaptionChoices(_originalMessage);
+        if(observed.customerPhone)choices.customerPhone=observed.customerPhone;
+        else delete choices.customerPhone;
+        if(!choices.customerId && (observed.customerName??state?.estimateCustomerChoice?.name))choices.customerName=observed.customerName??state!.estimateCustomerChoice!.name;
+        const normalize=(value:string)=>value.normalize("NFKC").replace(/\s+/gu," ").trim().toLowerCase();
+        if(choices.customerAddress && !normalize(_originalMessage).includes(normalize(choices.customerAddress)) && choices.customerAddress!==state?.estimateCustomerChoice?.address)
+          delete choices.customerAddress;
+      }
       if(name==="erp_create_estimate" && !choices.customerId && !choices.customerName){
         if(state?.customer && !state.customerAmbiguous)choices.customerId=state.customer.id;
         else if(state?.estimateCustomerChoice){choices.customerName=state.estimateCustomerChoice.name;choices.customerAddress=state.estimateCustomerChoice.address;}
       }
       if(["erp_amend_estimate","erp_accept_companions"].includes(name) && !choices.draftId)choices.draftId=state?.workingActionId;
-      return {review:await this.services.runtime.createUnifiedDraft(name as ErpWriteName,choices,scope,state?.inputSource??"text")};
+      const review=await this.services.runtime.createUnifiedDraft(name as ErpWriteName,choices,scope,state?.inputSource??"text");
+      if(state && name==="erp_create_estimate" && choices.customerName)
+        state.estimateCustomerChoice={name:choices.customerName,...(choices.customerAddress?{address:choices.customerAddress}:{})};
+      return {review};
     }
     if (this.business?.handles(name)) {
       if (!state) throw new ApiError(400, "CONVERSATION_CONTEXT_REQUIRED", "Validated conversation state is required.");
