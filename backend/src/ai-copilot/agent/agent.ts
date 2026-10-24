@@ -101,7 +101,8 @@ export class UnifiedCopilotAgent {
       else delete state.pendingAction;
       return {answer,status:"review",review,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:review.requiresConfirmation!==false,toolNames:["erp_accept_companions"]};
     }
-    if(state.workingActionId && (!state.workingActionTool||state.workingActionTool==="erp_create_estimate") && /نہیں.*(?:گاہک|پاس|ہے)|ساتھ.*سامان.*نہیں/u.test(request.message)){
+    const declinedExtras=/^(?:جی[،,\s]*)?(?:نہیں[،,\s]*(?:(?:یہ|وہ)\s+)?گاہک\s+کے\s+پاس(?:\s+پہلے\s+سے)?\s+ہے|(?:اضافی|مزید|ساتھ(?:\s+والا)?)\s+سامان\s+(?:نہیں(?:\s+چاہیے)?|شامل\s+نہ\s+کریں))[۔.!\s]*$/u.test(request.message.trim());
+    if(state.workingActionId && (!state.workingActionTool||state.workingActionTool==="erp_create_estimate") && declinedExtras){
       return {answer:"جی حاجی صاحب، اضافی سامان شامل نہیں کروں گا۔ اصل ایسٹیمیٹ کا پری ویو تیار ہے؛ محفوظ کرنے کے لیے تصدیق کر دیں۔",
         status:"completed",conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:!!state.pendingAction,toolNames:[]};
     }

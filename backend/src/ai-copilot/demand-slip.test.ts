@@ -24,6 +24,18 @@ function fixture(){
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
+ it('routes a not-4-inch-but-6-inch correction to the estimate editor instead of declining extras',async()=>{
+  const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';state.workingActionMode=DEMAND_SLIP_ESTIMATE;
+  const model={respond:vi.fn(async()=>({output:[{type:'function_call',call_id:'size',name:'erp_amend_estimate',arguments:'{}'}],text:''}))};
+  const execute=vi.fn(async()=>({review:{draftId:state.workingActionId,requiresConfirmation:false,preview:{mode:DEMAND_SLIP_ESTIMATE,summary:'6 inch corrected preview'}}}));
+  const result=await new UnifiedCopilotAgent(model,{definitions:()=>[{name:'erp_amend_estimate'}],execute}).run({message:'اسی گاہک کے پائپ کا سائز 4 inch نہیں، 6 inch ہے؛ باقی گاہک اور سامان وہی رکھیں۔',conversationToken:writeBusinessState(state)},scope);
+  expect(model.respond).toHaveBeenCalled();expect(execute).toHaveBeenCalledWith('erp_amend_estimate',{},scope,expect.anything(),expect.stringContaining('4 inch نہیں'),expect.anything());expect(result.answer).toBe('6 inch corrected preview');
+ });
+ it('still accepts an explicit short refusal of suggested extras',async()=>{
+  const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';const model={respond:vi.fn()};
+  const result=await new UnifiedCopilotAgent(model,{definitions:()=>[],execute:vi.fn()}).run({message:'نہیں، گاہک کے پاس ہے',conversationToken:writeBusinessState(state)},scope);
+  expect(model.respond).not.toHaveBeenCalled();expect(result.answer).toContain('اضافی سامان شامل نہیں');
+ });
  it('normalizes the observed solvent misspelling and recognizes non-Dura brass/handle hardware',()=>{
   expect(canonicalSlipWords('Solutation 500g')).toBe('Solvent 500 g');expect(hardwareKind('G.I. Brass Nipple')).toBe('brass_nipple');expect(hardwareKind('Handle Valve')).toBe('handle_valve');
  });
