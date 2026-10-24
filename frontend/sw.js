@@ -1,4 +1,4 @@
-const CACHE_NAME = "muraderp-ai-shell-v28";
+const CACHE_NAME = "muraderp-ai-shell-v29";
 const APP_SHELL = [
   "/copilot-recovery.js",
   "/",

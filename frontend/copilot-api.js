@@ -112,3 +112,6 @@ export async function confirmCopilotDraft({ id, organizationId, branchId, userId
     headers: { "X-Organization-Id": organizationId, "X-Branch-Id": branchId, ...(userId ? { "X-User-Id": userId } : {}), "Idempotency-Key": idempotencyKey },
   });
 }
+export async function saveDemandEstimateDraft(id,organizationId,branchId){
+  return api(`/api/v1/ai/copilot/demand-drafts/${encodeURIComponent(id)}/save`,{method:'POST',headers:{'X-Organization-Id':organizationId,'X-Branch-Id':branchId}});
+}

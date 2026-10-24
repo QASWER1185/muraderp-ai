@@ -43,6 +43,7 @@ export const businessStateSchema = z.strictObject({
   brandHint: z.string().max(120).optional(), rateListId: id.optional(),
   workingActionId:z.string().uuid().optional(),
   workingActionTool:z.string().max(100).optional(),
+  workingActionMode:z.literal('DEMAND_SLIP_ESTIMATE').optional(),
   workingAuditId:z.string().uuid().optional(),
   draft: z.strictObject({
     id: z.string().uuid(), revision: z.number().int().nonnegative(),

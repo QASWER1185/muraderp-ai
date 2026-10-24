@@ -15,6 +15,7 @@ export class AutonomousChainingLoop {
     else delete state.pendingAction;
     state.workingActionId=review.draftId;
     state.workingActionTool="erp_create_estimate";
+    if(review.preview.mode==='DEMAND_SLIP_ESTIMATE')state.workingActionMode='DEMAND_SLIP_ESTIMATE';
     return {answer,review,requiresConfirmation,stages:["پرچی کی تمام لائنیں","گاہک کی شناخت یا مشترکہ نیا گاہک پری ویو","فعال برانڈ ریٹ لسٹ","ساتھ لگنے والے سامان کی جانچ","خرید لاگت اور رعایت کی پڑتال","اردو تخمینہ اور واٹس ایپ کارڈ"]};
   }
 }

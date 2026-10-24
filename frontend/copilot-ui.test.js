@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { attachmentLabel, createCopilotConversation, reviewCardMarkup, selectReviewProduct, sourceForAttachment,formatCopilotAnswer,erpActionReviewMarkup } from "./copilot-ui.js";
 
 describe("conversational Copilot UI", () => {
+  it('renders a partial demand estimate as a priced table and unpriced hardware clarification with a safe draft button',()=>{
+    const html=erpActionReviewMarkup({draftId:'draft-58',preview:{mode:'DEMAND_SLIP_ESTIMATE',summary:'خالد محمود',incomplete:true,partialTotals:{grand_total:200},hardwareQuestion:'کیا عام ہارڈویئر ریٹ لگا دوں؟',lines:[{line_number:1,productName:'Dura Max Pipe',quantity:4,unit:'length',size:'6 inch',unit_price:100,discountPercent:50,discount_amount:200},{line_number:58,productName:'ململ <script>',quantity:4,unit:'gaz',pending:true}]}});
+    expect(html).toContain('<th>نیٹ ریٹ</th>');expect(html).toContain('<th>کل رقم (PKR)</th>');expect(html).toContain('ریٹ مطلوب');expect(html).toContain('جزوی رقم');expect(html).toContain('4 گز');expect(html).toContain('data-save-demand-draft="draft-58"');expect(html).toContain('ایسٹیمیٹ کا مسودہ محفوظ کریں');expect(html).not.toContain('data-confirm-draft');expect(html).not.toContain('<script>');expect(html).toContain('&lt;script&gt;');
+  });
   it("renders Urdu Markdown tables and bullets while escaping source HTML",()=>{
     const html=formatCopilotAnswer('**جی جناب**\n- PN-16 25mm\n\n| برانڈ | لسٹ ریٹ |\n|---|---:|\n| Dura Max | PKR 54.00 |\n\n<script>alert(1)</script>');
     expect(html).toContain('<strong>جی جناب</strong>');expect(html).toContain('<table>');expect(html).toContain('<li>');expect(html).toContain('<bdi dir="ltr">PKR 54.00</bdi>');

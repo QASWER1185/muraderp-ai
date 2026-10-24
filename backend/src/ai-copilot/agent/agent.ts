@@ -11,6 +11,7 @@ import { BUSINESS_TOOL_DEFINITIONS, entityNotFoundSchema, type BusinessFact } fr
 import { isAffirmation, confirmConversationAction } from "../tools/confirmation.js";
 import { munshiErrorMessage } from "../conversationalMunshi.js";
 import { estimateCaptionChoices } from "./multimodal-input.js";
+import {hardwareInstructions,DEMAND_SLIP_ESTIMATE} from '../demand-slip.js';
 
 const BUSINESS_TOOLS = new Set(BUSINESS_TOOL_DEFINITIONS.map(tool => tool.name));
 
@@ -85,6 +86,12 @@ export class UnifiedCopilotAgent {
     if(suppliedChoice.customerName && suppliedChoice.customerName.length<=200 && (suppliedChoice.customerAddress?.length??0)<=200 && /\b(?:estimate|quotation|quote)\b|ایسٹیمیٹ|اسٹیمیٹ|کوٹیشن|تخمینہ/iu.test(request.message)){
       state.estimateCustomerChoice={name:suppliedChoice.customerName,...(suppliedChoice.customerAddress?{address:suppliedChoice.customerAddress}:{})};
       if(state.customer && state.customer.name!==suppliedChoice.customerName){delete state.customer;state.customerAmbiguous=false;}
+    }
+    const hardwareChoice=hardwareInstructions(request.message);
+    if(state.workingActionId&&state.workingActionTool==='erp_create_estimate'&&state.workingActionMode===DEMAND_SLIP_ESTIMATE&&(hardwareChoice.hardwareRates.length||hardwareChoice.hardwarePricing)){
+      const prepared:any=await this.tools.execute('erp_amend_estimate',{draftId:state.workingActionId,mode:DEMAND_SLIP_ESTIMATE},scope,state,request.message);
+      const review=prepared.review;state.workingActionId=review.draftId;delete state.pendingAction;state.lastMessage=request.message.slice(0,4000);
+      return {answer:review.preview.summary,status:'review',review,conversationToken:writeBusinessState(state),conversationId:state.conversationId,traceId,requiresConfirmation:false,toolNames:['erp_amend_estimate']};
     }
     if(state.workingActionId && (!state.workingActionTool||state.workingActionTool==="erp_create_estimate") && /^(?:جی[، ]*|ہاں[، ]*)?(?:یہ بھی |سب |سامان )?(?:ڈال دو|شامل کر دو|شامل کر دیں|ہاں ڈال دو)[۔.!]*$/u.test(request.message.trim())){
       const prepared:any=await this.tools.execute("erp_accept_companions",{draftId:state.workingActionId},scope,state,request.message);
@@ -281,6 +288,7 @@ export class UnifiedCopilotAgent {
               if(prepared.requiresConfirmation!==false&&prepared.draftId&&prepared.idempotencyKey)state.pendingAction={draftId:prepared.draftId,idempotencyKey:prepared.idempotencyKey,summary:answer.slice(0,1000),expires:Date.now()+10*60_000};
               if(prepared.draftId && typeof (result.review as any).tool==="string"){
                 state.workingActionId=prepared.draftId;state.workingActionTool=(result.review as any).tool;
+                if((result.review as any).preview?.mode===DEMAND_SLIP_ESTIMATE)state.workingActionMode=DEMAND_SLIP_ESTIMATE;else delete state.workingActionMode;
               }
               if((result.review as any).tool==="erp_create_estimate"){
                 state.workingActionId=prepared.draftId;

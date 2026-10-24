@@ -261,11 +261,19 @@ export class CopilotRuntime {
     await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[tool]);
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
     if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
+    if(tool==='erp_create_estimate'&&(input as any)?.mode==='DEMAND_SLIP_ESTIMATE')await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,'customers.write');
     const prepared = await this.dependencies.operations.prepare(tool,input,scope);
     if(prepared.data.newCustomer)await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"customers.write");
     const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
-    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:!prepared.data.incomplete};
+    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:!prepared.data.incomplete&&prepared.data.mode!=='DEMAND_SLIP_ESTIMATE'};
+  }
+  async saveDemandDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}){
+    const source=await this.inspectUnifiedDraft(draftId,scope);
+    if(source.tool!=='erp_create_estimate')throw new ApiError(422,'ERP_ACTION_CLARIFICATION','جناب، ایسٹیمیٹ کا مسودہ منتخب کریں۔');
+    // persistPlan already stores every original row durably, including rows
+    // without product IDs/rates. Never coerce them to zero-price native lines.
+    return {draftId,status:'DRAFT',saved:true,lineCount:source.items.length,storage:'ai_copilot_actions',financialPosting:false,message:`جناب، تمام ${source.items.length} آئٹمز والا ایسٹیمیٹ کا مسودہ محفوظ ہے۔ حوالہ: ${draftId}۔ اسی گفتگو میں نرخ یا مقدار تبدیل کر سکتے ہیں۔`};
   }
   async inspectUnifiedDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}) {
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);

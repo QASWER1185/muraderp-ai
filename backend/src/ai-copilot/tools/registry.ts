@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PermissionCode } from "../../auth/authorization.types.js";
+import {hardwareKinds} from '../demand-slip.js';
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const text = z.string().trim().min(1).max(200);
 const money = z.number().finite().nonnegative();
@@ -11,13 +12,15 @@ export const saleItemSchema = z.strictObject({
   rate: money.optional(), discount: percent.optional(), rateListId: id.optional(),
   unitCost: money.optional(),
   rawShorthand: text.optional(),
+  specificationPending:z.boolean().optional(),
 });
-const sale = { customerId: id.optional(), customerName: text.optional(), customerAddress: text.optional(), brand: text.optional(),
+const demandFields={mode:z.literal('DEMAND_SLIP_ESTIMATE').optional(),customerPhone:text.optional(),hardwarePricing:z.enum(['pending','catalog']).optional(),hardwareRates:z.array(z.strictObject({kind:z.enum(hardwareKinds),rate:money})).max(6).optional()};
+const sale = { ...demandFields,customerId: id.optional(), customerName: text.optional(), customerAddress: text.optional(), brand: text.optional(),
   items: z.array(saleItemSchema).min(1).max(500), discountScheme: z.strictObject({ percent }).optional(),
   pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional() };
 const auditLine=z.strictObject({productId:id,name:text,quantity:z.number().finite().positive(),unitPrice:money,discount:percent,specification:text,unitCost:money.optional(),expectedWholesaleDiscount:percent.optional()});
 export const DEPOT_ACTION_SCHEMAS={
-  erp_amend_estimate:z.strictObject({draftId:z.string().uuid().optional(),addItems:z.array(saleItemSchema).max(500).default([]),removeProductIds:z.array(id).default([]),discountScheme:z.strictObject({percent}).optional(),
+  erp_amend_estimate:z.strictObject({...demandFields,draftId:z.string().uuid().optional(),addItems:z.array(saleItemSchema).max(500).default([]),removeProductIds:z.array(id).default([]),discountScheme:z.strictObject({percent}).optional(),
     pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional(),
     updateItems:z.array(saleItemSchema.extend({productId:id})).max(500).optional(),
     updateLines:z.array(z.strictObject({lineNumber:id,changes:saleItemSchema.partial().extend({size:text.nullable().optional()})})).max(500).optional(),removeLineNumbers:z.array(id).max(500).optional()}),

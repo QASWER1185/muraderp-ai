@@ -310,6 +310,15 @@ export function createAiCopilotRouter(
     response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review || result.requiresConfirmation) });
   });
 
+  router.post('/demand-drafts/:id/save',authorize,async(request,response)=>{
+    const userId=request.browserPrincipal?.userId;
+    if(!userId)throw new ApiError(401,'UNAUTHORIZED','A browser user session is required.');
+    const organizationId=z.string().uuid().parse(headerValue(request,'X-Organization-Id'));
+    const branchId=z.string().uuid().parse(headerValue(request,'X-Branch-Id'));
+    const id=z.string().uuid().parse(request.params.id);
+    const saved=await getRuntime().saveDemandDraft(id,{userId,organizationId,branchId});
+    response.setHeader('Cache-Control','no-store');response.json({data:saved});
+  });
   router.post("/conversation/drafts", authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required.");

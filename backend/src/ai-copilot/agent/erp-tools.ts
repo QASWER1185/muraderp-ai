@@ -24,6 +24,7 @@ import {brandRates} from "./brand-rates.js";
 import {estimateCaptionChoices} from "./multimodal-input.js";
 import {canonicalSlipWords} from "../conversationalMunshi.js";
 import {categoryDiscountChoices} from "../hybridQuotationEngine.js";
+import {hardwareInstructions,demandDiscounts,DEMAND_SLIP_ESTIMATE} from '../demand-slip.js';
 
 export type AgentScope = { userId: string; organizationId: string; branchId: string };
 export type ToolServices = {
@@ -253,11 +254,18 @@ export class ErpToolRegistry {
       }
       const choices:any=parsed.data;
       if(["erp_create_estimate","erp_amend_estimate"].includes(name)&&_originalMessage){
-        const rules=categoryDiscountChoices(_originalMessage);
+        // Only the owner's current wording can authorize miscellaneous prices.
+        delete choices.hardwareRates;delete choices.hardwarePricing;
+        const approved=hardwareInstructions(_originalMessage);
+        if(approved.hardwareRates.length)choices.hardwareRates=approved.hardwareRates;
+        if(approved.hardwarePricing)choices.hardwarePricing=approved.hardwarePricing;
+        const rules=choices.mode===DEMAND_SLIP_ESTIMATE?demandDiscounts(_originalMessage):categoryDiscountChoices(_originalMessage);
         if(rules.length)choices.pricingRules=rules;
       }
       if(name==="erp_create_estimate" && _originalMessage){
         const observed=estimateCaptionChoices(_originalMessage);
+        if(observed.customerPhone)choices.customerPhone=observed.customerPhone;
+        else delete choices.customerPhone;
         if(!choices.customerId && (observed.customerName??state?.estimateCustomerChoice?.name))choices.customerName=observed.customerName??state!.estimateCustomerChoice!.name;
         const normalize=(value:string)=>value.normalize("NFKC").replace(/\s+/gu," ").trim().toLowerCase();
         if(choices.customerAddress && !normalize(_originalMessage).includes(normalize(choices.customerAddress)) && choices.customerAddress!==state?.estimateCustomerChoice?.address)

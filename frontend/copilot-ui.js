@@ -4,16 +4,26 @@ import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
 import { copilotRecoveryMessage } from "./copilot-recovery.js";
+import {saveDemandEstimateDraft} from './copilot-api.js';
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
 const MEDIA_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","audio/webm","audio/mp4","audio/mpeg","audio/wav","audio/ogg"]);
 export function erpActionReviewMarkup(review) {
   const preview=review.preview;
+  if(preview.mode==='DEMAND_SLIP_ESTIMATE')return demandEstimateMarkup(review);
   const lines=preview.lines??[];
   const quotation=preview.quotation;
   const grouped=quotation?.sections?.map(section=>`<section><h4>${escapeHtml(section.brand)}</h4><div class="shop-table"><table><thead><tr>${["آئٹم","سائز","مقدار","لسٹ ریٹ PKR","رعایت %","خالص رقم PKR"].map(label=>`<th>${label}</th>`).join("")}</tr></thead><tbody>${section.lines.map(line=>`<tr>${[line.name,line.size??"—",`${line.quantity} ${line.unit}`,line.rate,line.discountPercent??"—",line.amount].map(value=>`<td><bdi dir="auto">${escapeHtml(value)}</bdi></td>`).join("")}</tr>`).join("")}</tbody></table></div><p>برانڈ رعایت: <bdi dir="ltr">PKR ${escapeHtml(section.savings)}</bdi> · رقم: <bdi dir="ltr">PKR ${escapeHtml(section.total)}</bdi></p></section>`).join("");
   return `<article class="review-card confirmation-card" dir="auto"><h3>${preview.incomplete?"نرخوں کی تصدیق کا مسودہ":"منظوری کے لیے پری ویو"}</h3>${formatCopilotAnswer(preview.summary)}<div class="review-lines">${grouped??lines.map((line,index)=>`<div class="review-line"><strong>${index+1}. ${escapeHtml(line.productName??line.name??"")}</strong><p>${escapeHtml(line.quantity??line.qty??"")} ${escapeHtml(line.unit??"")} · نرخ ${escapeHtml(line.pending?"پینڈنگ تصدیق":line.unit_price??line.list_price??"")} · رعایت ${escapeHtml(line.discountPercent??0)}%</p></div>`).join("")}</div>${preview.totals?`<p><strong>کل رقم: <bdi dir="ltr">PKR ${escapeHtml(preview.totals.grand_total)}</bdi></strong></p>`:""}${preview.warnings?.length?`<p class="review-warning">${escapeHtml(preview.warnings.join(" "))}</p>`:""}${quotation?`<details><summary>گاہک کا واٹس ایپ کارڈ</summary><pre data-customer-quotation>${escapeHtml(quotation.text)}</pre><button type="button" class="button secondary" data-copy-quotation>متن کاپی کریں</button><button type="button" class="button secondary" data-download-card>کارڈ ڈاؤن لوڈ کریں</button></details>`:""}${preview.privateMargin?`<details class="merchant-scorecard"><summary>صرف دکاندار کے لیے مارجن</summary><p>${preview.privateMargin.costsKnown?`خرید لاگت: PKR ${escapeHtml(preview.privateMargin.cost)} · متوقع مجموعی منافع: PKR ${escapeHtml(preview.privateMargin.grossProfit)}`:"خرید لاگت کی مکمل تصدیق دستیاب نہیں؛ منافع کا اندازہ نہیں لگایا گیا۔"}</p></details>`:""}${preview.challan?`<details open><summary>بغیر نرخ کا ڈسپیچ چلّان</summary><pre data-customer-quotation>${escapeHtml(preview.challan.text)}</pre><button type="button" class="button secondary" data-download-card>چلّان ڈاؤن لوڈ کریں</button></details>`:""}<button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button>${preview.incomplete?"":'<button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور محفوظ کریں</button>'}</article>`;
+}
+export function demandEstimateMarkup(review){
+  const p=review.preview,lines=p.lines??[],priced=lines.filter(x=>!x.pending),pending=lines.filter(x=>x.pending);
+  const money=value=>Number(value).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const headers=['#','آئٹم و تفصیل','سائز','تعداد','یونٹ','لسٹ ریٹ','رعایت %','نیٹ ریٹ','کل رقم (PKR)'];
+  const rows=priced.map((x,i)=>{const rate=x.unit_price,net=rate-(x.quantity?Number(x.discount_amount??0)/x.quantity:0);return `<tr>${[x.line_number??i+1,x.productName,x.size??'—',x.quantity,x.unit,money(rate),x.discountPercent??0,money(net),money(x.quantity*rate-Number(x.discount_amount??0))].map(v=>`<td><bdi dir="auto">${escapeHtml(v)}</bdi></td>`).join('')}</tr>`;}).join('');
+  const total=p.partialTotals??p.totals;
+  return `<article class="review-card confirmation-card" dir="rtl" data-demand-estimate><h3>ایسٹیمیٹ کا مسودہ</h3><p>${escapeHtml(p.customer?.name??"")} · ${escapeHtml(p.customer?.address??"")} · <bdi dir="ltr">${escapeHtml(p.customer?.phone??"")}</bdi></p>${formatCopilotAnswer(p.summary)}<section><h4>نرخ والے آئٹمز</h4><div class="shop-table"><table><thead><tr>${headers.map(x=>`<th>${escapeHtml(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><p><strong>${pending.length?'نرخ والے آئٹمز کی جزوی رقم':'کل رقم'}: <bdi dir="ltr">PKR ${money(total?.grand_total??0)}</bdi></strong></p></section>${pending.length?`<section><h4>ریٹ مطلوب</h4><ul>${pending.map(x=>`<li>${escapeHtml(x.productName)} ${escapeHtml(x.size??'')}: ${escapeHtml(x.quantity)} ${escapeHtml(x.unit==='gaz'?'گز':x.unit==='pcs'?'عدد':x.unit)} — ریٹ مطلوب</li>`).join('')}</ul>${p.hardwareQuestion?formatCopilotAnswer(p.hardwareQuestion):'<p>باقی سطروں کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔</p>'}</section>`:''}<button type="button" class="button primary" data-save-demand-draft="${escapeHtml(review.draftId)}">ایسٹیمیٹ کا مسودہ محفوظ کریں</button></article>`;
 }
 export function depotReportMarkup(report){
   if(report.catalogIntegrity===true)return `<article class="review-card" dir="auto"><h3>کیٹلاگ نرخوں کی پڑتال</h3>${report.rows.map(row=>`<p>${escapeHtml(row.name)} · موجودہ ${escapeHtml(row.currentListPrice??"نامعلوم")} · کیٹلاگ ${escapeHtml(row.expectedListPrice)} · ${row.status==="verified"?"تصدیق شدہ":"درستگی کا پری ویو درکار"}</p>`).join("")}<p>قیمتوں کی تبدیلی الگ پری ویو اور واضح منظوری کے بعد محفوظ ہو گی۔</p></article>`;
@@ -248,6 +258,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let operationVersion=0, recordingVersion=0, recordingTimer=null, recordingBytes=0;
   const conversation = createCopilotConversation();
   const quoteVersions = new Map();
+  const demandDraftScopes=new Map();
 
   document.querySelector("#copilot-close").innerHTML = icon("close");
   document.querySelector("#copilot-key-close").innerHTML = icon("close");
@@ -500,6 +511,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         }
         if(response.data.review?.intent==="erp_action" && response.data.status!=="rate_limited") {
           const prepared=response.data.review;
+          if(prepared.preview?.mode==='DEMAND_SLIP_ESTIMATE')demandDraftScopes.set(prepared.draftId,{organizationId:context.organizationId,branchId:context.branchId,userId});
           activeDraft=prepared.requiresConfirmation===false?null:{id:prepared.draftId,idempotencyKey:prepared.idempotencyKey,intent:prepared.tool==="erp_create_estimate"?"estimate":prepared.tool,organizationId:context.organizationId,branchId:context.branchId,userId};
           appendMessage("assistant",erpActionReviewMarkup(prepared));
         }
@@ -707,6 +719,13 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (event.target.closest("[data-prepare-customer]")) void run(() => prepareCustomer(event.target.closest("[data-customer-preparation]")));
     if (event.target.closest("[data-draft-cancel]")) { activeDraft = null; event.target.closest(".confirmation-card")?.remove(); appendMessage("assistant", "<p>Draft cancelled. Nothing was posted.</p>"); }
     if (event.target.closest("[data-confirm-draft]")) void run(confirmDraft);
+    const saveDemand=event.target.closest('[data-save-demand-draft]');
+    if(saveDemand)void run(async()=>{
+      const id=saveDemand.dataset.saveDemandDraft,original=demandDraftScopes.get(id),current=getWorkspaceContext();
+      if(!original||original.userId!==getAuthenticatedUserId()||original.organizationId!==current.organizationId||original.branchId!==current.branchId)throw new Error('Return to the original user, organization and branch before saving this draft.');
+      const saved=await saveDemandEstimateDraft(id,original.organizationId,original.branchId);
+      appendMessage('assistant',`<p>${escapeHtml(saved.data.message)}</p>`);
+    });
     if (event.target.closest("[data-copilot-retry]") && retryAction) void run(retryAction);
     const open = event.target.closest("[data-open-record]");
     if (open && openNativeAction) { openNativeAction(open.dataset.intent, open.dataset.recordId); dialog.close(); }

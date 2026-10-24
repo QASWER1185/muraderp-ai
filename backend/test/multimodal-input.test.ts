@@ -77,7 +77,8 @@ describe("Part 4 concrete extraction and media validation",()=>{
   it("preserves a missing diameter for correction instead of pricing a different size",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:"Elbow 4 pcs",item_name:"Elbow",material:"PPR-C",size:null,specification:"Plain",quantity:4,unit:"pcs"}]} as any);
     const result=await f.input.normalize({source:"image",media:png(),message:"ایسٹیمیٹ بنائیں"},scope);
-    expect(result.reviewRequired).toBe(true);expect(result.extraction.document?.warnings.join(" ")).toContain("سائز واضح نہیں");
+    expect(result.reviewRequired).toBe(false);expect(result.extraction.document?.warnings.join(" ")).toContain("سائز واضح نہیں");
+    expect((result.estimateRequest?.items as any[])[0]).toHaveProperty('specificationPending',true);
     expect((result.estimateRequest?.items as any[])[0]).not.toHaveProperty("size");
   });
   it("uses the catalog unit rather than halting a complete slip for an unprinted unit",async()=>{

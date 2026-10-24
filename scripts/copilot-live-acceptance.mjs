@@ -71,7 +71,7 @@ if(process.argv.includes("--catalog-audit")){
     const {isAffirmation}=await import("../backend/dist/ai-copilot/tools/confirmation.js");
     if(!Array.isArray(selectedQuestions)||selectedQuestions.length>20||selectedQuestions.some(question=>typeof question!=="string"||question.length>20000||isAffirmation(question)))throw new Error("Acceptance questions must be bounded non-approval requests.");
   }
-  const transcripts=[];let conversationToken,conversationId,consumedMedia=false;
+  const transcripts=[];let conversationToken,conversationId,consumedMedia=false,lastDemandReview;
   const mediaManifest=process.argv.indexOf("--media-manifest");
   const attachments=mediaManifest<0?undefined:JSON.parse(readFileSync(process.argv[mediaManifest+1],"utf8")).map(file=>({fileName:file.fileName,media:{mimeType:"image/png",base64:readFileSync(file.path).toString("base64")}}));
   for(const question of selectedQuestions){
@@ -83,12 +83,18 @@ if(process.argv.includes("--catalog-audit")){
     if(data?.conversationToken){conversationToken=data.conversationToken;conversationId=data.conversationId;}
     if(data?.review||data?.draft)consumedMedia=true;
     const preview=data?.review?.preview;
+    if(preview?.mode==='DEMAND_SLIP_ESTIMATE')lastDemandReview=data.review;
     const transcript={question,httpStatus:response?.status??null,transport:localAgent?"local agent / live Gemini and ERP":localServer?"local HTTP / live Gemini and ERP":"production HTTP",status:data?.status,answer:data?.answer??data?.message,toolNames:data?.toolNames,requiresConfirmation:data?.requiresConfirmation,
-      ...(preview?{preview:{incomplete:preview.incomplete??false,lines:preview.lines?.map(line=>({productId:line.product_id,name:line.productName??line.name,size:line.size,quantity:line.quantity??line.qty,unit:line.unit,rate:line.unit_price,discountPercent:line.discountPercent,pending:line.pending??false})),totals:preview.totals,partialTotals:preview.partialTotals}}:{}),
+      ...(preview?{preview:{mode:preview.mode,customer:preview.customer,incomplete:preview.incomplete??false,unmatched_hardware_items:preview.unmatched_hardware_items,hardwareQuestion:preview.hardwareQuestion,lines:preview.lines?.map(line=>({productId:line.product_id,name:line.productName??line.name,size:line.size,quantity:line.quantity??line.qty,unit:line.unit,rate:line.unit_price,discountPercent:line.discountPercent,pending:line.pending??false,hardware:line.hardware,pricingSource:line.pricing_source})),totals:preview.totals,partialTotals:preview.partialTotals}}:{}),
       ...(data?.extraction?.document?{extraction:data.extraction.document}:{}),error:result.error};
     transcripts.push(transcript);console.log(JSON.stringify(transcript));
     if(response && !response.ok)break;
   }
-  const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify({verifiedAt:new Date().toISOString(),base,scope,transcripts},null,2));
+  let savedDraft;
+  if(process.argv.includes('--save-demand-draft')&&lastDemandReview&&!localAgent){
+    const response=await fetch(base+'/api/copilot/demand-drafts/'+encodeURIComponent(lastDemandReview.draftId)+'/save',{method:'POST',headers:{'Cookie':cookie,'X-Organization-Id':scope.organizationId,'X-Branch-Id':scope.branchId},signal:AbortSignal.timeout(30000)});
+    savedDraft={httpStatus:response.status,...await response.json()};console.log(JSON.stringify({savedDraft}));
+  }
+  const output=process.argv.indexOf("--output");if(output>=0)writeFileSync(process.argv[output+1],JSON.stringify({verifiedAt:new Date().toISOString(),base,scope,transcripts,...(savedDraft?{savedDraft}:{})},null,2));
   localServer?.closeAllConnections();localServer?.close();
 }
