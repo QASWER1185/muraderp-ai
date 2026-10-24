@@ -191,6 +191,11 @@ export class ErpToolRegistry {
       if(!this.services.runtime?.reviseUnifiedDraft)throw new ApiError(503,"COPILOT_NOT_CONFIGURED","Revision service is unavailable.");
       await this.assertScope(scope);
       const input=revisionSchema.parse(raw),draftId=input.draftId??state?.workingActionId;
+      if(Object.hasOwn(input.changes,'hardwareRates')||Object.hasOwn(input.changes,'hardwarePricing')){
+        const owner=hardwareInstructions(_originalMessage??'');
+        if(state?.workingActionTool==='erp_create_estimate'&&(owner.hardwareRates.length||owner.hardwarePricing))return this.execute('erp_amend_estimate',{draftId},scope,state,_originalMessage,signal);
+        throw new ApiError(422,'ERP_ACTION_CLARIFICATION','جناب، متفرق آئٹمز کے لیے آپ کا اپنا نرخ یا عام ہارڈویئر نرخ استعمال کرنے کی واضح ہدایت درکار ہے۔');
+      }
       if(!draftId)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، پہلے مطلوبہ کارروائی کا پری ویو تیار کریں تاکہ اسی کی تفصیل درست کر سکوں۔");
       return {review:await this.services.runtime.reviseUnifiedDraft(draftId,input.changes,scope,state?.inputSource??"text")};
     }

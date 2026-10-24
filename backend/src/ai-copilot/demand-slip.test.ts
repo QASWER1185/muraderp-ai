@@ -22,6 +22,12 @@ function fixture(){
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
+ it('cannot bypass hardware price permission through the generic revision tool',async()=>{
+  const revise=vi.fn();const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime:{reviseUnifiedDraft:revise}} as any);
+  const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';
+  await expect(tools.execute('revise_pending_action',{changes:{hardwareRates:[{kind:'cloth',rate:999}],hardwarePricing:'catalog'}},scope,state,'اسی ڈرافٹ کی تفصیل دکھاؤ')).rejects.toMatchObject({code:'ERP_ACTION_CLARIFICATION'});
+  expect(revise).not.toHaveBeenCalled();
+ });
  it('does not treat a declined hardware price or a rate question as permission',()=>{
   expect(hardwareInstructions('ململ 50 روپے مت لگاؤ')).toEqual({hardwareRates:[]});expect(hardwareInstructions('سافٹ ویئر والے ریٹ مت لگاؤ')).not.toHaveProperty('hardwarePricing');expect(hardwareInstructions('ململ 50 روپے ہے؟')).toEqual({hardwareRates:[]});
  });
