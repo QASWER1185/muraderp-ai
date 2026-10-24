@@ -1,5 +1,59 @@
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
+export function savedEstimateRows(estimate){
+  const rows=estimate.lines.map((line,index)=>({line,index}));
+  return [...new Set(rows.map(({line})=>line.category||'Items'))].flatMap(category=>rows.filter(({line})=>(line.category||'Items')===category));
+}
+
+// Browser canvas shapes Urdu using the same bundled font as Customer Preview.
+// A continuous custom-size PDF page keeps every quotation row together.
+export async function createSavedEstimatePdfFile(estimate, store, documentObject = globalThis.document) {
+  await documentObject.fonts.load('16px "Noto Sans Arabic"');
+  await documentObject.fonts.ready;
+  const width=1280, columns=[38,88,658,732,810,940,1022,1145];
+  const canvas=documentObject.createElement('canvas');canvas.width=width;
+  const scratch=canvas.getContext('2d');scratch.font='18px "Noto Sans Arabic", sans-serif';
+  const wrap=(value,max)=>{const rows=[];let row='';for(const word of String(value??'').split(/\s+/u)){if(row&&scratch.measureText(row+' '+word).width>max){rows.push(row);row=word;}else row+=(row?' ':'')+word;}if(row)rows.push(row);return rows.length?rows:[''];};
+  const prepared=savedEstimateRows(estimate).map(({line,index})=>({line,number:index+1,label:wrap(line.product_name,540)}));
+  const notes=wrap(estimate.notes||'Rates subject to confirmation. Thank you for your business.',640);
+  const address=wrap(estimate.customer?.city||'',1100);
+  let group=null,groups=0;for(const {line} of prepared)if(line.category!==group){group=line.category;groups++;}
+  const height=440+address.length*26+prepared.reduce((sum,row)=>sum+Math.max(38,row.label.length*28+12),0)+groups*68+Math.max(220,notes.length*28+80);
+  canvas.height=height;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+  const draw=(value,x,y,size=18,color='#17352b',align='left')=>{ctx.font=`${size>=23?'bold ':''}${size}px "Noto Sans Arabic", sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.direction=/[\u0600-\u06ff]/u.test(String(value))?'rtl':'ltr';ctx.fillText(String(value??''),x,y);};
+  const num=value=>Number(value??0).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
+  ctx.fillStyle='#173d32';ctx.fillRect(0,0,width,192);
+  draw(store.name,40,48,30,'#fff');draw(store.categories,40,83,19,'#e4eee8');draw(store.phone,40,118,22,'#fff');draw(store.address,40,154,17,'#e4eee8');
+  draw('QUOTATION',40,238,26);draw(estimate.estimate_number,1240,238,25,'#17352b','right');
+  draw(estimate.customer?.name,40,282,25);draw(estimate.issue_date,1240,282,18,'#17352b','right');
+  address.forEach((row,index)=>draw(row,40,316+index*26));let y=342+address.length*26;
+  draw(estimate.customer?.phone,40,y);draw(`${estimate.status} · ${estimate.lines.length} items`,1240,y,18,'#17352b','right');y+=34;
+  ctx.fillStyle='#173d32';ctx.fillRect(30,y,width-60,38);
+  ['Sr.','Item','Qty','Unit','List Rate','Disc%','Net Rate','Amount'].forEach((label,i)=>draw(label,columns[i],y+26,16,'#fff'));y+=54;
+  group=null;let total=0;
+  const subtotal=()=>{if(group===null)return;ctx.fillStyle='#f0f5f2';ctx.fillRect(30,y-19,width-60,30);draw(`${group} subtotal`,45,y+2,17);draw(num(total),1240,y+2,18,'#17352b','right');y+=34;};
+  prepared.forEach(({line,label,number})=>{if(line.category!==group){subtotal();group=line.category||'Items';total=0;draw(group,40,y+5,21);y+=34;}
+    draw(number,columns[0],y+4,16);label.forEach((row,j)=>draw(row,columns[1],y+4+j*28,18));
+    [line.quantity,line.unit,num(line.list_price),`${Number(line.discount_percent).toFixed(2)}%`,num(line.unit_price),num(line.line_total)].forEach((value,i)=>draw(value,columns[i+2],y+4,15));
+    total+=Number(line.line_total);y+=Math.max(38,label.length*28+12);ctx.strokeStyle='#dce5df';ctx.beginPath();ctx.moveTo(30,y-17);ctx.lineTo(width-30,y-17);ctx.stroke();});subtotal();y+=20;
+  draw('NOTES',40,y,19);notes.forEach((row,i)=>draw(row,40,y+34+i*28,17));
+  [['Subtotal',estimate.subtotal],['Discount',estimate.discount_total],['Grand Total',estimate.grand_total],['Carriage / Delivery',estimate.pass_through_rent],['Customer Payable',estimate.customer_payable_total]].forEach(([label,value],i)=>{if(i===2){ctx.fillStyle='#173d32';ctx.fillRect(800,y+i*36-21,450,34);}draw(label,812,y+i*36,17,i===2?'#fff':'#17352b');draw(num(value),1240,y+i*36,18,i===2?'#fff':'#17352b','right');});
+  draw('Authorized signature ____________________',40,height-60,17);draw(store.phone,1240,height-30,16,'#17352b','right');
+  const jpeg=Uint8Array.from(atob(canvas.toDataURL('image/jpeg',0.94).split(',')[1]),c=>c.charCodeAt(0));
+  const encoder=new TextEncoder(),parts=[],offsets=[0];let offset=0;
+  const push=value=>{const bytes=typeof value==='string'?encoder.encode(value):value;parts.push(bytes);offset+=bytes.length;};
+  const pageWidth=595,pageHeight=height/width*pageWidth;
+  const content=`q ${pageWidth} 0 0 ${pageHeight} 0 0 cm /Quote Do Q`;
+  push('%PDF-1.4\n');
+  const object=(id,body)=>{offsets[id]=offset;push(`${id} 0 obj\n${body}\nendobj\n`);};
+  object(1,'<< /Type /Catalog /Pages 2 0 R >>');object(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  object(3,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Quote 4 0 R >> >> /Contents 5 0 R >>`);
+  offsets[4]=offset;push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`);push(jpeg);push('\nendstream\nendobj\n');
+  object(5,`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  const xref=offset;push('xref\n0 6\n0000000000 65535 f \n');for(let i=1;i<=5;i++)push(`${String(offsets[i]).padStart(10,'0')} 00000 n \n`);
+  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  return new File(parts,`${String(estimate.estimate_number).replace(/[^A-Za-z0-9_-]/g,'_')}.pdf`,{type:'application/pdf'});
+}
 
 function ascii(value, maxLength = 120) {
   return String(value ?? "")

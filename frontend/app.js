@@ -1,6 +1,6 @@
 import { signIn, getSession, signOut } from "./auth.js";
 import { mountCopilot } from "./copilot-ui.js";
-import { mountEstimates } from "./estimates.js";
+import { mountEstimateWorkspace } from "./estimate-register.js";
 import { mountCustomers } from "./customers.js";
 import { mountVendors } from "./vendors.js";
 import { mountProducts } from "./products.js";
@@ -53,26 +53,27 @@ function unavailableMarkup(label) {
 }
 
 function navigate(routeId, updateHistory = true) {
-  currentSection = sections.some(([section]) => section === routeId) ? routeId : "dashboard";
+  const baseRoute = String(routeId).split("/")[0];
+  currentSection = sections.some(([section]) => section === baseRoute) ? routeId : "dashboard";
   const hash = `#/${currentSection}`;
   if (updateHistory && globalThis.location.hash !== hash) {
     globalThis.history[globalThis.location.hash ? "pushState" : "replaceState"](null, "", hash);
   }
-  const label = sections.find(([section]) => section === currentSection)?.[1] ?? "Dashboard";
+  const label = sections.find(([section]) => section === currentSection.split("/")[0])?.[1] ?? "Dashboard";
   title.textContent = label;
-  renderNav(currentSection);
+  renderNav(currentSection.split("/")[0]);
   // Page modules bind listeners and retain async render targets. Give each
   // mount its own container so an old page cannot handle or overwrite it.
   const nextContent = content.cloneNode(false);
   content.replaceWith(nextContent);
   content = nextContent;
   content.innerHTML = currentSection === "dashboard" ? dashboardMarkup() : unavailableMarkup(label);
-  const id=currentSection;
+  const id=currentSection.split("/")[0];
   if(id==="dashboard")mountDashboard(content);
   if(id==="customers")mountCustomers(content);
   if(id==="vendors")mountVendors(content);
   if(id==="products")mountProducts(content);
-  if(id==="invoices")mountInvoices(content);
+  if(id==="invoices")mountInvoices(content,{sourceEstimateId:currentSection.startsWith("invoices/from-estimate/")?Number(currentSection.split("/")[2]):undefined});
   if(id==="returns")mountReturns(content);
   if(id==="purchases")mountPurchases(content);
   if(id==="warehouses")mountWarehouses(content);
@@ -82,7 +83,7 @@ function navigate(routeId, updateHistory = true) {
   if(id==="rates")mountRateLists(content);
   if(id==="accounting")mountAccounting(content);
   if(id==="reports")mountReports(content);
-  if(id==="estimates")mountEstimates(content);
+  if(id==="estimates")mountEstimateWorkspace(content,{route:currentSection});
   shell.classList.remove("menu-open");
   content.focus({ preventScroll: true });
 }
@@ -99,6 +100,7 @@ const copilotUi = mountCopilot({
   openNativeAction: (intent, recordId) => {
     const section = ({ estimate: "estimates", supplier_bill: "purchases", customer_return: "returns", rate_list_update: "rates", customer_payment: "payments", vendor_payment: "vendor-payments" })[intent] ?? "dashboard";
     navigate(section);
+    if (intent === "estimate" && Number.isSafeInteger(Number(recordId))) { navigate(`estimates/${recordId}`); return; }
     if (intent === "estimate") { const sourceInput = content.querySelector('input[name="source"]'); if (sourceInput) { sourceInput.value = String(recordId); sourceInput.focus(); } }
   },
 });
@@ -207,6 +209,7 @@ globalThis.addEventListener("muraderp:open-workspace", openWorkspace);
 
 const previousWorkspace = getWorkspaceContext();
 clearWorkspaceContext();
-getSession().then(async (session) => { authenticatedUserId = session?.data?.userId ?? null; authButton.textContent = authenticatedUserId ? "Account" : "Sign in"; document.querySelector("#auth-signout").hidden = !authenticatedUserId; if (authenticatedUserId) await connectDiscoveredWorkspace(previousWorkspace); }).catch(() => { authenticatedUserId = null; authButton.textContent = "Sign in"; });
+async function restoreSession() { try { const session=await getSession(); authenticatedUserId=session?.data?.userId??null; authButton.textContent=authenticatedUserId?"Account":"Sign in"; document.querySelector("#auth-signout").hidden=!authenticatedUserId; if(authenticatedUserId){await connectDiscoveredWorkspace(previousWorkspace);void flushOfflineQueue().then(updateConnectionStatus);} else navigate(currentSection); } catch(error) {content.innerHTML='<div class="empty-state"><h2>Session temporarily unavailable</h2><p>Your session has not been cleared.</p><button class="button secondary" data-session-retry>Try again</button></div>';content.querySelector("[data-session-retry]").onclick=()=>void restoreSession();} }
+void restoreSession();
 subscribeOfflineState(updateConnectionStatus);
-navigate(currentSection); updateConnectionStatus(); void flushOfflineQueue().then(updateConnectionStatus);
+content.innerHTML = '<div class="loading-state" role="status">Restoring your secure session…</div>'; updateConnectionStatus();

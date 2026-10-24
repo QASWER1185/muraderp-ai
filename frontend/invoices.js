@@ -112,6 +112,7 @@ export function mountInvoices(container, options = {}) {
         const ready = await listReadyEstimates(context);
         field("source_estimate_id").innerHTML = `<option value="">Choose ready estimate</option>${(ready.data ?? []).map((item) => option(item.id, `${item.estimate_number} · Customer #${item.customer_id}`)).join("")}`;
         if (!(ready.data ?? []).length) throw new Error("No ready estimates are available in this branch.");
+        if(options.sourceEstimateId){field("source_estimate_id").value=String(options.sourceEstimateId);await loadSourceEstimate();}
       } else lineContainer.insertAdjacentHTML("beforeend", lineMarkup(products));
       field("issue_date").value = new Date().toISOString().slice(0, 10);
       field("invoice_number").focus();
@@ -126,18 +127,18 @@ export function mountInvoices(container, options = {}) {
       sourceEstimate = response.data;
       if (sourceEstimate.currency_code !== "PKR") throw new Error("This Invoice form supports PKR estimates only.");
       pendingDraft = null; pendingKey = null; review.hidden = true; action.textContent = "Review Invoice";
-      lineContainer.innerHTML = sourceEstimate.lines.map((line) => {
+      lineContainer.replaceChildren(...sourceEstimate.lines.map((line) => {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = lineMarkup(products, line.product_id);
         const row = wrapper.firstElementChild;
         row.dataset.lineNumber = String(line.line_number);
         for (const [name, value] of Object.entries({ product_id: line.product_id, quantity: line.quantity, unit: line.unit, unit_price: line.unit_price })) {
-          row.querySelector(`[name="${name}"]`).value = value;
+          row.querySelector(`[name="${name}"]`).value = String(value);
           row.querySelector(`[name="${name}"]`).disabled = true;
         }
         row.querySelector("[data-invoice-remove-line]").hidden = true;
-        return row.outerHTML;
-      }).join("");
+        return row;
+      }));
       if (![...field("customer_id").options].some((entry) => Number(entry.value) === sourceEstimate.customer_id)) {
         field("customer_id").insertAdjacentHTML("beforeend", option(sourceEstimate.customer_id, `Customer #${sourceEstimate.customer_id}`));
       }
@@ -219,4 +220,5 @@ export function mountInvoices(container, options = {}) {
     if (row) void openDetail(Number(row.dataset.invoiceId));
   });
   void load();
+  if(options.sourceEstimateId)void openEditor(true);
 }

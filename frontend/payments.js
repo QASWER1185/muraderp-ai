@@ -38,7 +38,7 @@ export function validateCustomerPaymentDraft(input, receivable) {
 
 export function receivableListMarkup(receivables) {
   if (!receivables.length) return `<div class="empty-state">${icon("receipt", 26)}<h2>No posted invoices</h2><p>Invoice balances for this branch will appear here.</p></div>`;
-  return `<div class="invoice-list">${receivables.map((item) => `<div class="invoice-row"><span><strong>${escapeHtml(item.invoice_number)}</strong><small>${escapeHtml(item.customer_name)} · ${escapeHtml(item.status)}</small></span><span>Outstanding <strong>${money(item.outstanding, item.currency_code)}</strong></span></div>`).join("")}</div>`;
+  return `<div class="invoice-list">${receivables.map((item) => `<div class="invoice-row"><span><strong>${escapeHtml(item.invoice_number)}</strong><small>${escapeHtml(item.customer_name)} · ${escapeHtml(item.status)}</small></span><span>${Number(item.outstanding)<0?'Customer credit:':'Outstanding'} <strong>${Number(item.outstanding)<0?`Rs ${Math.abs(Number(item.outstanding)).toLocaleString('en-PK',{maximumFractionDigits:2})}`:money(item.outstanding, item.currency_code)}</strong></span></div>`).join("")}</div>`;
 }
 
 export function paymentListMarkup(payments) {

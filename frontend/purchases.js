@@ -57,8 +57,14 @@ export function validatePurchaseDraft(input) {
 }
 
 function option(id, label) { return `<option value="${escapeHtml(id)}" label="${escapeHtml(label)}"></option>`; }
+export function selectedPurchaseProduct(products,value){
+  const term=String(value).trim(),label=products.find(p=>`${p.name} · ${p.sku}`===term);
+  if(label)return label;
+  const exact=products.filter(p=>p.name===term||p.sku===term);
+  return exact.length===1?exact[0]:null;
+}
 function lineMarkup() {
-  return `<div class="invoice-entry-line"><label>Product ID<input name="product_id" type="number" min="1" step="1" list="purchase-product-options" required></label><label>Quantity<input name="quantity" type="number" min="0.000001" step="any" value="1" required></label><label>Unit cost (PKR)<input name="unit_cost" type="number" min="0.000001" step="any" required></label><button class="icon-button" type="button" data-purchase-remove-line aria-label="Remove line">${icon("close")}</button></div>`;
+  return `<div class="invoice-entry-line"><label>Product name / SKU<input name="product_search" type="search" list="purchase-product-options" placeholder="Search product name or SKU" autocomplete="off" required><input name="product_id" type="hidden"></label><label>Quantity<input name="quantity" type="number" min="0.000001" step="any" value="1" required></label><label>Unit cost (PKR)<input name="unit_cost" type="number" min="0.000001" step="any" required></label><button class="icon-button" type="button" data-purchase-remove-line aria-label="Remove line">${icon("close")}</button></div>`;
 }
 
 export function mountPurchases(container, options = {}) {
@@ -114,17 +120,30 @@ export function mountPurchases(container, options = {}) {
       products = productPage.data ?? [];
       container.querySelector("#purchase-vendor-options").innerHTML = (vendorPage.data ?? []).map((vendor) => option(vendor.id, vendor.name)).join("");
       container.querySelector("#purchase-warehouse-options").innerHTML = (warehousePage.data ?? []).map((warehouse) => option(warehouse.id, warehouse.name)).join("");
-      container.querySelector("#purchase-product-options").innerHTML = products.map((product) => option(product.id, `${product.name} · ${product.sku}`)).join("");
+      container.querySelector("#purchase-product-options").innerHTML = products.map((product) => option(`${product.name} · ${product.sku}`, `#${product.id}`)).join("");
       lines.insertAdjacentHTML("beforeend", lineMarkup());
+      if((warehousePage.data??[]).length===1)field("warehouse_id").value=String(warehousePage.data[0].id);
       field("vendor_id").focus();
     } catch (error) { showError(error); }
   }
 
-  form.addEventListener("input", resetReview);
+  let productSearchTimer, searchVersion=0;
+  form.addEventListener('input',event=>{
+    resetReview();
+    if(event.target.name!=='product_search')return;
+    const input=event.target,row=input.closest('.invoice-entry-line'),term=input.value.trim();
+    row.querySelector('[name="product_id"]').value='';
+    const exact=selectedPurchaseProduct(products,term);
+    if(exact){row.querySelector('[name="product_id"]').value=exact.id;return;}
+    clearTimeout(productSearchTimer);const version=++searchVersion;
+    if(term.length<2)return;
+    productSearchTimer=setTimeout(async()=>{try{const page=await listProducts(context,{search:term.split(' · ')[0],limit:100});if(version!==searchVersion||!input.isConnected)return;products=[...new Map([...products,...(page.data??[])].map(p=>[p.id,p])).values()];container.querySelector('#purchase-product-options').innerHTML=(page.data??[]).map(p=>option(`${p.name} · ${p.sku}`,`#${p.id}`)).join('');const selected=selectedPurchaseProduct(products,input.value);row.querySelector('[name="product_id"]').value=selected?.id??'';}catch(error){showError(error);}},200);
+  });
   form.addEventListener("change", (event) => {
     resetReview();
-    if (event.target.name !== "product_id") return;
-    const product = products.find((item) => item.id === Number(event.target.value));
+    if (event.target.name !== "product_search") return;
+    const product = selectedPurchaseProduct(products,event.target.value);
+    event.target.closest(".invoice-entry-line").querySelector('[name="product_id"]').value=product?.id??"";
     const row = event.target.closest(".invoice-entry-line");
     if (product?.purchase_price != null && row && !row.querySelector('[name="unit_cost"]').value) row.querySelector('[name="unit_cost"]').value = product.purchase_price;
   });

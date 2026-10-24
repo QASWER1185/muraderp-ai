@@ -1,3 +1,4 @@
+import { createEstimateBrowserRouter } from './routes/estimate-browser.routes.js';
 import express from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
@@ -92,6 +93,7 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api/v1/dashboard", createReportsBrowserRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, tenantAuthorizer: options.tenantAccessService }));
   app.use("/api/v1", createErpRouter(internalApiToken, internalApiPrincipalId, erpService, options.tenantAccessService));
   app.use("/api/v1/estimates", createEstimateDraftRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, referenceService: erpService, tenantAuthorizer: options.tenantAccessService }));
+  app.use("/api/v1/estimates", createEstimateBrowserRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, tenantAuthorizer: options.tenantAccessService }));
   app.use("/api/v1/estimates", createEstimateConversionRouter(internalApiToken, internalApiPrincipalId, options.estimateConversionService));
   app.use("/api/v1/estimates", createEstimateWhatsAppRouter(internalApiToken, internalApiPrincipalId, options.estimateWhatsAppShareService));
   app.use("/api/v1/inventory", createInventoryRouter(internalApiToken, internalApiPrincipalId, options.tenantAccessService));
