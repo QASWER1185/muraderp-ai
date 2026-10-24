@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPurchase, getPurchase, listPurchases } from "./purchase-api.js";
-import { purchaseDetailMarkup, purchaseListMarkup, validatePurchaseDraft } from "./purchases.js";
+import { purchaseDetailMarkup, purchaseListMarkup, validatePurchaseDraft, selectedPurchaseProduct } from "./purchases.js";
 
 const context = { organizationId: "11111111-1111-4111-8111-111111111111", branchId: "22222222-2222-4222-8222-222222222222" };
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Purchases browser integration", () => {
+  it('selects exact name/SKU matches and requires a SKU when names collide',()=>{
+    const products=[{id:1,name:'Pipe',sku:'PIPE-A'},{id:2,name:'Pipe',sku:'PIPE-B'}];
+    expect(selectedPurchaseProduct(products,'Pipe')).toBeNull();
+    expect(selectedPurchaseProduct(products,'Pipe · PIPE-B')?.id).toBe(2);
+    expect(selectedPurchaseProduct(products,'PIPE-A')?.id).toBe(1);
+  });
   it("uses authenticated same-origin API paths with central workspace context", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) });
     vi.stubGlobal("fetch", fetch);

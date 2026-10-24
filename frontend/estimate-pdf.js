@@ -1,5 +1,9 @@
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
+export function savedEstimateRows(estimate){
+  const rows=estimate.lines.map((line,index)=>({line,index}));
+  return [...new Set(rows.map(({line})=>line.category||'Items'))].flatMap(category=>rows.filter(({line})=>(line.category||'Items')===category));
+}
 
 // Browser canvas shapes Urdu using the same bundled font as Customer Preview.
 // A continuous custom-size PDF page keeps every quotation row together.
@@ -10,7 +14,7 @@ export async function createSavedEstimatePdfFile(estimate, store, documentObject
   const canvas=documentObject.createElement('canvas');canvas.width=width;
   const scratch=canvas.getContext('2d');scratch.font='18px "Noto Sans Arabic", sans-serif';
   const wrap=(value,max)=>{const rows=[];let row='';for(const word of String(value??'').split(/\s+/u)){if(row&&scratch.measureText(row+' '+word).width>max){rows.push(row);row=word;}else row+=(row?' ':'')+word;}if(row)rows.push(row);return rows.length?rows:[''];};
-  const prepared=estimate.lines.map(line=>({line,label:wrap(line.product_name,540)}));
+  const prepared=savedEstimateRows(estimate).map(({line,index})=>({line,number:index+1,label:wrap(line.product_name,540)}));
   const notes=wrap(estimate.notes||'Rates subject to confirmation. Thank you for your business.',640);
   const address=wrap(estimate.customer?.city||'',1100);
   let group=null,groups=0;for(const {line} of prepared)if(line.category!==group){group=line.category;groups++;}
@@ -28,8 +32,8 @@ export async function createSavedEstimatePdfFile(estimate, store, documentObject
   ['Sr.','Item','Qty','Unit','List Rate','Disc%','Net Rate','Amount'].forEach((label,i)=>draw(label,columns[i],y+26,16,'#fff'));y+=54;
   group=null;let total=0;
   const subtotal=()=>{if(group===null)return;ctx.fillStyle='#f0f5f2';ctx.fillRect(30,y-19,width-60,30);draw(`${group} subtotal`,45,y+2,17);draw(num(total),1240,y+2,18,'#17352b','right');y+=34;};
-  prepared.forEach(({line,label},index)=>{if(line.category!==group){subtotal();group=line.category||'Items';total=0;draw(group,40,y+5,21);y+=34;}
-    draw(index+1,columns[0],y+4,16);label.forEach((row,j)=>draw(row,columns[1],y+4+j*28,18));
+  prepared.forEach(({line,label,number})=>{if(line.category!==group){subtotal();group=line.category||'Items';total=0;draw(group,40,y+5,21);y+=34;}
+    draw(number,columns[0],y+4,16);label.forEach((row,j)=>draw(row,columns[1],y+4+j*28,18));
     [line.quantity,line.unit,num(line.list_price),`${Number(line.discount_percent).toFixed(2)}%`,num(line.unit_price),num(line.line_total)].forEach((value,i)=>draw(value,columns[i+2],y+4,15));
     total+=Number(line.line_total);y+=Math.max(38,label.length*28+12);ctx.strokeStyle='#dce5df';ctx.beginPath();ctx.moveTo(30,y-17);ctx.lineTo(width-30,y-17);ctx.stroke();});subtotal();y+=20;
   draw('NOTES',40,y,19);notes.forEach((row,i)=>draw(row,40,y+34+i*28,17));

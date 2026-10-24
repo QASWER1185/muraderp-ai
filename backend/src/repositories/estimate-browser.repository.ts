@@ -15,9 +15,10 @@ export function estimateView(record: any, items: any[]) {
     // substitute today's catalog price for the saved financial snapshot.
     const list = Number(item.pricing_provenance?.list_price ?? storedRate);
     const lineTotal = round(qty * storedRate - discount);
+    const discountPercent=Number(item.pricing_provenance?.discount_percent ?? (list * qty ? (list * qty - lineTotal) / (list * qty) * 100 : 0));
     return { ...item, product_name: item.products?.name ?? item.description ?? `Product ${item.product_id}`,
       category: item.products?.category ?? 'Items', quantity: qty, list_price: list,
-      discount_percent: Number(item.pricing_provenance?.discount_percent ?? (list * qty ? (list * qty - lineTotal) / (list * qty) * 100 : 0)),
+      discount_percent: Math.abs(discountPercent)<0.00001?0:discountPercent,
       unit_price: qty ? lineTotal / qty : 0, stored_unit_price: storedRate, discount_amount: discount, line_total: lineTotal };
   });
   const subtotal = round(lines.reduce((sum, item) => sum + item.quantity * item.list_price, 0));

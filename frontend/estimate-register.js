@@ -1,6 +1,6 @@
 import { listEstimates, getEstimate, updateEstimate } from './estimate-api.js';
 import { mountEstimates } from './estimates.js';
-import { downloadEstimatePdf, createSavedEstimatePdfFile } from './estimate-pdf.js';
+import { downloadEstimatePdf, createSavedEstimatePdfFile, savedEstimateRows } from './estimate-pdf.js';
 import { getWorkspaceContext } from './workspace-context.js';
 import { icon } from './icons.js';
 const esc=value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
@@ -20,7 +20,7 @@ export function savedEstimatePreviewMarkup(estimate){
   let group=null,groupTotal=0;
   const groupFooter=()=>group==null?'':`<tr class="estimate-category-total"><td colspan="7">${esc(group)} subtotal</td><td>${amount(groupTotal)}</td></tr>`;
   let rows='';
-  for(const [index,line] of estimate.lines.entries()){
+  for(const {index,line} of savedEstimateRows(estimate)){
     const category=line.category||'Items';
     if(category!==group){rows+=groupFooter();group=category;groupTotal=0;rows+=`<tr class="estimate-category"><th colspan="8">${esc(category)}</th></tr>`;}
     groupTotal+=Number(line.line_total);
