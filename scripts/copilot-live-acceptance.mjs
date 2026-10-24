@@ -1,4 +1,5 @@
-// Read-only production acceptance. Credentials stay in memory and never enter
+// Production preview acceptance (demand mode may upsert supplied customer metadata).
+// Credentials stay in memory and never enter
 // argv, transcripts, signed conversation files or logs. No action is confirmed.
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -14,7 +15,8 @@ function secret(name){
     return name==="muraderp-internal-api-token"?value:value.trim();
   }catch{throw new Error("Secret Manager credential could not be loaded: "+name);}
 }
-const db=createClient(process.env.SUPABASE_URL??"https://pmsowmiivjkwtovynhje.supabase.co",process.env.SUPABASE_SECRET_KEY??secret("muraderp-supabase-secret-key"),{auth:{persistSession:false,autoRefreshToken:false}});
+const databaseKey=process.env.SUPABASE_SECRET_KEY??secret("muraderp-supabase-secret-key");
+const db=createClient(process.env.SUPABASE_URL??"https://pmsowmiivjkwtovynhje.supabase.co",databaseKey,{auth:{persistSession:false,autoRefreshToken:false}});
 async function required(query){const {data,error}=await query;if(error)throw new Error(error.message);return data;}
 const org=await required(db.from("organizations").select("id,name").eq("slug","m-murad-building-materials-store").single());
 const branch=await required(db.from("branches").select("id").eq("organization_id",org.id).eq("code","MAIN").eq("status","active").single());
@@ -45,7 +47,7 @@ if(process.argv.includes("--catalog-audit")){
   }
 }else{
   const token=process.env.INTERNAL_API_TOKEN??secret("muraderp-internal-api-token");
-  process.env.INTERNAL_API_TOKEN??=token;
+  if(process.argv.includes('--resume-draft'))Object.assign(process.env,{SUPABASE_URL:process.env.SUPABASE_URL??'https://pmsowmiivjkwtovynhje.supabase.co',SUPABASE_SECRET_KEY:databaseKey,INTERNAL_API_TOKEN:token,INTERNAL_API_PRINCIPAL_ID:process.env.INTERNAL_API_PRINCIPAL_ID??secret('muraderp-internal-api-principal-id')});
   // Exercise the same browser auth/ACL route with a short-lived test cookie.
   // It is never stored or logged, and this harness never confirms a mutation.
   const session=Buffer.from(JSON.stringify({userId:scope.userId,exp:Math.floor(Date.now()/1000)+1800})).toString("base64url");
