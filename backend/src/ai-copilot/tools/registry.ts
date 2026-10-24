@@ -14,7 +14,7 @@ export const saleItemSchema = z.strictObject({
   rawShorthand: text.optional(),
   specificationPending:z.boolean().optional(),
 });
-const demandFields={mode:z.literal('DEMAND_SLIP_ESTIMATE').optional(),customerPhone:text.optional(),hardwarePricing:z.enum(['pending','catalog']).optional(),hardwareRates:z.array(z.strictObject({kind:z.enum(hardwareKinds),rate:money})).max(6).optional()};
+const demandFields={mode:z.literal('DEMAND_SLIP_ESTIMATE').optional(),customerPhone:text.optional(),hardwarePricing:z.enum(['pending','catalog']).optional(),hardwareRates:z.array(z.strictObject({kind:z.enum(hardwareKinds),rate:money})).max(hardwareKinds.length).optional()};
 const sale = { ...demandFields,customerId: id.optional(), customerName: text.optional(), customerAddress: text.optional(), brand: text.optional(),
   items: z.array(saleItemSchema).min(1).max(500), discountScheme: z.strictObject({ percent }).optional(),
   pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional() };

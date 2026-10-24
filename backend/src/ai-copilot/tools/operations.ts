@@ -145,6 +145,7 @@ export class DefaultErpOperations implements ErpOperations {
         if(input.hardwarePricing!=='catalog')throw new ApiError(422,'ESTIMATE_RATE_PENDING','اس متفرق آئٹم کا ریٹ مطلوب ہے؛ عام ہارڈویئر نرخ استعمال کرنے کی اجازت یا اپنا نرخ بتائیں۔');
       }
       const item=applyHybridRules<any>(original,input.pricingRules??[]);
+      if(input.mode===DEMAND_SLIP_ESTIMATE&&!hardware&&sameBrand(input.brand??item.brand,'Dura Max')&&/\bpipe\b/i.test(item.name??'')&&!/ppr|pvc|\bg[.\s-]*i\b|brass/iu.test(item.name??'')&&/^[2-6]\s*(?:inch|["″])$/iu.test(item.size??''))item.name+=' U-PVC';
       if(input.mode===DEMAND_SLIP_ESTIMATE&&!hardware&&/\bpipe\b/i.test(item.name??'')&&!/PN[ -]?\d|medium|heavy|light/i.test([item.name,item.size].join(' '))){
         if(/u[ -]?pvc/i.test(item.name??''))item.name+=' Medium';
         else if(/ppr/i.test(item.name??''))item.name+=' PN-16';
@@ -211,7 +212,7 @@ export class DefaultErpOperations implements ErpOperations {
         const pending=error.details as {productId?:number;productName?:string;unit?:string}|undefined;
         const pendingItem=applyHybridRules<any>(original,input.pricingRules??[]);
         return {line_number:offset+index+1,productName:pending?.productName??([original.name,original.size].filter(Boolean).join(" ")||"آئٹم "+original.productId),product_id:pending?.productId??original.productId,
-          ...(original.size?{size:original.size}:{}),quantity:original.qty,unit:pending?.unit??original.unit??"",unit_price:null,discountPercent:pendingItem.discount??input.discountScheme?.percent??0,
+          ...(original.size?{size:original.size}:{}),quantity:original.qty,unit:pending?.unit??original.unit??"",unit_price:null,discountPercent:hardware?0:pendingItem.discount??input.discountScheme?.percent??0,
           ...(hardware?{hardware:true}:{}),pending:true,pendingReason:error.message,rateLabel:'ریٹ مطلوب'};
       }
       }));

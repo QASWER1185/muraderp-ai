@@ -1,12 +1,14 @@
 import {categoryDiscountChoices} from './hybridQuotationEngine.js';
 export const DEMAND_SLIP_ESTIMATE='DEMAND_SLIP_ESTIMATE' as const;
-export const hardwareKinds=['cloth','thread','teflon','connection_pipe','saw_blade','blade'] as const;
-const labels:Record<string,string>={cloth:'ململ (کپڑا)',thread:'دھاگہ',teflon:'ٹیفلون ٹیپ',connection_pipe:'کنکشن پائپ',saw_blade:'آری بلیڈ',blade:'بلیڈ'};
+export const hardwareKinds=['cloth','thread','teflon','connection_pipe','saw_blade','blade','brass_nipple','handle_valve'] as const;
+const labels:Record<string,string>={cloth:'ململ (کپڑا)',thread:'دھاگہ',teflon:'ٹیفلون ٹیپ',connection_pipe:'کنکشن پائپ',saw_blade:'آری بلیڈ',blade:'بلیڈ',brass_nipple:'براس نپل',handle_valve:'ہینڈل والو'};
 export function hardwareKind(name:string):typeof hardwareKinds[number]|undefined{
   if(/ململ|کپڑا|سمل|malmal|muslin|cloth/iu.test(name))return 'cloth';
   if(/دھاگ|دکھار|\bdha+ga\b|thread\s*(?:ball|roll)|\bthread\b(?!ed)/iu.test(name))return 'thread';
   if(/ٹیفلون|ٹیفلن|teflon|ptfe|t[ae]fl[ou]n/iu.test(name))return 'teflon';
   if(/کنکشن|کنیکشن|connection\s*pipe/iu.test(name))return 'connection_pipe';
+  if(/brass\s*nipple|bixal.?nipple|براس\s*نپل/iu.test(name))return 'brass_nipple';
+  if(/hand(?:all|le)?[ -]*(?:valve|wall)|ہینڈل\s*والو/iu.test(name))return 'handle_valve';
   if(/آری|آر[یے]|hacksaw|saw.?blade|(?:ari|axi).?blade|blade.?\b(?:ari|axi)\b/iu.test(name))return 'saw_blade';
   if(/بلیڈ|blade/iu.test(name))return 'blade';
 }
@@ -22,7 +24,7 @@ export function hardwareInstructions(message:string){
   const clauses=message.split(/اور|،|,|\band\b/iu);
   for(const clause of clauses){
     if(/نہ\s*لگا|مت\s*لگا|نہیں\s*لگا|do\s+not|don't|never|[؟?]/iu.test(clause))continue;
-    const kind=hardwareKind(clause);const match=clause.match(/(?:ململ|کپڑا|دھاگہ?|ٹیفلون\s*ٹیپ|کنکشن\s*پائپ|آری\s*بلیڈ|بلیڈ|cloth|thread|teflon|connection\s*pipe|saw\s*blade|blade)\s*(?:کا|کی|کو|پر|at|@)?\s*(\d+(?:\.\d+)?)\s*(?:روپے?|روپیہ|rs\.?|pkr)/iu);
+    const kind=hardwareKind(clause);const match=clause.match(/(?:ململ|کپڑا|دھاگہ?|ٹیفلون\s*ٹیپ|کنکشن\s*پائپ|آری\s*بلیڈ|براس\s*نپل|ہینڈل\s*والو|بلیڈ|cloth|thread|teflon|connection\s*pipe|saw\s*blade|brass\s*nipple|handle\s*valve|blade)\s*(?:کا|کی|کو|پر|at|@)?\s*(\d+(?:\.\d+)?)\s*(?:روپے?|روپیہ|rs\.?|pkr)/iu);
     if(kind&&match)hardwareRates.push({kind,rate:Number(match[1])});
   }
   const catalog=/(?:سافٹ\s*ویئر|سافٹویئر|software|hardware|ہارڈویئر).{0,30}(?:ریٹ|نرخ|rates?|prices?).{0,20}(?:لگا|استعمال|use|apply)|(?:use|apply).{0,20}(?:software|hardware).{0,20}(?:rates?|prices?)/iu.test(message);

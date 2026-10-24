@@ -7,6 +7,8 @@ import {ErpToolRegistry} from './agent/erp-tools.js';
 import {UnifiedCopilotAgent} from './agent/agent.js';
 import {newBusinessState,writeBusinessState} from './agent/business-state.js';
 import {CopilotRuntime} from './copilot.runtime.js';
+import {canonicalSlipWords} from './conversationalMunshi.js';
+import {hardwareKind} from './demand-slip.js';
 const scope={userId:'a3000000-0000-4000-8000-000000000001',organizationId:'a3000000-0000-4000-8000-000000000002',branchId:'a3000000-0000-4000-8000-000000000003'};
 const prompt='خالد محمود، لیک سٹی 15 بی رائے ونڈ روڈ لاہور، فون 0315-409017، ڈیورا میکس کے ریٹ لگاؤ 50% اور 52% لیس';
 function fixture(){
@@ -22,6 +24,16 @@ function fixture(){
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
+ it('normalizes the observed solvent misspelling and recognizes non-Dura brass/handle hardware',()=>{
+  expect(canonicalSlipWords('Solutation 500g')).toBe('Solvent 500 g');expect(hardwareKind('G.I. Brass Nipple')).toBe('brass_nipple');expect(hardwareKind('Handle Valve')).toBe('handle_valve');
+ });
+ it('applies the requested Medium default to an unheaded Dura inch pipe while using its active ERP price',async()=>{
+  const f=fixture();const candidate={id:11,name:'Dura Max U-PVC Medium 5 inch',brandName:'Dura Max',confidence:1,match_kind:'exact_name'};f.deps.search.searchProducts.mockResolvedValue(resolveCandidates([candidate],5));
+  f.deps.erp.getProduct.mockResolvedValue({id:11,name:'Dura Max U-PVC Medium 5 inch',unit:'length',category:'Pipes',brand_id:5});
+  f.deps.pricing.resolvePrice.mockResolvedValue({product_id:11,unit_price:1000,unit:'length',currency_code:'PKR',rate_list_id:4,rate_list_version_id:8});
+  const result=await f.ops.prepare('erp_create_estimate',{...f.input,items:[{name:'Pipe',size:'5 inch',qty:1,unit:'length'}]},scope);
+  expect(f.deps.search.searchProducts).toHaveBeenCalledWith('Pipe U-PVC Medium 5 inch',5,scope,'Dura Max');expect(result.data.lines[0]).toMatchObject({unit_price:1000,discountPercent:50});
+ });
  it('rounds accumulated PKR totals to cents without floating-point tails',async()=>{
   const f=fixture();f.deps.pricing.resolvePrice.mockImplementation(async(x:any)=>({product_id:x.product_id,unit_price:x.product_id===11?100.01:200.01,unit:'pcs',currency_code:'PKR',rate_list_id:4,rate_list_version_id:8}));
   const result=await f.ops.prepare('erp_create_estimate',f.input,scope);expect((result.preview.partialTotals as any).grand_total).toBe(7592.52);expect(result.preview.summary).not.toContain('999999');

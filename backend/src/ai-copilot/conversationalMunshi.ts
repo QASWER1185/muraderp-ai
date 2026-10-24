@@ -13,6 +13,7 @@ export function canonicalSlipWords(value:string):string {
     .replace(/پاپولر/gu,"Popular").replace(/ترک\s*پلاسٹ/gu,"Turk Plast").replace(/ایچ\s*ای\s*چائنا/gu,"HE China")
     .replace(/پائپ/gu,"Pipe").replace(/ٹیفلون/gu,"Teflon").replace(/سلوشن/gu,"Solvent Solution")
     .replace(/\bsolvent\s+solution\b/giu,"Solvent")
+    .replace(/\b(?:solutation|solution|solituion|selitium)\b/giu,'Solvent')
     .replace(/(\d)\s*(?:g|gm|gms|grams?)\b/giu,"$1 g")
     .replace(/یونین/gu,"Union").replace(/پلگ/gu,"Plug").replace(/والو/gu,"Valve")
     .replace(/فیمیل/gu,"Female").replace(/ایڈاپٹر/gu,"Adapter").replace(/میڈیم/gu,"Medium").replace(/کنڈوئٹ/gu,"Conduit").replace(/\s+/g," ").trim();
