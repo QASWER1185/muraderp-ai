@@ -133,7 +133,7 @@ export function mountInvoices(container, options = {}) {
         const row = wrapper.firstElementChild;
         row.dataset.lineNumber = String(line.line_number);
         for (const [name, value] of Object.entries({ product_id: line.product_id, quantity: line.quantity, unit: line.unit, unit_price: line.unit_price })) {
-          row.querySelector(`[name="${name}"]`).value = value;
+          row.querySelector(`[name="${name}"]`).value = String(value);
           row.querySelector(`[name="${name}"]`).disabled = true;
         }
         row.querySelector("[data-invoice-remove-line]").hidden = true;
