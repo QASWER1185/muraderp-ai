@@ -80,8 +80,11 @@ export class MultimodalAgentInput {
     }
     if(audioFiles.length&&files.length>1)throw new ApiError(422,"INVALID_MEDIA","ایک درخواست میں صرف ایک صوتی نوٹ شامل کیا جا سکتا ہے۔");
     const results:NormalizedInput[]=[],failed:string[]=[];
-    for(let index=0;index<files.length;index+=3){
-      const batch=await Promise.allSettled(files.slice(index,index+3).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope)));
+    // Handwriting verification makes two vision calls per page. Process demand
+    // pages serially so a three-slip upload does not burst six calls at a key.
+    const batchSize=input.task==='estimate'?1:3;
+    for(let index=0;index<files.length;index+=batchSize){
+      const batch=await Promise.allSettled(files.slice(index,index+batchSize).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope)));
       for(const [offset,result] of batch.entries()){
         if(result.status==="fulfilled")results.push(result.value);
         else{

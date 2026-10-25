@@ -25,11 +25,12 @@ function document(index=0){return {customerName:null,customerAddress:null,reques
   observedLineCount:1,ignoredLineCount:0,discountPercent:20,subtotal:null,total:null,confidence:.7,warnings:["Printed rates are observations only."]};}
 function setup(makeDocument=document){
   let index=0;
+  let preceding:unknown;
   const fetcher=vi.fn<typeof fetch>(async(_url,options)=>{
     const body=JSON.parse(String(options?.body));
-    const marker='Untrusted preliminary reading for comparison only: ';
-    const preliminary=body.contents?.flatMap((turn:any)=>turn.parts??[]).find((part:any)=>part.text?.includes(marker));
-    const proposal=preliminary?JSON.parse(preliminary.text.slice(preliminary.text.indexOf(marker)+marker.length)):makeDocument(index++);
+    const verification=body.systemInstruction?.parts?.some((part:any)=>part.text?.includes('VISUAL VERIFICATION PASS'));
+    const proposal=verification?structuredClone(preceding):makeDocument(index++);
+    if(!verification)preceding=proposal;
     return new Response(JSON.stringify({candidates:[{finishReason:"STOP",content:{parts:[{functionCall:{name:"erp_proposal",args:{proposal}}}]}}]}));
   });
   const provider=new GeminiAdapter({provider:"gemini",model:"test-gemini-model",speechModel:"test-model",apiKey:"synthetic-test-provider-key"},fetcher);

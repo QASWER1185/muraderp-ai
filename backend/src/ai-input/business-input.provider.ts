@@ -124,15 +124,21 @@ export class ProviderBusinessInput implements AiInputProvider {
       const firstSchema = explicitCatalog ? RateListCatalogPageSchema : demandSlip?z.union([plumberSlipDocumentSchema,businessDocumentSchema]):z.union([RateListCatalogPageSchema, businessDocumentSchema]);
       const recovery = { recoverIncomplete: recoverCatalogPage, format: "json" as const };
       const recoverable = (error: unknown) => error instanceof ApiError && ["AI_INCOMPLETE", "AI_INVALID_OUTPUT"].includes(error.code);
+      const generate=async(...args:Parameters<StructuredAiProvider['generate']>)=>{
+        for(let attempt=0;;attempt++)try{return await this.provider.generate(...args);}catch(error){
+          if(!demandSlip||attempt>=2||!(error instanceof ApiError)||error.code!=='AI_PROVIDER_RATE_LIMITED')throw error;
+          await new Promise(resolve=>setTimeout(resolve,30_000));
+        }
+      };
       const omittedPages: string[] = [];
       let first: unknown;
       try {
         const instructions=explicitCatalog ? catalogInstructions : slipInstructions + (demandSlip?plumberInstructions:"")+
           (demandSlip?"Mode DEMAND_SLIP_ESTIMATE (demand-slip estimate): this is an item/size/quantity DEMAND LIST with no prices expected. Never request printed prices or reject a demand slip for missing prices. Set observed monetary fields to null. Return the business document shape, not a catalog. ":"Classify visually first; a price list uses the catalog shape, otherwise use the business document shape. ")+"Extract EVERY demand-slip line on this page (up to 200); never a sample. Count physical item rows independently in EACH column before emitting observedLineCount. Include bottom rows partly covered by camera watermarks when readable. Never merge repeated item names across columns: they are separate source rows and may have different quantities. Cross-check each returned quantity against its raw_line, including two-digit quantities such as 24; do not drop a leading digit. Missing fields null. Read the user's caption as customer/brand/discount choices: explicit typed customerName, customerAddress, requestedBrand and discountPercent take precedence over printed headings. Never invent missing quantities, addresses or prices. Do not apply catalog rules to demand slips. "+(demandSlip?"":"CATALOG RULES (only for a visually identified rate list): "+catalogInstructions)+examples;
-        try{first=await this.provider.generate(firstSchema,instructions,pageContent(content[0]),explicitCatalog?recovery:{maxOutputTokens:32000});}
+        try{first=await generate(firstSchema,instructions,pageContent(content[0]),explicitCatalog?recovery:{maxOutputTokens:32000});}
         catch(error){
           if(!demandSlip||!recoverable(error))throw error;
-          first=await this.provider.generate(firstSchema,instructions+" Re-read this page carefully after an incomplete extraction; include the entire size column.",pageContent(content[0]),{maxOutputTokens:32000});
+          first=await generate(firstSchema,instructions+" Re-read this page carefully after an incomplete extraction; include the entire size column.",pageContent(content[0]),{maxOutputTokens:32000});
         }
       } catch (error) {
         if (!explicitCatalog || !recoverable(error)) throw error;
@@ -165,9 +171,9 @@ export class ProviderBusinessInput implements AiInputProvider {
       // handwritten 2/3/4. Verify against the original page, not ERP or totals.
       const handwritten=first as {lines?:Array<{raw_line?:string}>}|undefined;
       if(demandSlip&&handwritten?.lines?.some(line=>typeof line.raw_line==='string')){
-        const verify=async()=>this.provider.generate(firstSchema,
+        const verify=async()=>generate(firstSchema,
           slipInstructions+plumberInstructions+'VISUAL VERIFICATION PASS: independently reread every row of the original image. The preliminary reading is untrusted and may be wrong. Check each diameter and quantity against its own physical row; never carry a diameter into the next row. Distinguish handwritten 2 from 3 and 4 from 6 using the original strokes. Keep the same physical order and include every uncrossed row across both columns. Correct raw_line as well as parsed fields when the preliminary reading was wrong. Do not use a desired total or catalog price as evidence. Preserve only explicit caption corrections. Return the complete verified document, not a diff.',
-          [...pageContent(content[0]),...await slipDetailViews(content[0]),{type:'input_text',text:'The extra images are overlapping enlarged TOP and BOTTOM views of the SAME page, not additional pages. Count each physical row once. Untrusted preliminary reading for comparison only: '+JSON.stringify(first)}],{maxOutputTokens:32000});
+          [...pageContent(content[0]),...await slipDetailViews(content[0]),{type:'input_text',text:'The extra images are overlapping enlarged TOP and BOTTOM views of the SAME page, not additional pages. Count each physical row once. Independently read the original strokes. Compare each handwritten digit with the same writer\'s other digits on this page. Do not copy a preliminary reading; return the complete document.'}],{maxOutputTokens:32000});
         try{first=await verify();}catch(error){if(!recoverable(error))throw error;first=await verify();}
       }
       const documents=[businessDocumentSchema.parse(normalizeBusinessNumbers(first))];

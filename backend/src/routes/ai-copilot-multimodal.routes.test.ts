@@ -31,6 +31,14 @@ function setup(){
   return {...f,app,provider,runtime,cookieFor,post};
 }
 describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=>{
+  it('retries a temporary vision quota response before abandoning the original attachment',async()=>{
+    const f=setup();f.provider.generate.mockRejectedValueOnce(new ApiError(429,'AI_PROVIDER_RATE_LIMITED','Temporary quota')).mockResolvedValue(document);
+    const delay=vi.spyOn(globalThis,'setTimeout').mockImplementationOnce(((callback:()=>void)=>{queueMicrotask(callback);return 0;}) as any);
+    try{
+      const result=await new ProviderBusinessInput(f.provider).extract({...scope,source:'image',intent:'estimate.create',media:media()});
+      expect(result.fields.document).toBeDefined();expect(f.provider.generate).toHaveBeenCalledTimes(2);expect(delay).toHaveBeenCalledWith(expect.any(Function),30_000);
+    }finally{delay.mockRestore();}
+  });
   it('reports provider failures without falsely claiming the uploaded handwriting is unreadable',async()=>{
     const f=setup();f.provider.generate.mockRejectedValue(new ApiError(503,'AI_MODEL_UNAVAILABLE','Model unavailable'));
     const result=await f.post('agent/input',{source:'image',task:'estimate',media:media(),message:'Prepare estimate'});
