@@ -24,6 +24,13 @@ function fixture(){
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
+ it('parses all eight comma-free Roman Urdu rates without using dimensions as prices',()=>{
+  expect(hardwareInstructions('bale 7 inch 1500 ari blade 100 coonection pipe 550 nipple 1/2 100 handle valve 1/2 1250 tefloon 50 thread 30 malmal 50 fi gaz').hardwareRates).toEqual([
+   {kind:'blade',rate:1500},{kind:'saw_blade',rate:100},{kind:'connection_pipe',rate:550},{kind:'brass_nipple',rate:100},{kind:'handle_valve',rate:1250},{kind:'teflon',rate:50},{kind:'thread',rate:30},{kind:'cloth',rate:50}]);
+  expect(hardwareInstructions('blade 7 inch nipple 1/2 handle valve 1/2').hardwareRates).toEqual([]);
+  expect(hardwareInstructions('thread 30, thread 40').hardwareRates).toEqual([]);
+  expect(hardwareInstructions('bale 7 inch 1500?').hardwareRates).toEqual([]);
+ });
  it('routes a not-4-inch-but-6-inch correction to the estimate editor instead of declining extras',async()=>{
   const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';state.workingActionMode=DEMAND_SLIP_ESTIMATE;
   const model={respond:vi.fn(async()=>({output:[{type:'function_call',call_id:'size',name:'erp_amend_estimate',arguments:'{}'}],text:''}))};
@@ -37,7 +44,7 @@ describe('demand slip accounting integrity',()=>{
   expect(model.respond).not.toHaveBeenCalled();expect(result.answer).toContain('اضافی سامان شامل نہیں');
  });
  it('normalizes the observed solvent misspelling and recognizes non-Dura brass/handle hardware',()=>{
-  expect(canonicalSlipWords('Solutation 500g')).toBe('Solvent 500 g');expect(hardwareKind('G.I. Brass Nipple')).toBe('brass_nipple');expect(hardwareKind('Handle Valve')).toBe('handle_valve');
+  expect(canonicalSlipWords('Solutation 500g')).toBe('Solvent 500 g');expect(hardwareKind('G.I. Brass Nipple')).toBe('brass_nipple');expect(hardwareKind('Nipple Bxal-Nipple')).toBe('brass_nipple');expect(hardwareKind('Handle Valve')).toBe('handle_valve');
  });
  it('applies the requested Medium default to an unheaded Dura inch pipe while using its active ERP price',async()=>{
   const f=fixture();const candidate={id:11,name:'Dura Max U-PVC Medium 5 inch',brandName:'Dura Max',confidence:1,match_kind:'exact_name'};f.deps.search.searchProducts.mockResolvedValue(resolveCandidates([candidate],5));
@@ -69,10 +76,10 @@ describe('demand slip accounting integrity',()=>{
   expect(model.respond).not.toHaveBeenCalled();expect((result.review as any).preview.lines).toHaveLength(58);expect((result.review as any).preview.partialTotals.grand_total).toBe(8032);expect(result.requiresConfirmation).toBe(false);
  });
  it('saves the complete pending source draft through the scoped durable store, without executing a financial action',async()=>{
-  const runtime=new CopilotRuntime({} as any,{} as any),inspect=vi.spyOn(runtime,'inspectUnifiedDraft').mockResolvedValue({tool:'erp_create_estimate',draftId:'draft',items:Array.from({length:58},()=>({name:'source row'}))} as any);
+  const rpc=vi.fn(async()=>({data:{id:99,estimate_number:'EST-AI-TEST'},error:null}));const runtime=new CopilotRuntime({} as any,{database:()=>({rpc})} as any),inspect=vi.spyOn(runtime,'inspectUnifiedDraft').mockResolvedValue({tool:'erp_create_estimate',draftId:'draft',items:Array.from({length:58},()=>({name:'source row'}))} as any);
   const execute=vi.spyOn(runtime,'confirmAndExecute');
   const result=await runtime.saveDemandDraft('draft',scope);
-  expect(inspect).toHaveBeenCalledWith('draft',scope);expect(result).toMatchObject({lineCount:58,saved:true,storage:'ai_copilot_actions',financialPosting:false});expect(execute).not.toHaveBeenCalled();
+  expect(inspect).toHaveBeenCalledWith('draft',scope);expect(result).toMatchObject({lineCount:58,saved:true,storage:'estimates',financialPosting:false});expect(execute).not.toHaveBeenCalled();
  });
  it('finishes the same 58-row estimate when the owner supplies all six hardware rates',async()=>{
   const f=fixture(),first=await f.ops.prepare('erp_create_estimate',f.input,scope);f.persist(first);
@@ -83,6 +90,7 @@ describe('demand slip accounting integrity',()=>{
  it('extracts the exact supplied name, full address and phone, with separate category discounts',()=>{
   expect(estimateCaptionChoices(prompt)).toEqual({customerName:'خالد محمود',customerAddress:'لیک سٹی 15 بی رائے ونڈ روڈ لاہور',customerPhone:'0315-409017'});
   expect(demandDiscounts(prompt)).toEqual([{match:'pipe',discount:50},{match:'fittings',discount:52}]);
+  expect(demandDiscounts('U-PVC Pipe Medium @ 50%, PPR-C Pipe PN-16 @ 50%, all U-PVC and PPR-C fittings @ 52%')).toEqual([{match:'pipe',discount:50},{match:'fittings',discount:52}]);
  });
  it('prices 52 catalog rows and retains six hardware rows without searching/pricing them or halting',async()=>{
   const f=fixture(),a=await f.ops.prepare('erp_create_estimate',f.input,scope);

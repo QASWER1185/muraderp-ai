@@ -8,5 +8,5 @@ export function demandMarkdownTable(lines:any[]):string{
 }
 export function savedEstimateAnswer(record:any):string{
   return `جناب، **${clean(record.estimate_number)}** — ${clean(record.customer_name)}\nحالت: **${record.status}** · تاریخ ${record.issue_date} · ${record.lines.length} آئٹمز\n\n`+
-  ['| # | آئٹم و سائز | تعداد | لسٹ ریٹ | رعایت % | نیٹ ریٹ | کل رقم |','| --- | --- | --- | --- | --- | --- | --- |',...record.lines.map((l:any,i:number)=>`| ${i+1} | ${clean(l.product_name)} | ${l.quantity} ${clean(l.unit)} | ${money(l.list_price)} | ${Number(l.discount_percent).toFixed(2)}% | ${money(l.unit_price)} | ${money(l.line_total)} |`)].join('\n')+`\n\n**کل رقم: PKR ${money(record.grand_total)}**\nمحفوظ نرخ دکھائے گئے ہیں۔`;
+  ['| # | آئٹم و سائز | تعداد | لسٹ ریٹ | رعایت % | نیٹ ریٹ | کل رقم |','| --- | --- | --- | --- | --- | --- | --- |',...record.lines.map((l:any,i:number)=>`| ${i+1} | ${clean(l.product_name)} | ${l.quantity} ${clean(l.unit)} | ${l.is_pending?'ریٹ مطلوب':money(l.list_price)} | ${Number(l.discount_percent).toFixed(2)}% | ${l.is_pending?'ریٹ مطلوب':money(l.unit_price)} | ${l.is_pending?'ریٹ مطلوب':money(l.line_total)} |`)].join('\n')+`\n\n**${record.lines.some((l:any)=>l.is_pending)?'نرخ والے آئٹمز کی جزوی رقم':'کل رقم'}: PKR ${money(record.grand_total)}**\nمحفوظ نرخ دکھائے گئے ہیں۔`;
 }

@@ -275,6 +275,8 @@ export class ErpToolRegistry {
       }
       if(name==="erp_create_estimate" && _originalMessage){
         const observed=estimateCaptionChoices(_originalMessage);
+        if(choices.mode===DEMAND_SLIP_ESTIMATE&&observed.customerName){delete choices.customerId;choices.customerName=observed.customerName;}
+        if(observed.customerAddress)choices.customerAddress=observed.customerAddress;
         if(observed.customerPhone)choices.customerPhone=observed.customerPhone;
         else delete choices.customerPhone;
         if(!choices.customerId && (observed.customerName??state?.estimateCustomerChoice?.name))choices.customerName=observed.customerName??state!.estimateCustomerChoice!.name;

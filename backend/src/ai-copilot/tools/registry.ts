@@ -116,5 +116,5 @@ export interface PreparedErpAction {
   input: Record<string,any>;
   data: Record<string,any>;
   preview: { title:string; summary:string; lines?:unknown[]; totals?:unknown; warnings?:string[]; incomplete?:boolean; partialTotals?:unknown;
-    companions?:unknown[];quotation?:unknown;privateMargin?:unknown;challan?:unknown;audit?:unknown };
+    savedEstimate?:unknown;companions?:unknown[];quotation?:unknown;privateMargin?:unknown;challan?:unknown;audit?:unknown };
 }

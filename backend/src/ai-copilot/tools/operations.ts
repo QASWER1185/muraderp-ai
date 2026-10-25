@@ -166,7 +166,9 @@ export class DefaultErpOperations implements ErpOperations {
           const preferred=profile.preferredBrands.filter(brand=>match.items.some(row=>row.category===brand.category && row.brandName===brand.brandName));
           if(preferred.length===1) match=await this.deps.search.searchProducts([preferred[0]!.brandName,item.name,item.size].filter(Boolean).join(" "),5,scope);
         }
-        if(match.resolution!=="resolved"||!match.bestCandidate)throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING","براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
+        if(match.resolution!=="resolved"||!match.bestCandidate)throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",match.items.length?
+          "براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کی درست قسم منتخب کریں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "):
+          [brand?canonicalBrand(brand):'',item.name,item.size].filter(Boolean).join(' ')+" کا درست فعال کیٹلاگ ریکارڈ نہیں ملا؛ دوسرے برانڈ یا مختلف سائز کا نرخ خود سے شامل نہیں کیا گیا۔");
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
@@ -175,10 +177,11 @@ export class DefaultErpOperations implements ErpOperations {
         matchesProductSpecification(specification.replace(/\bppr[\s-]*c\b/giu,""),product.name);
       if(!needsMaterialEvidence && !matchesProductSpecification(specification,product.name))
         throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
-      if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
+      if(brand && !sameBrand(product.brand_id==null?explicitBrand(product.name):await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       const countedPipe=(/\bpipe\b/i.test(product.name)||/^pipes?$/i.test(product.category))&&["pcs","length"].includes(canonicalUnit(item.unit??""))&&["pcs","length"].includes(canonicalUnit(product.unit));
-      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe){
+      const countedCan=input.mode===DEMAND_SLIP_ESTIMATE&&item.unit==='can'&&product.unit==='pcs'&&/solvent|solution/iu.test(product.name)&&/\d+\s*g\b/iu.test(product.name)&&/\d+\s*g\b/iu.test(specification);
+      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe&&!countedCan){
         const reason=product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔";
         if(input.mode===DEMAND_SLIP_ESTIMATE)throw new ApiError(422,'ESTIMATE_RATE_PENDING',reason,{productId:product.id,productName:product.name,unit:item.unit});
         requireChoice(reason);
@@ -266,6 +269,7 @@ export class DefaultErpOperations implements ErpOperations {
         return [updated];
       });
       const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.hardwarePricing?{hardwarePricing:input.hardwarePricing}:{}),...(input.hardwareRates?.length?{hardwareRates:[...(previous.input.hardwareRates??[]).filter((x:any)=>!input.hardwareRates.some((y:any)=>y.kind===x.kind)),...input.hardwareRates]}:{}),...(input.discountScheme?{discountScheme:input.discountScheme}:{}),...(input.pricingRules?{pricingRules:input.pricingRules}:{})},scope);
+      if(previous.data.nativeEstimateId)next.data.nativeEstimateId=previous.data.nativeEstimateId;
       next.preview.summary="جی جناب، بالکل! آپ کی ہدایت کے مطابق اسی مسودے کی تازہ تفصیل حاضر ہے۔\n"+next.preview.summary;
       next.preview.warnings=[...(next.preview.warnings??[]),...warnings];return next;
     }
@@ -341,7 +345,9 @@ export class DefaultErpOperations implements ErpOperations {
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
     const billing=["erp_create_invoice","erp_convert_estimate_to_invoice"].includes(tool)?`\nبل کی قابلِ ادائیگی رقم PKR ${data.totals.customer_payable_total}؛ نقد کاؤنٹر وصولی PKR ${input.paidAmount??0}؛ بقایا کھاتہ PKR ${amount(data.totals.customer_payable_total-(input.paidAmount??0))}۔ نقد بل کے لیے پوری وصولی، یا ادھار کے لیے مطلوبہ جزوی وصولی اسی گفتگو میں بتا دیں۔`:"";
     const creditWarnings=billing && data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
-    return {tool,input,data,preview:{title,summary:summary+billing+(data.mode===DEMAND_SLIP_ESTIMATE?"\n\n"+demandMarkdownTable(data.lines):""),...(billing?{warnings:creditWarnings}:{}),
+    const catalogPending=data.mode===DEMAND_SLIP_ESTIMATE?data.lines.filter((line:any)=>line.pending&&!line.hardware):[];
+    const catalogNotice=catalogPending.length?'\n\nفعال کیٹلاگ میں درج ذیل درست انتخاب دستیاب یا واضح نہیں؛ ان پر متبادل نرخ نہیں لگائے گئے:\n'+catalogPending.map((line:any)=>`${line.line_number}. ${line.productName}: ${line.pendingReason}`).join('\n'):'';
+    return {tool,input,data,preview:{title,summary:summary+billing+(data.mode===DEMAND_SLIP_ESTIMATE?"\n\n"+demandMarkdownTable(data.lines)+catalogNotice:""),...(billing?{warnings:creditWarnings}:{}),
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
       ...(data.mode?{mode:data.mode,customer:{id:data.customerId,name:data.customerName,address:input.customerAddress??data.newCustomer?.city??'',phone:input.customerPhone??data.newCustomer?.phone??''},unmatched_hardware_items:data.unmatched_hardware_items,saveDraftAvailable:true,hardwareQuestion:hardwarePrompt(data.lines,input.hardwarePricing==="catalog")}:{}),
       ...(data.incomplete?{incomplete:true,partialTotals:data.totals}:data.totals?{totals:data.totals}:{}),

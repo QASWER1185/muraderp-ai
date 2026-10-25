@@ -6,6 +6,7 @@ vi.mock("../config/env.js",async importOriginal=>{const original=await importOri
 import { env } from "../config/env.js";
 import { createAiCopilotRouter } from "./ai-copilot.routes.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { ApiError } from '../errors/api-error.js';
 import { CopilotAgent } from "../ai-copilot/copilot-agent.js";
 import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
 import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
@@ -30,6 +31,30 @@ function setup(){
   return {...f,app,provider,runtime,cookieFor,post};
 }
 describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=>{
+  it('retries a temporary vision quota response before abandoning the original attachment',async()=>{
+    const f=setup();f.provider.generate.mockRejectedValueOnce(new ApiError(429,'AI_PROVIDER_RATE_LIMITED','Temporary quota')).mockResolvedValue(document);
+    const delay=vi.spyOn(globalThis,'setTimeout').mockImplementationOnce(((callback:()=>void)=>{queueMicrotask(callback);return 0;}) as any);
+    try{
+      const result=await new ProviderBusinessInput(f.provider).extract({...scope,source:'image',intent:'estimate.create',media:media()});
+      expect(result.fields.document).toBeDefined();expect(f.provider.generate).toHaveBeenCalledTimes(2);expect(delay).toHaveBeenCalledWith(expect.any(Function),30_000);
+    }finally{delay.mockRestore();}
+  });
+  it('reports provider failures without falsely claiming the uploaded handwriting is unreadable',async()=>{
+    const f=setup();f.provider.generate.mockRejectedValue(new ApiError(503,'AI_MODEL_UNAVAILABLE','Model unavailable'));
+    const result=await f.post('agent/input',{source:'image',task:'estimate',media:media(),message:'Prepare estimate'});
+    expect(result.status).toBe(503);expect(result.body.error.code).toBe('AI_MODEL_UNAVAILABLE');expect(f.runtime.createConversationDraft).not.toHaveBeenCalled();
+  });
+  it('keeps exact caption brand exceptions local and rejects carried inch-material headings on metric end caps',async()=>{
+    const f=setup();f.provider.generate.mockResolvedValue({...document,lines:[
+      {...document.lines[0],productName:'Elbow',rawShorthand:'Elbow 45 degree 6 inch',size:'6 inch',material:'U-PVC',specification:'45 degree',quantity:1},
+      {...document.lines[0],productName:'Elbow',rawShorthand:'Elbow 5 inch',size:'5 inch',material:'U-PVC',specification:null,quantity:2},
+      {...document.lines[0],productName:'End Cap',rawShorthand:'End cap 25mm',size:'25mm',material:'U-PVC',specification:'Plain',quantity:12},
+      {...document.lines[0],productName:'Socket',rawShorthand:'Socket 4 inch',size:'4 inch',material:'U-PVC',specification:null,quantity:4},
+    ]} as any);
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(f.provider)).normalize({source:'image',task:'estimate',media:media(),message:'Brand: Dura Max. PPR-C Pipe PN-16 @ 50%, fittings @ 52%. Use Dura Flow for Elbow 45 degree 6 inch; Use Dura Flow for Elbow 5 inch.'},scope);
+    const input=result.estimateRequest as any;expect(input.brand).toBeUndefined();expect(input.items.map((x:any)=>x.brand)).toEqual(['Dura Flow','Dura Flow','Dura Max','Dura Max']);
+    expect(input.items[2].name).toBe('PPR-C End Cap');
+  });
   it("extracts every image in a multipart three-slip request and preserves the explicit Urdu customer",async()=>{
     const f=setup();f.provider.generate.mockResolvedValue({...document,customerName:"Incorrect heading",lines:[{...document.lines[0],unit:null}]} as any);
     f.script({output:[],text:"review extracted lines"});

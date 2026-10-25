@@ -14,6 +14,7 @@ const tests = [
   'products_final_gate.sql',
   'estimate_conversion.sql',
   'estimate_status_editor.sql',
+  'native_demand_drafts.sql',
   'copilot_dev_seed.sql',
   'copilot_institutional_memory.sql',
   'depot_v9.sql',

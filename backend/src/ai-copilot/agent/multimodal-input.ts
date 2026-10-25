@@ -49,14 +49,16 @@ function captionChoices(message: string): {customerName?:string;customerAddress?
 }
 export function estimateCaptionChoices(message:string){
   const choices=captionChoices(message),phone=message.match(/(?:فون|موبائل|phone|mobile)\s*[:：]?\s*(0\d{2,3}[- ]?\d{6,8})(?!\d)/iu)?.[1];
-  return {...choices,...(choices.customerName&&phone?{customerPhone:phone}:{})};
+  const name=message.match(/(?:customer(?:\s+name)?|گاہک(?:\s*کا\s*نام)?)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim();
+  const address=message.match(/(?:address|پتہ|ایڈریس)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim();
+  return {...choices,...(name?{customerName:name}:{}),...(address?{customerAddress:address}:{}),...((choices.customerName||name)&&phone?{customerPhone:phone}:{})};
 }
 
 type Media={mimeType:string;base64:string};
 export type MultimodalInput={source:"image"|"camera"|"voice";media?:Media|undefined;attachments?:Array<{media:Media;fileName?:string|undefined}>|undefined;
   message?:string|undefined;fileName?:string|undefined;task?:"auto"|"estimate"|"rate_list_update"|undefined};
 export interface NormalizedInput {
-  message:string;reviewRequired:boolean;catalog?:RateListCatalog;estimateRequest?:Record<string,unknown>|undefined;
+  message:string;userInstruction?:string|undefined;reviewRequired:boolean;catalog?:RateListCatalog;estimateRequest?:Record<string,unknown>|undefined;
   extraction:{source:MultimodalInput["source"];document?:BusinessDocument;catalog?:RateListCatalog;transcript?:string;mediaRetained:false};
 }
 
@@ -78,12 +80,15 @@ export class MultimodalAgentInput {
     }
     if(audioFiles.length&&files.length>1)throw new ApiError(422,"INVALID_MEDIA","ایک درخواست میں صرف ایک صوتی نوٹ شامل کیا جا سکتا ہے۔");
     const results:NormalizedInput[]=[],failed:string[]=[];
-    for(let index=0;index<files.length;index+=3){
-      const batch=await Promise.allSettled(files.slice(index,index+3).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope)));
+    // Handwriting verification makes two vision calls per page. Process demand
+    // pages serially so a three-slip upload does not burst six calls at a key.
+    const batchSize=input.task==='estimate'?1:3;
+    for(let index=0;index<files.length;index+=batchSize){
+      const batch=await Promise.allSettled(files.slice(index,index+batchSize).map(file=>this.normalizeSingle({...input,media:file.media,fileName:file.fileName},scope)));
       for(const [offset,result] of batch.entries()){
         if(result.status==="fulfilled")results.push(result.value);
         else{
-          if(result.reason instanceof ApiError&&(!result.reason.code.startsWith("AI_")||[401,403].includes(result.reason.status)||input.task==="rate_list_update"))throw result.reason;
+          if(result.reason instanceof ApiError&&(!['AI_INVALID_OUTPUT','AI_INCOMPLETE'].includes(result.reason.code)||[401,403].includes(result.reason.status)||input.task==="rate_list_update"))throw result.reason;
           failed.push(`پرچی ${index+offset+1} نہیں پڑھی جا سکی؛ اس کی واضح تصویر دوبارہ شامل کریں۔`);
         }
       }
@@ -137,22 +142,56 @@ export class MultimodalAgentInput {
   }
   private documentResult(document:BusinessDocument,input:MultimodalInput,transcript?:string) {
     const caption=estimateCaptionChoices(input.message??"");
+    const instruction=input.message??'';
+    const defaultBrand=instruction.match(/(?:brand|برانڈ)\s*[:=]\s*([^.;\n،]+)/iu)?.[1];
+    const chosenBrand=explicitBrand(defaultBrand??instruction);
+    // A brand exception belongs to its exact fitting specification, never to
+    // every row. Only the owner's caption supplies this authority, not OCR.
+    const brandExceptions=instruction.split(/[;\n۔]|\.(?=\s|$)/u).flatMap(clause=>{
+      const brand=explicitBrand(clause),query=canonicalSlipWords(clause);
+      const family=query.match(/\b(elbow|tee|socket|pipe|valve|end\s*cap)\b/iu)?.[0];
+      return brand&&family&&/\d+\s*(?:inch|mm|["″])/iu.test(query)&&/\b(?:use|for)\b|لگا|استعمال/iu.test(clause)?[{brand,query,family}]:[];
+    });
+    const gender=(input.message??'').match(/(?:fittings?|فٹنگز?)\s*(?:=|:)?\s*(female|male|فیمیل|میل)\b/iu)?.[1];
+    const pipeSpec=(material:string)=>{
+      const text=input.message??'';
+      return /ppr/iu.test(material)?text.match(/ppr[\s-]*c?\s*(?:pipe|پائپ)?\s*(?:=|:)?\s*(PN[ -]?\d+)/iu)?.[1]?.replace(/PN[ -]?/iu,'PN-'):
+        text.match(/u[\s-]*pvc\s*(?:pipe|پائپ)?\s*(?:=|:)?\s*(Medium|Heavy|Light)/iu)?.[1];
+    };
     document={...document,...(caption.customerName?{customerName:caption.customerName}:{}),
       ...(caption.customerAddress?{customerAddress:caption.customerAddress}:{}),
+      ...(chosenBrand?{requestedBrand:chosenBrand}:{}),
       ...(caption.percent!==undefined?{discountPercent:caption.percent}:{})};
+    // Header observations never veto explicit text/voice choices. Keep real
+    // unreadable-row warnings; remove only overridden metadata conflicts.
+    document.warnings=document.warnings.filter(w=>!(
+      /پرچیوں میں.*مختلف ہے/u.test(w)&&((caption.customerName&&/گاہک کا نام/u.test(w))||
+      (caption.customerAddress&&/گاہک کا پتہ/u.test(w))||(chosenBrand&&/برانڈ/u.test(w))||
+      (demandDiscounts(input.message??'').length&&/رعایت/u.test(w)))));
     document.lines=document.lines.map(line=>{
       const source=canonicalSlipWords([line.productName,line.rawShorthand].filter(Boolean).join(" "));
       const hardware=hardwareKind(source);
       if(hardware){
         const keepSize=!['cloth','thread','teflon'].includes(hardware);
-        const normalized={...line,productName:hardwareLabel(source),material:null,unit:line.unit??(hardware==='cloth'?'gaz':'pcs')};
+        const normalized={...line,productName:hardwareLabel(source),material:null,unit:hardware==='thread'?'pcs':line.unit??(hardware==='cloth'?'gaz':'pcs')};
         if(!keepSize)delete normalized.size;
         return normalized;
       }
       const size=line.size||source.match(/\d+(?:[-\s]+\d+\/\d+|\/\d+|\.\d+)?(?:\s*[x×*]\s*\d+(?:\/\d+|\.\d+)?)*\s*(?:mm\b|inch\b|["″])/iu)?.[0];
+      // A carried page heading is only an OCR hint. With an explicit mixed
+      // PPR/U-PVC request, unheaded metric fittings use the PPR catalog family.
+      const material=line.material==='U-PVC'&&/mm\b/iu.test(size??'')&&/ppr[\s-]*c/iu.test(input.message??'')&&
+        !/\b(?:u[\s-]*)?pvc\b/iu.test(line.rawShorthand??'')&&/elbow|tee|socket|end.?cap|gate.?valve|plug/iu.test(source)?'PPR-C':line.material;
       if(!size&&/\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(source))
         document.warnings.push(line.productName+": سائز واضح نہیں؛ قطر درست کر دیں۔");
-      return {...line,...(size?{size}:{} )};
+      const threadedChoice=gender&&/ppr/iu.test([material,source].join(' '))&&/elbow|tee|socket/iu.test(source)&&/\d+\s*[x×*]\s*\d+\s*\//u.test(size??'')?(/female|فیمیل/iu.test(gender)?'Female':'Male'):undefined;
+      const standardElbow=material==='U-PVC'&&/\belbow\b/iu.test(source)&&!/\b(?:45|90|female|male|plug)\b/iu.test([source,line.specification].join(' '))?'90°':undefined;
+      const observedSpec=(/^plain$/iu.test(line.specification??'')&&!/\b(?:elbow|tee|socket|adapter|union)\b/iu.test(source))||
+        (/^(?:single|double)$/iu.test(line.specification??'')&&!/\bp[ -]*trap\b/iu.test(source))?null:line.specification;
+      const specification=threadedChoice??standardElbow??(/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined)??observedSpec;
+      const exceptions=brandExceptions.filter(rule=>new RegExp('\\b'+rule.family+'\\b','iu').test(source)&&matchesProductSpecification(rule.query,[source,size,specification].filter(Boolean).join(' ')));
+      const rowBrand=exceptions.length===1?exceptions[0]!.brand:chosenBrand;
+      return {...line,material,specification:specification??null,...(size?{size}:{} ),...(rowBrand?{brandHint:rowBrand}:{}),...(specification?{productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light|Female|Male)\b/giu,'').trim()}:{} )};
     });
     // Prices/totals are visible observations for review, never fed to tools or
     // signed state as business authority. Only names and user choices enter NLP.
@@ -167,18 +206,19 @@ export class MultimodalAgentInput {
     if(countMismatch)document.warnings.push("پرچی کی گنتی اور نکالے گئے آئٹمز کی تعداد مختلف ہے؛ تمام لائنیں دوبارہ دیکھ لیں۔");
     const unreadable=document.warnings.some(warning=>/unreadable.{0,20}line|illegible.{0,20}line|omitted|missing.{0,20}line|نہیں\s*پڑھ/iu.test(warning));
     const reviewRequired = unreadable || document.lines.some(line => line.quantity === null) || document.lines.length === 0 || countMismatch;
-    const brand=brandsInText(input.message??"").length>1?undefined:explicitBrand(input.message??"")??document.requestedBrand??undefined;
+    const brand=brandsInText(instruction).length>1?undefined:chosenBrand??document.requestedBrand??undefined;
     const estimateRequest={mode:DEMAND_SLIP_ESTIMATE,...(document.customerName?{customerName:document.customerName}:{}),...(caption.customerPhone?{customerPhone:caption.customerPhone}:{}),
       ...(document.customerAddress?{customerAddress:document.customerAddress}:{}),...(brand?{brand}:{}),
       ...(caption.percent!==undefined?{discountScheme:{percent:caption.percent}}:{}),
       ...(demandDiscounts(input.message??'').length?{pricingRules:demandDiscounts(input.message??'')}:{}),
-      items:document.lines.map(line=>({name:[hardwareKind(line.productName)?null:line.material,line.productName,line.specification].filter(Boolean).join(" "),qty:line.quantity,
+      items:document.lines.map(line=>({name:[hardwareKind(line.productName)?null:line.material,line.productName,
+        line.specification&&!canonicalSlipWords(line.productName).toLowerCase().includes(canonicalSlipWords(line.specification).toLowerCase())?line.specification:null].filter(Boolean).join(" "),qty:line.quantity,
         ...(!hardwareKind(line.productName)&&((!line.size&&/pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug/iu.test(canonicalSlipWords(line.productName)))||(()=>{const rawSize=line.rawShorthand?.match(/\d+(?:\/\d+|\.\d+)?\s*(?:mm\b|inch\b|["″])/iu)?.[0];return rawSize&&line.size&&!matchesProductSpecification(rawSize,line.size);})())?{specificationPending:true}:{}),
         ...(line.unit?{unit:line.unit}:{}),...(line.size?{size:line.size}:{}),
         ...(brand??line.brandHint?{brand:brand??line.brandHint}:{}),
         ...(caption.percent!==undefined?{discount:caption.percent}:{}),
         ...(line.rawShorthand?{rawShorthand:line.rawShorthand}:{})}))};
     const boundedMessage=message.length>20_000 ? (input.message??"ایسٹیمیٹ تیار کریں۔")+"\n"+document.lines.length+" مکمل لائنیں ساختہ پرچی میں محفوظ ہیں؛ قیمتیں ERP سے لیں۔" : message;
-    return { message:boundedMessage, reviewRequired,estimateRequest, extraction: { source: input.source, document,...(transcript?{transcript}:{}), mediaRetained: false as const } };
+    return { message:boundedMessage,userInstruction:input.message, reviewRequired,estimateRequest, extraction: { source: input.source, document,...(transcript?{transcript}:{}), mediaRetained: false as const } };
   }
 }

@@ -32,7 +32,24 @@ export const plumberSlipLineSchema=z.strictObject({
 });
 export const plumberSlipDocumentSchema=businessDocumentSchema.extend({lines:z.array(plumberSlipLineSchema).max(500)}).strict();
 const combinedSlipSchema = plumberSlipDocumentSchema.extend({ transcript: z.string().trim().max(20_000).nullable() }).strict();
-const plumberInstructions="For EVERY line return raw_line (verbatim handwriting), item_name, material (PPR-C/U-PVC/G.I. or null), size (MANDATORY key; exact diameter, including reducer pairs such as 32x25mm), specification (Plain/Female Threaded/Male Threaded/PN-16/PN-20/Medium/Single/Plastic Head when visible), quantity, unit (length/pcs/can/bag/kg/gaz or null). Preserve an explicitly written kg or کلو as kg, never bag or pieces. Preserve گز as gaz without converting it to pipe lengths or pieces. Read the size column on each row, including ditto marks that explicitly repeat the preceding diameter. NEVER discard sizes or mix size with quantity. Cloth ململ is measured in gaz (گز), never classify it as a plastic pipe. دھاگہ is thread sold as balls, not a plug/end cap. آری بلیڈ is a saw blade; کنکشن پائپ is miscellaneous connection pipe; preserve its written length (2ft = 24 inch) only when visible. Hardware is not automatically the page heading material. Pakistani shop vocabulary: البو/ایلو/ایلبو=Elbow, ٹی/ٹی ساکٹ=Tee, پی ٹریپ/پی ٹرپ=P-Trap, گیٹ والو=Gate Valve. Do not invent an angle, thread, diameter or quantity to resolve genuine ambiguity; retain the raw line and a precise Urdu warning. A confidence score alone is NOT a reason to omit a readable line. ";
+const plumberInstructions="For EVERY line return raw_line (verbatim handwriting), item_name, material (PPR-C/U-PVC/G.I. or null), size (MANDATORY key; exact diameter, including reducer pairs such as 32x25mm), specification (Plain/Female Threaded/Male Threaded/PN-16/PN-20/Medium/Single/Plastic Head when visible), quantity, unit (length/pcs/can/bag/kg/gaz or null). Preserve an explicitly written kg or کلو as kg, never bag or pieces. Preserve گز as gaz without converting it to pipe lengths or pieces. Read the size column on each row, including ditto marks that explicitly repeat the preceding diameter. NEVER discard sizes or mix size with quantity. Cloth ململ is measured in gaz (گز), never classify it as a plastic pipe. دھاگہ is thread sold as balls (pcs), NEVER kg, and is not a plug/end cap. Read each quantity from the SAME physical row as its item and size. Check adjacent pipe rows independently: a 6 inch pipe row showing 4 means 4 length; a 4 inch pipe row showing 18 means 18 length. Never swap their quantities. Recheck handwritten grinder blade diameter: distinguish 7 inch from 1 inch using the original stroke; do not copy a nearby quantity into its size. آری بلیڈ is a saw blade; کنکشن پائپ is miscellaneous connection pipe; preserve its written length (2ft = 24 inch) only when visible. Hardware is not automatically the page heading material. Pakistani shop vocabulary: البو/ایلو/ایلبو=Elbow, ٹی/ٹی ساکٹ=Tee, پی ٹریپ/پی ٹرپ=P-Trap, گیٹ والو=Gate Valve. Do not invent an angle, thread, diameter or quantity to resolve genuine ambiguity; retain the raw line and a precise Urdu warning. A confidence score alone is NOT a reason to omit a readable line. ";
+
+/** Overlapping detail views keep small handwriting readable without retaining images. */
+async function slipDetailViews(page:unknown):Promise<unknown[]> {
+  const image=page as {type?:string;image_url?:string};
+  if(image?.type!=='input_image'||!image.image_url?.startsWith('data:image/'))return [];
+  const {loadImage,createCanvas}=await import('@napi-rs/canvas');
+  const original=await loadImage(Buffer.from(image.image_url.slice(image.image_url.indexOf(',')+1),'base64'));
+  if(original.width<512||original.height<768)return [];
+  const scale=Math.min(2,1920/original.width),height=Math.ceil(original.height*.6);
+  const views:unknown[]=[];
+  for(const top of [0,original.height-height]){
+    const canvas=createCanvas(Math.ceil(original.width*scale),Math.ceil(height*scale));
+    canvas.getContext('2d').drawImage(original,0,top,original.width,height,0,0,canvas.width,canvas.height);
+    views.push({type:'input_image',image_url:'data:image/jpeg;base64,'+canvas.toBuffer('image/jpeg',95).toString('base64'),detail:'high'});
+  }
+  return views;
+}
 
 /** Keep page order and every line; repeated lines may be separate quantities. */
 export function mergeBusinessDocuments(documents: BusinessDocument[]): BusinessDocument {
@@ -70,7 +87,7 @@ export function normalizeBusinessNumbers(raw: unknown): unknown {
     if(line && typeof line==="object" && "raw_line" in line){
       const row=line as Record<string,unknown>;
       resultLines[index]={productName:row.item_name,rawShorthand:row.raw_line,material:row.material,specification:row.specification,
-        ...(row.size?{size:row.size}:{}),quantity:row.quantity,unit:row.unit,productCode:null,brandHint:result.requestedBrand??null,unitRate:null,discountPercent:null,confidence:result.confidence??1};
+        ...(row.size&&!/^(?:null|none|n\/a)$/iu.test(String(row.size))?{size:row.size}:{}),quantity:row.quantity,unit:row.unit,productCode:null,brandHint:result.requestedBrand??null,unitRate:null,discountPercent:null,confidence:result.confidence??1};
       line=resultLines[index];
     }
     if (line && typeof line === "object" && !Array.isArray(line)) normalize(line, ["quantity", "unitRate", "discountPercent"], `Line ${index + 1} `);
@@ -107,15 +124,21 @@ export class ProviderBusinessInput implements AiInputProvider {
       const firstSchema = explicitCatalog ? RateListCatalogPageSchema : demandSlip?z.union([plumberSlipDocumentSchema,businessDocumentSchema]):z.union([RateListCatalogPageSchema, businessDocumentSchema]);
       const recovery = { recoverIncomplete: recoverCatalogPage, format: "json" as const };
       const recoverable = (error: unknown) => error instanceof ApiError && ["AI_INCOMPLETE", "AI_INVALID_OUTPUT"].includes(error.code);
+      const generate=async(...args:Parameters<StructuredAiProvider['generate']>)=>{
+        for(let attempt=0;;attempt++)try{return await this.provider.generate(...args);}catch(error){
+          if(!demandSlip||attempt>=2||!(error instanceof ApiError)||error.code!=='AI_PROVIDER_RATE_LIMITED')throw error;
+          await new Promise(resolve=>setTimeout(resolve,30_000));
+        }
+      };
       const omittedPages: string[] = [];
       let first: unknown;
       try {
         const instructions=explicitCatalog ? catalogInstructions : slipInstructions + (demandSlip?plumberInstructions:"")+
-          (demandSlip?"Mode DEMAND_SLIP_ESTIMATE (demand-slip estimate): this is an item/size/quantity DEMAND LIST with no prices expected. Never request printed prices or reject a demand slip for missing prices. Set observed monetary fields to null. Return the business document shape, not a catalog. ":"Classify visually first; a price list uses the catalog shape, otherwise use the business document shape. ")+"Extract EVERY demand-slip line on this page (up to 200); never a sample. Missing fields null. Read the user's caption as customer/brand/discount choices: explicit typed customerName, customerAddress, requestedBrand and discountPercent take precedence over printed headings. Never invent missing quantities, addresses or prices. Do not apply catalog rules to demand slips. "+(demandSlip?"":"CATALOG RULES (only for a visually identified rate list): "+catalogInstructions)+examples;
-        try{first=await this.provider.generate(firstSchema,instructions,pageContent(content[0]),explicitCatalog?recovery:{maxOutputTokens:32000});}
+          (demandSlip?"Mode DEMAND_SLIP_ESTIMATE (demand-slip estimate): this is an item/size/quantity DEMAND LIST with no prices expected. Never request printed prices or reject a demand slip for missing prices. Set observed monetary fields to null. Return the business document shape, not a catalog. ":"Classify visually first; a price list uses the catalog shape, otherwise use the business document shape. ")+"Extract EVERY demand-slip line on this page (up to 200); never a sample. Count physical item rows independently in EACH column before emitting observedLineCount. Include bottom rows partly covered by camera watermarks when readable. Never merge repeated item names across columns: they are separate source rows and may have different quantities. Cross-check each returned quantity against its raw_line, including two-digit quantities such as 24; do not drop a leading digit. Missing fields null. Read the user's caption as customer/brand/discount choices: explicit typed customerName, customerAddress, requestedBrand and discountPercent take precedence over printed headings. Never invent missing quantities, addresses or prices. Do not apply catalog rules to demand slips. "+(demandSlip?"":"CATALOG RULES (only for a visually identified rate list): "+catalogInstructions)+examples;
+        try{first=await generate(firstSchema,instructions,pageContent(content[0]),explicitCatalog?recovery:{maxOutputTokens:32000});}
         catch(error){
           if(!demandSlip||!recoverable(error))throw error;
-          first=await this.provider.generate(firstSchema,instructions+" Re-read this page carefully after an incomplete extraction; include the entire size column.",pageContent(content[0]),{maxOutputTokens:32000});
+          first=await generate(firstSchema,instructions+" Re-read this page carefully after an incomplete extraction; include the entire size column.",pageContent(content[0]),{maxOutputTokens:32000});
         }
       } catch (error) {
         if (!explicitCatalog || !recoverable(error)) throw error;
@@ -142,6 +165,16 @@ export class ProviderBusinessInput implements AiInputProvider {
         fields.catalog = { value: result, source: request.source, confidence: result.confidence };
         return { draftId: "input-proposal", source: request.source, intent: request.intent, userId: request.userId,
           organizationId: request.organizationId, status: "draft", requiresConfirmation: true, fields };
+      }
+      // Handwritten demand rows need a visual verification pass. A syntactically
+      // valid first reading can still repeat a neighbouring diameter or confuse
+      // handwritten 2/3/4. Verify against the original page, not ERP or totals.
+      const handwritten=first as {lines?:Array<{raw_line?:string}>}|undefined;
+      if(demandSlip&&handwritten?.lines?.some(line=>typeof line.raw_line==='string')){
+        const verify=async()=>generate(firstSchema,
+          slipInstructions+plumberInstructions+'VISUAL VERIFICATION PASS: independently reread every row of the original image. The preliminary reading is untrusted and may be wrong. Check each diameter and quantity against its own physical row; never carry a diameter into the next row. Distinguish handwritten 2 from 3 and 4 from 6 using the original strokes. Keep the same physical order and include every uncrossed row across both columns. Correct raw_line as well as parsed fields when the preliminary reading was wrong. Do not use a desired total or catalog price as evidence. Preserve only explicit caption corrections. Return the complete verified document, not a diff.',
+          [...pageContent(content[0]),...await slipDetailViews(content[0]),{type:'input_text',text:'The extra images are overlapping enlarged TOP and BOTTOM views of the SAME page, not additional pages. Count each physical row once. Independently read the original strokes. Compare each handwritten digit with the same writer\'s other digits on this page. Do not copy a preliminary reading; return the complete document.'}],{maxOutputTokens:32000});
+        try{first=await verify();}catch(error){if(!recoverable(error))throw error;first=await verify();}
       }
       const documents=[businessDocumentSchema.parse(normalizeBusinessNumbers(first))];
       for(const page of content.slice(1)) documents.push(businessDocumentSchema.parse(normalizeBusinessNumbers(await this.provider.generate(plumberSlipDocumentSchema,

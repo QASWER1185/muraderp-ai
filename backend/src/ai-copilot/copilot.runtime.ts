@@ -266,14 +266,20 @@ export class CopilotRuntime {
     if(prepared.data.newCustomer)await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"customers.write");
     const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
+    if(prepared.data.mode==='DEMAND_SLIP_ESTIMATE'){
+      const saved=await this.saveDemandDraft(record.id,scope);
+      prepared.preview.savedEstimate=saved;
+      prepared.preview.summary=`جناب، گاہک ${prepared.data.customerName} اور DRAFT ایسٹیمیٹ ${saved.estimate_number} ERP میں محفوظ ہیں۔\n`+prepared.preview.summary;
+    }
     return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:!prepared.data.incomplete&&prepared.data.mode!=='DEMAND_SLIP_ESTIMATE'};
   }
   async saveDemandDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}){
     const source=await this.inspectUnifiedDraft(draftId,scope);
     if(source.tool!=='erp_create_estimate')throw new ApiError(422,'ERP_ACTION_CLARIFICATION','جناب، ایسٹیمیٹ کا مسودہ منتخب کریں۔');
-    // persistPlan already stores every original row durably, including rows
-    // without product IDs/rates. Never coerce them to zero-price native lines.
-    return {draftId,status:'DRAFT',saved:true,lineCount:source.items.length,storage:'ai_copilot_actions',financialPosting:false,message:`جناب، تمام ${source.items.length} آئٹمز والا ایسٹیمیٹ کا مسودہ محفوظ ہے۔ حوالہ: ${draftId}۔ اسی گفتگو میں نرخ یا مقدار تبدیل کر سکتے ہیں۔`};
+    const {data,error}=await this.dependencies.database().rpc('save_copilot_demand_estimate',{
+      p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_action_id:draftId});
+    if(error)throw new ApiError(422,'DEMAND_DRAFT_SAVE_FAILED','ایسٹیمیٹ محفوظ نہیں ہو سکا؛ دوبارہ کوشش کریں۔');
+    return {...data,draftId,status:'DRAFT',saved:true,lineCount:source.items.length,storage:'estimates',financialPosting:false};
   }
   async inspectUnifiedDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}) {
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
