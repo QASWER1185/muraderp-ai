@@ -2,6 +2,7 @@
 export function canonicalBrand(value: string): string {
   const normalized=value.normalize("NFKC").trim().toLowerCase().replace(/[\s_-]+/g," ");
   if (/^(?:d[ue]ra\s*max|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس)$/u.test(normalized)) return "Dura Max";
+  if (/^(?:dura\s*flow|(?:ڈیورا|ڈورا|دورا)\s*فلو)$/u.test(normalized)) return "Dura Flow";
   if(/^(?:popular|پاپولر)$/u.test(normalized))return "Popular";
   if(/^(?:turk\s*plast|ترک\s*پلاسٹ)$/u.test(normalized))return "Turk Plast";
   if(/^(?:he\s*china|ایچ\s*ای\s*چائنا)$/u.test(normalized))return "HE China";
@@ -14,6 +15,7 @@ export function explicitBrand(value: string): string | undefined {
 export function brandsInText(value:string):string[] {
   return [
     {name:"Dura Max",pattern:/\b(?:dura|dera)\s*max\b|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس/iu},
+    {name:"Dura Flow",pattern:/\bdura\s*flow\b|(?:ڈیورا|ڈورا|دورا)\s*فلو/iu},
     {name:"Popular",pattern:/\bpopular\b|پاپولر/iu},
     {name:"Turk Plast",pattern:/\bturk\s*plast\b|ترک\s*پلاسٹ/iu},
     {name:"HE China",pattern:/\bhe\s*china\b|ایچ\s*ای\s*چائنا/iu},

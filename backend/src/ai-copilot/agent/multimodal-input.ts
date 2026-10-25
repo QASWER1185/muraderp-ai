@@ -139,7 +139,16 @@ export class MultimodalAgentInput {
   }
   private documentResult(document:BusinessDocument,input:MultimodalInput,transcript?:string) {
     const caption=estimateCaptionChoices(input.message??"");
-    const chosenBrand=explicitBrand(input.message??'');
+    const instruction=input.message??'';
+    const defaultBrand=instruction.match(/(?:brand|برانڈ)\s*[:=]\s*([^.;\n،]+)/iu)?.[1];
+    const chosenBrand=explicitBrand(defaultBrand??instruction);
+    // A brand exception belongs to its exact fitting specification, never to
+    // every row. Only the owner's caption supplies this authority, not OCR.
+    const brandExceptions=instruction.split(/[;\n۔]|\.(?=\s|$)/u).flatMap(clause=>{
+      const brand=explicitBrand(clause),query=canonicalSlipWords(clause);
+      const family=query.match(/\b(elbow|tee|socket|pipe|valve|end\s*cap)\b/iu)?.[0];
+      return brand&&family&&/\d+\s*(?:inch|mm|["″])/iu.test(query)&&/\b(?:use|for)\b|لگا|استعمال/iu.test(clause)?[{brand,query,family}]:[];
+    });
     const gender=(input.message??'').match(/(?:fittings?|فٹنگز?)\s*(?:=|:)?\s*(female|male|فیمیل|میل)\b/iu)?.[1];
     const pipeSpec=(material:string)=>{
       const text=input.message??'';
@@ -168,13 +177,18 @@ export class MultimodalAgentInput {
       const size=line.size||source.match(/\d+(?:[-\s]+\d+\/\d+|\/\d+|\.\d+)?(?:\s*[x×*]\s*\d+(?:\/\d+|\.\d+)?)*\s*(?:mm\b|inch\b|["″])/iu)?.[0];
       // A carried page heading is only an OCR hint. With an explicit mixed
       // PPR/U-PVC request, unheaded metric fittings use the PPR catalog family.
-      const material=line.material==='U-PVC'&&/\bmm\b/iu.test(size??'')&&/ppr[\s-]*c/iu.test(input.message??'')&&
+      const material=line.material==='U-PVC'&&/mm\b/iu.test(size??'')&&/ppr[\s-]*c/iu.test(input.message??'')&&
         !/\b(?:u[\s-]*)?pvc\b/iu.test(line.rawShorthand??'')&&/elbow|tee|socket|end.?cap|gate.?valve|plug/iu.test(source)?'PPR-C':line.material;
       if(!size&&/\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(source))
         document.warnings.push(line.productName+": سائز واضح نہیں؛ قطر درست کر دیں۔");
       const threadedChoice=gender&&/ppr/iu.test([material,source].join(' '))&&/elbow|tee|socket/iu.test(source)&&/\d+\s*[x×*]\s*\d+\s*\//u.test(size??'')?(/female|فیمیل/iu.test(gender)?'Female':'Male'):undefined;
-      const specification=threadedChoice??(/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined);
-      return {...line,material,...(size?{size}:{} ),...(chosenBrand?{brandHint:chosenBrand}:{}),...(specification?{specification,productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light|Female|Male)\b/giu,'').trim()}:{} )};
+      const standardElbow=material==='U-PVC'&&/\belbow\b/iu.test(source)&&!/\b(?:45|90|female|male|plug)\b/iu.test([source,line.specification].join(' '))?'90°':undefined;
+      const observedSpec=(/^plain$/iu.test(line.specification??'')&&!/\b(?:elbow|tee|socket|adapter|union)\b/iu.test(source))||
+        (/^(?:single|double)$/iu.test(line.specification??'')&&!/\bp[ -]*trap\b/iu.test(source))?null:line.specification;
+      const specification=threadedChoice??standardElbow??(/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined)??observedSpec;
+      const exceptions=brandExceptions.filter(rule=>new RegExp('\\b'+rule.family+'\\b','iu').test(source)&&matchesProductSpecification(rule.query,[source,size,specification].filter(Boolean).join(' ')));
+      const rowBrand=exceptions.length===1?exceptions[0]!.brand:chosenBrand;
+      return {...line,material,specification:specification??null,...(size?{size}:{} ),...(rowBrand?{brandHint:rowBrand}:{}),...(specification?{productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light|Female|Male)\b/giu,'').trim()}:{} )};
     });
     // Prices/totals are visible observations for review, never fed to tools or
     // signed state as business authority. Only names and user choices enter NLP.
@@ -189,12 +203,13 @@ export class MultimodalAgentInput {
     if(countMismatch)document.warnings.push("پرچی کی گنتی اور نکالے گئے آئٹمز کی تعداد مختلف ہے؛ تمام لائنیں دوبارہ دیکھ لیں۔");
     const unreadable=document.warnings.some(warning=>/unreadable.{0,20}line|illegible.{0,20}line|omitted|missing.{0,20}line|نہیں\s*پڑھ/iu.test(warning));
     const reviewRequired = unreadable || document.lines.some(line => line.quantity === null) || document.lines.length === 0 || countMismatch;
-    const brand=brandsInText(input.message??"").length>1?undefined:explicitBrand(input.message??"")??document.requestedBrand??undefined;
+    const brand=brandsInText(instruction).length>1?undefined:chosenBrand??document.requestedBrand??undefined;
     const estimateRequest={mode:DEMAND_SLIP_ESTIMATE,...(document.customerName?{customerName:document.customerName}:{}),...(caption.customerPhone?{customerPhone:caption.customerPhone}:{}),
       ...(document.customerAddress?{customerAddress:document.customerAddress}:{}),...(brand?{brand}:{}),
       ...(caption.percent!==undefined?{discountScheme:{percent:caption.percent}}:{}),
       ...(demandDiscounts(input.message??'').length?{pricingRules:demandDiscounts(input.message??'')}:{}),
-      items:document.lines.map(line=>({name:[hardwareKind(line.productName)?null:line.material,line.productName,line.specification].filter(Boolean).join(" "),qty:line.quantity,
+      items:document.lines.map(line=>({name:[hardwareKind(line.productName)?null:line.material,line.productName,
+        line.specification&&!canonicalSlipWords(line.productName).toLowerCase().includes(canonicalSlipWords(line.specification).toLowerCase())?line.specification:null].filter(Boolean).join(" "),qty:line.quantity,
         ...(!hardwareKind(line.productName)&&((!line.size&&/pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug/iu.test(canonicalSlipWords(line.productName)))||(()=>{const rawSize=line.rawShorthand?.match(/\d+(?:\/\d+|\.\d+)?\s*(?:mm\b|inch\b|["″])/iu)?.[0];return rawSize&&line.size&&!matchesProductSpecification(rawSize,line.size);})())?{specificationPending:true}:{}),
         ...(line.unit?{unit:line.unit}:{}),...(line.size?{size:line.size}:{}),
         ...(brand??line.brandHint?{brand:brand??line.brandHint}:{}),

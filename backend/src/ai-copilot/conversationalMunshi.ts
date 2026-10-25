@@ -7,6 +7,7 @@ export function canonicalSlipWords(value:string):string {
     .replace(/ٹی\s*ساکٹ|ٹی\s*جوائنٹ|(?:^|\s)ٹی(?=\s|$)/gu," Tee ")
     .replace(/ساکٹ|سوکٹ/gu,"Socket").replace(/\btee\b/giu,"Tee")
     .replace(/\by[ -]*tee\b/giu,'Yee').replace(/\breduce\b/giu,'Reducing')
+    .replace(/\bcross[ -]*over\b|\bover[ -]*cross\b/giu,'Over Cross')
     .replace(/(?:یو\s*)?پی\s*وی\s*سی|\b(?:u\s*-?\s*)?pvc\b/giu,"U-PVC").replace(/پی\s*پی\s*آر\s*سی|\bpprc\b/giu,"PPR-C")
     .replace(/ڈگری|\bdegrees?\b/giu,"°").replace(/انچ/gu,"inch")
     .replace(/\b(elbow|bend)\s+(45|90)(?!\d)(?!\s*°)/giu,"$1 $2°")
@@ -14,7 +15,7 @@ export function canonicalSlipWords(value:string):string {
     .replace(/پاپولر/gu,"Popular").replace(/ترک\s*پلاسٹ/gu,"Turk Plast").replace(/ایچ\s*ای\s*چائنا/gu,"HE China")
     .replace(/پائپ/gu,"Pipe").replace(/ٹیفلون/gu,"Teflon").replace(/سلوشن/gu,"Solvent Solution")
     .replace(/\bsolvent\s+solution\b/giu,"Solvent")
-    .replace(/\b(?:solutation|solution|solituion|selitium)\b/giu,'Solvent')
+    .replace(/\b(?:solutation|solution|solituion|solutuion|selitium)\b/giu,'Solvent')
     .replace(/(\d)\s*(?:g|gm|gms|grams?)\b/giu,"$1 g")
     .replace(/یونین/gu,"Union").replace(/پلگ/gu,"Plug").replace(/والو/gu,"Valve")
     .replace(/فیمیل/gu,"Female").replace(/ایڈاپٹر/gu,"Adapter").replace(/میڈیم/gu,"Medium").replace(/کنڈوئٹ/gu,"Conduit").replace(/\s+/g," ").trim();

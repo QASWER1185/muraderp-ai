@@ -25,7 +25,13 @@ function document(index=0){return {customerName:null,customerAddress:null,reques
   observedLineCount:1,ignoredLineCount:0,discountPercent:20,subtotal:null,total:null,confidence:.7,warnings:["Printed rates are observations only."]};}
 function setup(makeDocument=document){
   let index=0;
-  const fetcher=vi.fn<typeof fetch>(async()=>new Response(JSON.stringify({candidates:[{finishReason:"STOP",content:{parts:[{functionCall:{name:"erp_proposal",args:{proposal:makeDocument(index++)}}}]}}]})));
+  const fetcher=vi.fn<typeof fetch>(async(_url,options)=>{
+    const body=JSON.parse(String(options?.body));
+    const marker='Untrusted preliminary reading for comparison only: ';
+    const preliminary=body.contents?.flatMap((turn:any)=>turn.parts??[]).find((part:any)=>part.text?.includes(marker));
+    const proposal=preliminary?JSON.parse(preliminary.text.slice(preliminary.text.indexOf(marker)+marker.length)):makeDocument(index++);
+    return new Response(JSON.stringify({candidates:[{finishReason:"STOP",content:{parts:[{functionCall:{name:"erp_proposal",args:{proposal}}}]}}]}));
+  });
   const provider=new GeminiAdapter({provider:"gemini",model:"test-gemini-model",speechModel:"test-model",apiKey:"synthetic-test-provider-key"},fetcher);
   const products=[{id:11,name:"Dura Max PPR-C Elbow 25mm",sku:"DM-25",unit:"pcs",brand_id:5,category:"Fittings"},
     {id:12,name:"Dura Max PPR-C Elbow 32mm",sku:"DM-32",unit:"pcs",brand_id:5,category:"Fittings"}];
@@ -54,6 +60,17 @@ function setup(makeDocument=document){
 }
 
 describe("authenticated WhatsApp slip → one complete Urdu estimate preview",()=>{
+  it('uses the original-image verification to correct a valid but wrongly read diameter and quantity',async()=>{
+    const f=setup(),first=document(1),verified=document(0);first.lines[0]!.quantity=2;
+    const responseFor=(proposal:unknown)=>new Response(JSON.stringify({candidates:[{finishReason:'STOP',content:{parts:[{functionCall:{name:'erp_proposal',args:{proposal}}}]}}]}));
+    f.fetcher.mockResolvedValueOnce(responseFor(first)).mockResolvedValueOnce(responseFor(verified));
+    const image=createCanvas(900,1200).toBuffer('image/jpeg').toString('base64');
+    const response=await f.post({source:'image',task:'estimate',message:caption,media:{mimeType:'image/jpeg',base64:image}});
+    expect(response.status).toBe(200);expect(response.body.data.review.preview.lines[0]).toMatchObject({product_id:11,quantity:3,unit_price:100});
+    const calls=f.fetcher.mock.calls.map(call=>JSON.parse(String(call[1]?.body)));
+    expect(calls[1].contents[0].parts.filter((part:any)=>part.inlineData)).toHaveLength(3);
+    expect(calls[1].contents[0].parts[0].inlineData.data).toBe(image);
+  });
   it('forces the exact Urdu demand prompt through all 58 rows despite rate-list filenames and non-blocking warnings',async()=>{
     const all=[...Array.from({length:52},()=>({raw_line:'Elbow 25mm 3pcs',item_name:'Elbow',material:'PPR-C',size:'25mm',specification:null,quantity:3,unit:'pcs'})),...['ململ','دھاگہ','ٹیفلون ٹیپ','کنکشن پائپ','آری بلیڈ','Blade'].map((name,i)=>({raw_line:name,item_name:name,material:null,size:i===3?'24 inch':i===5?'7 inch':null,specification:null,quantity:[4,8,40,4,2,2][i],unit:i===0?'gaz':'pcs'}))];
     const f=setup((page=0)=>({...document(),lines:all.slice(page*20,page===2?58:(page+1)*20),observedLineCount:page===2?18:20,warnings:['مادی قسم کی وضاحت نامکمل ہو سکتی ہے؛ ہر سطر کا اصل متن محفوظ ہے۔']} as any));
@@ -88,7 +105,7 @@ describe("authenticated WhatsApp slip → one complete Urdu estimate preview",()
   it("consolidates ten simultaneous image attachments into one full preview",async()=>{
     const f=setup();
     const response=await f.post({source:"image",task:"estimate",message:caption,attachments:Array.from({length:10},(_,i)=>({fileName:`slip-${i}.jpeg`,media:{mimeType:"image/jpeg",base64:jpeg}}))});
-    expect(response.status).toBe(200);expect(f.fetcher).toHaveBeenCalledTimes(10);expect(f.execute).toHaveBeenCalledOnce();
+    expect(response.status).toBe(200);expect(f.fetcher).toHaveBeenCalledTimes(20);expect(f.execute).toHaveBeenCalledOnce();
     expect(response.body.data.review.preview.lines).toHaveLength(10);
     expect(response.body.data.review.preview.totals.grand_total).toBe(2250);
     expect(response.body.data.extraction.document.observedLineCount).toBe(10);

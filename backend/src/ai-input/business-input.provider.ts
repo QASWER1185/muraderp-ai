@@ -34,6 +34,23 @@ export const plumberSlipDocumentSchema=businessDocumentSchema.extend({lines:z.ar
 const combinedSlipSchema = plumberSlipDocumentSchema.extend({ transcript: z.string().trim().max(20_000).nullable() }).strict();
 const plumberInstructions="For EVERY line return raw_line (verbatim handwriting), item_name, material (PPR-C/U-PVC/G.I. or null), size (MANDATORY key; exact diameter, including reducer pairs such as 32x25mm), specification (Plain/Female Threaded/Male Threaded/PN-16/PN-20/Medium/Single/Plastic Head when visible), quantity, unit (length/pcs/can/bag/kg/gaz or null). Preserve an explicitly written kg or کلو as kg, never bag or pieces. Preserve گز as gaz without converting it to pipe lengths or pieces. Read the size column on each row, including ditto marks that explicitly repeat the preceding diameter. NEVER discard sizes or mix size with quantity. Cloth ململ is measured in gaz (گز), never classify it as a plastic pipe. دھاگہ is thread sold as balls (pcs), NEVER kg, and is not a plug/end cap. Read each quantity from the SAME physical row as its item and size. Check adjacent pipe rows independently: a 6 inch pipe row showing 4 means 4 length; a 4 inch pipe row showing 18 means 18 length. Never swap their quantities. Recheck handwritten grinder blade diameter: distinguish 7 inch from 1 inch using the original stroke; do not copy a nearby quantity into its size. آری بلیڈ is a saw blade; کنکشن پائپ is miscellaneous connection pipe; preserve its written length (2ft = 24 inch) only when visible. Hardware is not automatically the page heading material. Pakistani shop vocabulary: البو/ایلو/ایلبو=Elbow, ٹی/ٹی ساکٹ=Tee, پی ٹریپ/پی ٹرپ=P-Trap, گیٹ والو=Gate Valve. Do not invent an angle, thread, diameter or quantity to resolve genuine ambiguity; retain the raw line and a precise Urdu warning. A confidence score alone is NOT a reason to omit a readable line. ";
 
+/** Overlapping detail views keep small handwriting readable without retaining images. */
+async function slipDetailViews(page:unknown):Promise<unknown[]> {
+  const image=page as {type?:string;image_url?:string};
+  if(image?.type!=='input_image'||!image.image_url?.startsWith('data:image/'))return [];
+  const {loadImage,createCanvas}=await import('@napi-rs/canvas');
+  const original=await loadImage(Buffer.from(image.image_url.slice(image.image_url.indexOf(',')+1),'base64'));
+  if(original.width<512||original.height<768)return [];
+  const scale=Math.min(2,1920/original.width),height=Math.ceil(original.height*.6);
+  const views:unknown[]=[];
+  for(const top of [0,original.height-height]){
+    const canvas=createCanvas(Math.ceil(original.width*scale),Math.ceil(height*scale));
+    canvas.getContext('2d').drawImage(original,0,top,original.width,height,0,0,canvas.width,canvas.height);
+    views.push({type:'input_image',image_url:'data:image/jpeg;base64,'+canvas.toBuffer('image/jpeg',95).toString('base64'),detail:'high'});
+  }
+  return views;
+}
+
 /** Keep page order and every line; repeated lines may be separate quantities. */
 export function mergeBusinessDocuments(documents: BusinessDocument[]): BusinessDocument {
   if(!documents.length)throw new ApiError(422,"INVALID_MEDIA","پرچی پڑھنے کے لیے کم از کم ایک تصویر درکار ہے۔");
@@ -142,6 +159,16 @@ export class ProviderBusinessInput implements AiInputProvider {
         fields.catalog = { value: result, source: request.source, confidence: result.confidence };
         return { draftId: "input-proposal", source: request.source, intent: request.intent, userId: request.userId,
           organizationId: request.organizationId, status: "draft", requiresConfirmation: true, fields };
+      }
+      // Handwritten demand rows need a visual verification pass. A syntactically
+      // valid first reading can still repeat a neighbouring diameter or confuse
+      // handwritten 2/3/4. Verify against the original page, not ERP or totals.
+      const handwritten=first as {lines?:Array<{raw_line?:string}>}|undefined;
+      if(demandSlip&&handwritten?.lines?.some(line=>typeof line.raw_line==='string')){
+        const verify=async()=>this.provider.generate(firstSchema,
+          slipInstructions+plumberInstructions+'VISUAL VERIFICATION PASS: independently reread every row of the original image. The preliminary reading is untrusted and may be wrong. Check each diameter and quantity against its own physical row; never carry a diameter into the next row. Distinguish handwritten 2 from 3 and 4 from 6 using the original strokes. Keep the same physical order and include every uncrossed row across both columns. Correct raw_line as well as parsed fields when the preliminary reading was wrong. Do not use a desired total or catalog price as evidence. Preserve only explicit caption corrections. Return the complete verified document, not a diff.',
+          [...pageContent(content[0]),...await slipDetailViews(content[0]),{type:'input_text',text:'The extra images are overlapping enlarged TOP and BOTTOM views of the SAME page, not additional pages. Count each physical row once. Untrusted preliminary reading for comparison only: '+JSON.stringify(first)}],{maxOutputTokens:32000});
+        try{first=await verify();}catch(error){if(!recoverable(error))throw error;first=await verify();}
       }
       const documents=[businessDocumentSchema.parse(normalizeBusinessNumbers(first))];
       for(const page of content.slice(1)) documents.push(businessDocumentSchema.parse(normalizeBusinessNumbers(await this.provider.generate(plumberSlipDocumentSchema,

@@ -177,10 +177,11 @@ export class DefaultErpOperations implements ErpOperations {
         matchesProductSpecification(specification.replace(/\bppr[\s-]*c\b/giu,""),product.name);
       if(!needsMaterialEvidence && !matchesProductSpecification(specification,product.name))
         throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
-      if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
+      if(brand && !sameBrand(product.brand_id==null?explicitBrand(product.name):await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       const countedPipe=(/\bpipe\b/i.test(product.name)||/^pipes?$/i.test(product.category))&&["pcs","length"].includes(canonicalUnit(item.unit??""))&&["pcs","length"].includes(canonicalUnit(product.unit));
-      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe){
+      const countedCan=input.mode===DEMAND_SLIP_ESTIMATE&&item.unit==='can'&&product.unit==='pcs'&&/solvent|solution/iu.test(product.name)&&/\d+\s*g\b/iu.test(product.name)&&/\d+\s*g\b/iu.test(specification);
+      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe&&!countedCan){
         const reason=product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔";
         if(input.mode===DEMAND_SLIP_ESTIMATE)throw new ApiError(422,'ESTIMATE_RATE_PENDING',reason,{productId:product.id,productName:product.name,unit:item.unit});
         requireChoice(reason);

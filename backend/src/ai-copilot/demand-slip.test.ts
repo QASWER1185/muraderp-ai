@@ -24,6 +24,13 @@ function fixture(){
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
+ it('parses all eight comma-free Roman Urdu rates without using dimensions as prices',()=>{
+  expect(hardwareInstructions('bale 7 inch 1500 ari blade 100 coonection pipe 550 nipple 1/2 100 handle valve 1/2 1250 tefloon 50 thread 30 malmal 50 fi gaz').hardwareRates).toEqual([
+   {kind:'blade',rate:1500},{kind:'saw_blade',rate:100},{kind:'connection_pipe',rate:550},{kind:'brass_nipple',rate:100},{kind:'handle_valve',rate:1250},{kind:'teflon',rate:50},{kind:'thread',rate:30},{kind:'cloth',rate:50}]);
+  expect(hardwareInstructions('blade 7 inch nipple 1/2 handle valve 1/2').hardwareRates).toEqual([]);
+  expect(hardwareInstructions('thread 30, thread 40').hardwareRates).toEqual([]);
+  expect(hardwareInstructions('bale 7 inch 1500?').hardwareRates).toEqual([]);
+ });
  it('routes a not-4-inch-but-6-inch correction to the estimate editor instead of declining extras',async()=>{
   const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';state.workingActionMode=DEMAND_SLIP_ESTIMATE;
   const model={respond:vi.fn(async()=>({output:[{type:'function_call',call_id:'size',name:'erp_amend_estimate',arguments:'{}'}],text:''}))};

@@ -19,7 +19,7 @@ export function applyHybridRules<T extends {name?:string;brand?:string;discount?
   const matches=rules.filter(rule=>{
     const category=rule.match.trim().toLowerCase();
     if(/^(?:pipes?|پائپ)$/u.test(category))return /pipe|پائپ/iu.test(item.category??item.name??"");
-    if(/^(?:fittings?|فٹنگ|فٹنگز)$/u.test(category))return /fitting|فٹنگ/iu.test(item.category??"") || /elbow|socket|tee|union|adapter|reducer|coupling|end.?cap|trap|valve|plug|solvent|solution|cement|سلوشن|ساکٹ|ایلبو|یونین/iu.test(item.name??"");
+    if(/^(?:fittings?|فٹنگ|فٹنگز)$/u.test(category))return /fitting|فٹنگ/iu.test(item.category??"") || /elbow|socket|tee|union|adapter|reducer|coupling|end.?cap|trap|valve|plug|over.?cross|cross.?over|solvent|solution|cement|سلوشن|ساکٹ|ایلبو|یونین/iu.test(item.name??"");
     return (item.name??"").toLowerCase().includes(category);
   });
   if(matches.length>1)throw new ApiError(422,"ERP_ACTION_CLARIFICATION","اس آئٹم پر دو برانڈ یا رعایت کی شرطیں لگ رہی ہیں؛ انتخاب واضح کر دیں: "+item.name);

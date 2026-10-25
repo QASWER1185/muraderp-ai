@@ -86,7 +86,12 @@ export class SupabaseEntitySearchService implements EntitySearchService {
     // Plain and threaded are semantic fitting variants; legacy catalog labels
     // often omit those words. Keep them for validation, not lexical retrieval.
     const lookupQuery=catalogQuery.replace(/\bplain\b/giu,"").replace(/\bthreaded\b/giu,"").replace(/\s+/g," ").trim();
-    const rows = await this.search("search_products_fuzzy",lookupQuery,limit,scope,restriction);
+    let rows = await this.search("search_products_fuzzy",lookupQuery,limit,scope,restriction);
+    // Legacy products may name their brand without a brand FK. Search remains
+    // tenant scoped; accept only an explicit matching name, never a fuzzy brand.
+    const rowBrand=(row:Record<string,unknown>)=>row.brand_name==null?explicitBrand(String(row.name)):String(row.brand_name);
+    if(restriction&&!rows.some(row=>sameBrand(rowBrand(row),restriction)&&matchesProductSpecification(catalogQuery.replace(/\bppr[\s-]*c\b/giu,''),String(row.name))))
+      rows=await this.search("search_products_fuzzy",[restriction,lookupQuery.replace(/\b(?:u[\s-]*pvc|ppr[\s-]*c|inch|mm)\b/giu,'')].join(' ').replace(/\s+/g,' ').trim().slice(0,120),limit,scope);
     const headings=new Map<number,string>();
     const needsHeading=rows.filter(row=>(!restriction||sameBrand(row.brand_name as string|null,restriction))&&/\bppr[\s-]?c\b/i.test(catalogQuery)&&!/\bppr[\s-]?c\b/i.test(String(row.name)));
     if(needsHeading.length){
@@ -97,14 +102,14 @@ export class SupabaseEntitySearchService implements EntitySearchService {
       if(error)throw new ApiError(503,"ENTITY_SEARCH_UNAVAILABLE","Catalog material lookup unavailable");
       for(const row of data??[]){const name=row.rate_list_versions?.rate_lists?.name;if(typeof name==="string")headings.set(Number(row.product_id),(headings.get(Number(row.product_id))??"")+" "+name);}
     }
-    const eligible=rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(catalogQuery,String(r.name)+" "+String(r.sku)+" "+(headings.get(Number(r.id))??"")));
-    const identity=(name:string)=>canonicalSlipWords(name).toLowerCase().replace(/\b(?:dura\s*max|popular|turk\s*plast|he\s*china|ppr[\s-]?c|u[\s-]?pvc|plain|threaded)\b/gi,"").replace(/["″]/g,' inch').replace(/(\d)\s*(mm|inch)\b/g,'$1 $2').replace(/(\d)\s*x\s*(?=\d)/g,'$1 x ').match(/[\p{L}\p{N}]+/gu)?.sort().join(' ');
+    const eligible=rows.filter(r=>(!restriction || sameBrand(rowBrand(r),restriction)) && matchesProductSpecification(catalogQuery,String(r.name)+" "+String(r.sku)+" "+(headings.get(Number(r.id))??"")));
+    const identity=(name:string)=>canonicalSlipWords(name).toLowerCase().replace(/\b(?:dura\s*(?:max|flow)|popular|turk\s*plast|he\s*china|ppr[\s-]?c|u[\s-]?pvc|plain|threaded)\b/gi,"").replace(/["″]/g,' inch').replace(/(\d)\s*(mm|inch)\b/g,'$1 $2').replace(/(\d)\s*x\s*(?=\d)/g,'$1 x ').match(/[\p{L}\p{N}]+/gu)?.sort().join(' ');
     // An exact family + complete dimensions beats a different family/angle,
     // while duplicate exact catalog records still require clarification.
     const exact=eligible.filter(row=>identity(String(row.name))===identity(catalogQuery));
     return resolveCandidates((exact.length?exact:eligible).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
       sku: String(r.sku), unit: String(r.unit), category: String(r.category),
-      brandName: r.brand_name == null ? null : String(r.brand_name), confidence: exact.length?1:Number(r.confidence), match_kind: exact.length===1?'exact_name':String(r.match_kind) })),limit);
+      brandName: rowBrand(r)??null, confidence: exact.length?1:Number(r.confidence), match_kind: exact.length===1?'exact_name':String(r.match_kind) })),limit);
   }
 
   async searchCustomers(query: string, limit: number, scope: SearchScope) {

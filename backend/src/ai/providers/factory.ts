@@ -32,7 +32,7 @@ export function createGeminiUserProvider(apiKey?: string, fetcher: typeof fetch 
   const model = env.GEMINI_MODEL ?? (env.AI_PROVIDER === "gemini" && env.AI_MODEL?.trim()
     ? env.AI_MODEL
     : DEFAULT_GEMINI_MODEL);
-  return createAiProvider({ provider: "gemini", apiKey: key, model, speechModel: model }, fetcher);
+  return createAiProvider({ provider: "gemini", apiKey: key, model, visionModel:env.AI_VISION_MODEL, speechModel: model }, fetcher);
 }
 function adapter(config:AiProviderConfiguration,fetcher:typeof fetch):AiProviderContract {
   if(!config.model.trim())throw new ApiError(503,"AI_NOT_CONFIGURED","Configure AI_MODEL for the selected provider.");
