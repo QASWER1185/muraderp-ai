@@ -261,7 +261,7 @@ export function createAiCopilotRouter(
           choices.customerName=state.estimateCustomerChoice.name;
           if(state.estimateCustomerChoice.address)choices.customerAddress=state.estimateCustomerChoice.address;
         }
-        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,input.message);
+        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,normalized.userInstruction??input.message);
         response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
           conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:prepared.requiresConfirmation,toolNames:["erp_create_estimate"]}});
       } catch(error) {

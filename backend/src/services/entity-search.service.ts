@@ -98,13 +98,13 @@ export class SupabaseEntitySearchService implements EntitySearchService {
       for(const row of data??[]){const name=row.rate_list_versions?.rate_lists?.name;if(typeof name==="string")headings.set(Number(row.product_id),(headings.get(Number(row.product_id))??"")+" "+name);}
     }
     const eligible=rows.filter(r=>(!restriction || sameBrand(r.brand_name as string|null,restriction)) && matchesProductSpecification(catalogQuery,String(r.name)+" "+String(r.sku)+" "+(headings.get(Number(r.id))??"")));
-    const identity=(name:string)=>canonicalSlipWords(name).toLowerCase().replace(/\b(?:dura\s*max|popular|turk\s*plast|he\s*china|ppr[\s-]?c|u[\s-]?pvc|plain|threaded)\b/gi,"").replace(/["″]/g,"inch").replace(/[^\p{L}\p{N}]/gu,"");
+    const identity=(name:string)=>canonicalSlipWords(name).toLowerCase().replace(/\b(?:dura\s*max|popular|turk\s*plast|he\s*china|ppr[\s-]?c|u[\s-]?pvc|plain|threaded)\b/gi,"").replace(/["″]/g,' inch').replace(/(\d)\s*(mm|inch)\b/g,'$1 $2').replace(/(\d)\s*x\s*(?=\d)/g,'$1 x ').match(/[\p{L}\p{N}]+/gu)?.sort().join(' ');
     // An exact family + complete dimensions beats a different family/angle,
     // while duplicate exact catalog records still require clarification.
     const exact=eligible.filter(row=>identity(String(row.name))===identity(catalogQuery));
     return resolveCandidates((exact.length?exact:eligible).map((r): ProductCandidate => ({ id: Number(r.id), name: String(r.name),
       sku: String(r.sku), unit: String(r.unit), category: String(r.category),
-      brandName: r.brand_name == null ? null : String(r.brand_name), confidence: Number(r.confidence), match_kind: String(r.match_kind) })),limit);
+      brandName: r.brand_name == null ? null : String(r.brand_name), confidence: exact.length?1:Number(r.confidence), match_kind: exact.length===1?'exact_name':String(r.match_kind) })),limit);
   }
 
   async searchCustomers(query: string, limit: number, scope: SearchScope) {

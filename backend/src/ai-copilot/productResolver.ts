@@ -49,6 +49,13 @@ function specifications(value:string,catalog=false):string[] {
 export function canonicalCatalogQuery(value:string,brand?:string):string {
   if(!sameBrand(brand??explicitBrand(value),"Dura Max"))return value;
   let query=value;
+  if(/\bppr[\s-]*c\b/i.test(query)&&/\b(?:elbow|tee|socket)\b/i.test(query)&&/\d+\s*[x×*]\s*\d+\s*mm\b/i.test(query)){
+    if(!/\breduc(?:e|ing|er)\b/i.test(query))query+=' Reducing';
+    query=query.replace(/(\d+)\s*[x×*]\s*(\d+)\s*mm\b/gi,(_,a,b)=>[Number(a),Number(b)].sort((x,y)=>x-y).join('x')+' mm');
+  }
+  // In the U-PVC catalog, a bare elbow is the standard 90° fitting;
+  // angle/plug/threaded variants remain explicit restrictions.
+  if(/\bu[\s-]*pvc\b/i.test(query)&&/\belbow\b/i.test(query)&&!/\b(?:plug|female|male|reducing)\b|\b(?:45|90)\b/i.test(query))query+=' 90°';
   if(/\bu[\s-]*pvc\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\b(?:medium|class|schedule|sch|conduit|heavy|light)\b/i.test(query))query+=" Medium";
   if(/\bppr[\s-]*c\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\bpn\s*[-:]?\s*\d+/i.test(query))query+=" PN-16";
   if(/\bp[\s-]*trap\b/i.test(query)&&!/\b(?:single|double)\b/i.test(query))query+=" Single";

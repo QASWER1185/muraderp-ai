@@ -58,7 +58,7 @@ type Media={mimeType:string;base64:string};
 export type MultimodalInput={source:"image"|"camera"|"voice";media?:Media|undefined;attachments?:Array<{media:Media;fileName?:string|undefined}>|undefined;
   message?:string|undefined;fileName?:string|undefined;task?:"auto"|"estimate"|"rate_list_update"|undefined};
 export interface NormalizedInput {
-  message:string;reviewRequired:boolean;catalog?:RateListCatalog;estimateRequest?:Record<string,unknown>|undefined;
+  message:string;userInstruction?:string|undefined;reviewRequired:boolean;catalog?:RateListCatalog;estimateRequest?:Record<string,unknown>|undefined;
   extraction:{source:MultimodalInput["source"];document?:BusinessDocument;catalog?:RateListCatalog;transcript?:string;mediaRetained:false};
 }
 
@@ -140,6 +140,7 @@ export class MultimodalAgentInput {
   private documentResult(document:BusinessDocument,input:MultimodalInput,transcript?:string) {
     const caption=estimateCaptionChoices(input.message??"");
     const chosenBrand=explicitBrand(input.message??'');
+    const gender=(input.message??'').match(/(?:fittings?|فٹنگز?)\s*(?:=|:)?\s*(female|male|فیمیل|میل)\b/iu)?.[1];
     const pipeSpec=(material:string)=>{
       const text=input.message??'';
       return /ppr/iu.test(material)?text.match(/ppr[\s-]*c?\s*(?:pipe|پائپ)?\s*(?:=|:)?\s*(PN[ -]?\d+)/iu)?.[1]?.replace(/PN[ -]?/iu,'PN-'):
@@ -167,8 +168,9 @@ export class MultimodalAgentInput {
       const size=line.size||source.match(/\d+(?:[-\s]+\d+\/\d+|\/\d+|\.\d+)?(?:\s*[x×*]\s*\d+(?:\/\d+|\.\d+)?)*\s*(?:mm\b|inch\b|["″])/iu)?.[0];
       if(!size&&/\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(source))
         document.warnings.push(line.productName+": سائز واضح نہیں؛ قطر درست کر دیں۔");
-      const specification=/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined;
-      return {...line,...(size?{size}:{} ),...(chosenBrand?{brandHint:chosenBrand}:{}),...(specification?{specification,productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light)\b/giu,'').trim()}:{} )};
+      const threadedChoice=gender&&/ppr/iu.test([line.material,source].join(' '))&&/elbow|tee|socket/iu.test(source)&&/\d+\s*[x×*]\s*\d+\s*\//u.test(size??'')?(/female|فیمیل/iu.test(gender)?'Female':'Male'):undefined;
+      const specification=threadedChoice??(/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined);
+      return {...line,...(size?{size}:{} ),...(chosenBrand?{brandHint:chosenBrand}:{}),...(specification?{specification,productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light|Female|Male)\b/giu,'').trim()}:{} )};
     });
     // Prices/totals are visible observations for review, never fed to tools or
     // signed state as business authority. Only names and user choices enter NLP.
@@ -195,6 +197,6 @@ export class MultimodalAgentInput {
         ...(caption.percent!==undefined?{discount:caption.percent}:{}),
         ...(line.rawShorthand?{rawShorthand:line.rawShorthand}:{})}))};
     const boundedMessage=message.length>20_000 ? (input.message??"ایسٹیمیٹ تیار کریں۔")+"\n"+document.lines.length+" مکمل لائنیں ساختہ پرچی میں محفوظ ہیں؛ قیمتیں ERP سے لیں۔" : message;
-    return { message:boundedMessage, reviewRequired,estimateRequest, extraction: { source: input.source, document,...(transcript?{transcript}:{}), mediaRetained: false as const } };
+    return { message:boundedMessage,userInstruction:input.message, reviewRequired,estimateRequest, extraction: { source: input.source, document,...(transcript?{transcript}:{}), mediaRetained: false as const } };
   }
 }

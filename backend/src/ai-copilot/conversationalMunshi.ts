@@ -6,6 +6,7 @@ export function canonicalSlipWords(value:string):string {
     .replace(/پی\s*ٹر(?:یپ|پ)/gu,"P-Trap").replace(/گیٹ/gu,"Gate")
     .replace(/ٹی\s*ساکٹ|ٹی\s*جوائنٹ|(?:^|\s)ٹی(?=\s|$)/gu," Tee ")
     .replace(/ساکٹ|سوکٹ/gu,"Socket").replace(/\btee\b/giu,"Tee")
+    .replace(/\by[ -]*tee\b/giu,'Yee').replace(/\breduce\b/giu,'Reducing')
     .replace(/(?:یو\s*)?پی\s*وی\s*سی|\b(?:u\s*-?\s*)?pvc\b/giu,"U-PVC").replace(/پی\s*پی\s*آر\s*سی|\bpprc\b/giu,"PPR-C")
     .replace(/ڈگری|\bdegrees?\b/giu,"°").replace(/انچ/gu,"inch")
     .replace(/\b(elbow|bend)\s+(45|90)(?!\d)(?!\s*°)/giu,"$1 $2°")

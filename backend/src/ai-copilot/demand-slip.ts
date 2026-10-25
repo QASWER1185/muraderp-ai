@@ -8,7 +8,7 @@ export function hardwareKind(name:string):typeof hardwareKinds[number]|undefined
   if(/ٹیفلون|ٹیفلن|teflon|ptfe|t[ae]fl[ou]n/iu.test(name))return 'teflon';
   if(/کنکشن|کنیکشن|connection\s*pipe/iu.test(name))return 'connection_pipe';
   if(/brass\s*nipple|bixal.?nipple|براس\s*نپل/iu.test(name))return 'brass_nipple';
-  if(/hand(?:all|le)?[ -]*(?:valve|wall)|ہینڈل\s*والو/iu.test(name))return 'handle_valve';
+  if(/hand(?:all|le)?[ -]*(?:cock[ -]*)?(?:valve|wall)|ہینڈل\s*والو/iu.test(name))return 'handle_valve';
   if(/آری|آر[یے]|hacksaw|saw.?blade|(?:ari|axi).?blade|blade.?\b(?:ari|axi)\b/iu.test(name))return 'saw_blade';
   if(/بلیڈ|blade/iu.test(name))return 'blade';
 }
@@ -16,6 +16,12 @@ export function hardwareLabel(name:string){return labels[hardwareKind(name)??'']
 export function demandRequested(message:string,task?:string){return task==='estimate'||/ایسٹیمیٹ|اسٹیمیٹ|تخمینہ|لیس|\b(?:estimate|quotation|demand|quote)\b/iu.test(message);}
 export function demandDiscounts(message:string){
   const rules=categoryDiscountChoices(message);if(rules.length)return rules;
+  // Specs may sit between the category and its discount (Pipe PN-16 @ 50%).
+  // Pressure numbers are never interpreted as discounts without a % suffix.
+  const categoryRates=(pattern:RegExp)=>[...new Set([...message.matchAll(pattern)].map(x=>Number(x[1])))];
+  const pipes=categoryRates(/(?:\bpipes?\b|پائپ)(?:(?!\bfittings?\b|فٹنگ|[,،;\n]).){0,45}?(\d+(?:\.\d+)?)\s*(?:%|فیصد)/giu);
+  const fittings=categoryRates(/(?:\bfittings?\b|فٹنگز?)(?:(?!\bpipes?\b|پائپ|[,،;\n]).){0,30}?(\d+(?:\.\d+)?)\s*(?:%|فیصد)/giu);
+  if(pipes.length===1&&fittings.length===1&&pipes[0]!<=100&&fittings[0]!<=100)return [{match:'pipe',discount:pipes[0]!},{match:'fittings',discount:fittings[0]!}];
   const values=[...message.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|فیصد)/gu)].map(x=>Number(x[1]));
   return values.length===2&&values.every(x=>x<=100)?[{match:'pipe',discount:values[0]!},{match:'fittings',discount:values[1]!}]:[];
 }

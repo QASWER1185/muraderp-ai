@@ -83,6 +83,7 @@ describe('demand slip accounting integrity',()=>{
  it('extracts the exact supplied name, full address and phone, with separate category discounts',()=>{
   expect(estimateCaptionChoices(prompt)).toEqual({customerName:'خالد محمود',customerAddress:'لیک سٹی 15 بی رائے ونڈ روڈ لاہور',customerPhone:'0315-409017'});
   expect(demandDiscounts(prompt)).toEqual([{match:'pipe',discount:50},{match:'fittings',discount:52}]);
+  expect(demandDiscounts('U-PVC Pipe Medium @ 50%, PPR-C Pipe PN-16 @ 50%, all U-PVC and PPR-C fittings @ 52%')).toEqual([{match:'pipe',discount:50},{match:'fittings',discount:52}]);
  });
  it('prices 52 catalog rows and retains six hardware rows without searching/pricing them or halting',async()=>{
   const f=fixture(),a=await f.ops.prepare('erp_create_estimate',f.input,scope);
