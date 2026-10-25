@@ -7,7 +7,7 @@ export function hardwareKind(name:string):typeof hardwareKinds[number]|undefined
   if(/دھاگ|دکھار|\bdha+ga\b|thread\s*(?:ball|roll)|\bthread\b(?!ed)/iu.test(name))return 'thread';
   if(/ٹیفلون|ٹیفلن|teflon|ptfe|t[ae]fl[ou]n/iu.test(name))return 'teflon';
   if(/کنکشن|کنیکشن|connection\s*pipe/iu.test(name))return 'connection_pipe';
-  if(/brass\s*nipple|bixal.?nipple|براس\s*نپل/iu.test(name))return 'brass_nipple';
+  if(/brass\s*nipple|b[ix]*al[ -]?nipple|براس\s*نپل/iu.test(name))return 'brass_nipple';
   if(/hand(?:all|le)?[ -]*(?:cock[ -]*)?(?:valve|wall)|ہینڈل\s*والو/iu.test(name))return 'handle_valve';
   if(/آری|آر[یے]|hacksaw|saw.?blade|(?:ari|axi).?blade|blade.?\b(?:ari|axi)\b/iu.test(name))return 'saw_blade';
   if(/بلیڈ|blade/iu.test(name))return 'blade';

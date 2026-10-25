@@ -37,7 +37,7 @@ describe('demand slip accounting integrity',()=>{
   expect(model.respond).not.toHaveBeenCalled();expect(result.answer).toContain('اضافی سامان شامل نہیں');
  });
  it('normalizes the observed solvent misspelling and recognizes non-Dura brass/handle hardware',()=>{
-  expect(canonicalSlipWords('Solutation 500g')).toBe('Solvent 500 g');expect(hardwareKind('G.I. Brass Nipple')).toBe('brass_nipple');expect(hardwareKind('Handle Valve')).toBe('handle_valve');
+  expect(canonicalSlipWords('Solutation 500g')).toBe('Solvent 500 g');expect(hardwareKind('G.I. Brass Nipple')).toBe('brass_nipple');expect(hardwareKind('Nipple Bxal-Nipple')).toBe('brass_nipple');expect(hardwareKind('Handle Valve')).toBe('handle_valve');
  });
  it('applies the requested Medium default to an unheaded Dura inch pipe while using its active ERP price',async()=>{
   const f=fixture();const candidate={id:11,name:'Dura Max U-PVC Medium 5 inch',brandName:'Dura Max',confidence:1,match_kind:'exact_name'};f.deps.search.searchProducts.mockResolvedValue(resolveCandidates([candidate],5));

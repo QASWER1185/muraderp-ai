@@ -166,11 +166,15 @@ export class MultimodalAgentInput {
         return normalized;
       }
       const size=line.size||source.match(/\d+(?:[-\s]+\d+\/\d+|\/\d+|\.\d+)?(?:\s*[x×*]\s*\d+(?:\/\d+|\.\d+)?)*\s*(?:mm\b|inch\b|["″])/iu)?.[0];
+      // A carried page heading is only an OCR hint. With an explicit mixed
+      // PPR/U-PVC request, unheaded metric fittings use the PPR catalog family.
+      const material=line.material==='U-PVC'&&/\bmm\b/iu.test(size??'')&&/ppr[\s-]*c/iu.test(input.message??'')&&
+        !/\b(?:u[\s-]*)?pvc\b/iu.test(line.rawShorthand??'')&&/elbow|tee|socket|end.?cap|gate.?valve|plug/iu.test(source)?'PPR-C':line.material;
       if(!size&&/\b(?:pipe|elbow|tee|socket|trap|valve|adapter|union|reducer|plug)\b/i.test(source))
         document.warnings.push(line.productName+": سائز واضح نہیں؛ قطر درست کر دیں۔");
-      const threadedChoice=gender&&/ppr/iu.test([line.material,source].join(' '))&&/elbow|tee|socket/iu.test(source)&&/\d+\s*[x×*]\s*\d+\s*\//u.test(size??'')?(/female|فیمیل/iu.test(gender)?'Female':'Male'):undefined;
+      const threadedChoice=gender&&/ppr/iu.test([material,source].join(' '))&&/elbow|tee|socket/iu.test(source)&&/\d+\s*[x×*]\s*\d+\s*\//u.test(size??'')?(/female|فیمیل/iu.test(gender)?'Female':'Male'):undefined;
       const specification=threadedChoice??(/\bpipe\b|پائپ/iu.test(source)?pipeSpec([line.material,source].join(' ')):undefined);
-      return {...line,...(size?{size}:{} ),...(chosenBrand?{brandHint:chosenBrand}:{}),...(specification?{specification,productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light|Female|Male)\b/giu,'').trim()}:{} )};
+      return {...line,material,...(size?{size}:{} ),...(chosenBrand?{brandHint:chosenBrand}:{}),...(specification?{specification,productName:line.productName.replace(/PN[ -]?\d+|\b(?:Medium|Heavy|Light|Female|Male)\b/giu,'').trim()}:{} )};
     });
     // Prices/totals are visible observations for review, never fed to tools or
     // signed state as business authority. Only names and user choices enter NLP.
