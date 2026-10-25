@@ -6,6 +6,7 @@ vi.mock("../config/env.js",async importOriginal=>{const original=await importOri
 import { env } from "../config/env.js";
 import { createAiCopilotRouter } from "./ai-copilot.routes.js";
 import { errorHandler } from "../middleware/error-handler.js";
+import { ApiError } from '../errors/api-error.js';
 import { CopilotAgent } from "../ai-copilot/copilot-agent.js";
 import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
 import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
@@ -30,6 +31,11 @@ function setup(){
   return {...f,app,provider,runtime,cookieFor,post};
 }
 describe("Part 4 authenticated multimodal → unified ERP Agent integration",()=>{
+  it('reports provider failures without falsely claiming the uploaded handwriting is unreadable',async()=>{
+    const f=setup();f.provider.generate.mockRejectedValue(new ApiError(503,'AI_MODEL_UNAVAILABLE','Model unavailable'));
+    const result=await f.post('agent/input',{source:'image',task:'estimate',media:media(),message:'Prepare estimate'});
+    expect(result.status).toBe(503);expect(result.body.error.code).toBe('AI_MODEL_UNAVAILABLE');expect(f.runtime.createConversationDraft).not.toHaveBeenCalled();
+  });
   it('keeps exact caption brand exceptions local and rejects carried inch-material headings on metric end caps',async()=>{
     const f=setup();f.provider.generate.mockResolvedValue({...document,lines:[
       {...document.lines[0],productName:'Elbow',rawShorthand:'Elbow 45 degree 6 inch',size:'6 inch',material:'U-PVC',specification:'45 degree',quantity:1},

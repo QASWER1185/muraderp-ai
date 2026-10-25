@@ -85,7 +85,7 @@ export class MultimodalAgentInput {
       for(const [offset,result] of batch.entries()){
         if(result.status==="fulfilled")results.push(result.value);
         else{
-          if(result.reason instanceof ApiError&&(!result.reason.code.startsWith("AI_")||[401,403].includes(result.reason.status)||input.task==="rate_list_update"))throw result.reason;
+          if(result.reason instanceof ApiError&&(!['AI_INVALID_OUTPUT','AI_INCOMPLETE'].includes(result.reason.code)||[401,403].includes(result.reason.status)||input.task==="rate_list_update"))throw result.reason;
           failed.push(`پرچی ${index+offset+1} نہیں پڑھی جا سکی؛ اس کی واضح تصویر دوبارہ شامل کریں۔`);
         }
       }
