@@ -1011,16 +1011,16 @@ a{color:#04588C}
 .dashboard-page .dashboard-desktop-actions .action-customer{background:#d97706}
 .dashboard-page .dashboard-desktop-actions .action-stock{background:#6b21a8}
 .dashboard-page .dashboard-actions-section>.quick-action-strip,.dashboard-page .dashboard-actions-section>.mobile-quick-actions{display:none!important}
-.dashboard-page>.mobile-stock-summary{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:6px 10px;border-color:#bae6fd;border-radius:12px;background:#e0f2fe;padding:10px 13px;color:#0E2E4F;box-shadow:0 3px 10px rgba(14,46,79,.05)}
+.dashboard-page>.mobile-stock-summary{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;gap:6px;border-color:#bae6fd;border-radius:12px;background:#e0f2fe;padding:10px 13px;color:#0E2E4F;box-shadow:0 3px 10px rgba(14,46,79,.05)}
 .dashboard-page .mobile-stock-summary-heading{grid-column:1;grid-row:1}
-.dashboard-page .mobile-stock-stats{grid-column:2;grid-row:1;display:flex;gap:10px;text-align:right}
-.dashboard-page .mobile-stock-stats>span:not(.mobile-stock-divider){display:grid;gap:1px;white-space:nowrap}
+.dashboard-page .mobile-stock-stats{grid-column:1;grid-row:2;display:flex;align-items:center;justify-content:center;gap:16px;width:100%;text-align:center}
+.dashboard-page .mobile-stock-stats>span:not(.mobile-stock-divider){display:flex;align-items:baseline;gap:5px;white-space:nowrap}
 .dashboard-page .mobile-stock-stats small{color:#334155;font-size:10px!important}
 .dashboard-page .mobile-stock-stats strong{color:#0D0E20;font-size:15px}
 .dashboard-page .mobile-stock-stats>span:last-child strong{color:#b45309}
-.dashboard-page .mobile-stock-divider,.dashboard-page .mobile-stock-view-details{display:none}
-.dashboard-page .dashboard-stock-subtitle{display:block;grid-column:1/-1;grid-row:2;margin:0;color:#0E2E4F;font-size:10px;line-height:1.25}
-.dashboard-page .mobile-stock-hint{display:none}
+.dashboard-page .mobile-stock-divider{display:block;width:1px;height:23px;background:#7dd3fc}
+.dashboard-page .mobile-stock-view-details,.dashboard-page .dashboard-stock-subtitle{display:none}
+.dashboard-page .mobile-stock-hint{display:block;grid-column:1;grid-row:3;margin:0;color:#0E2E4F;font-size:10px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:normal}
 @media screen and (min-width:721px){
   .app-main:has(.dashboard-page)>.content{padding:14px 24px}
   .dashboard-page{height:100%;align-content:space-between;gap:10px}
@@ -1033,12 +1033,13 @@ a{color:#04588C}
   .dashboard-page .mobile-metric-label{font-size:12px}
   .dashboard-page .mobile-metric-copy strong{font-size:17px}
   .dashboard-page .mobile-metric-copy small{font-size:10px}
-  .dashboard-page>.mobile-stock-summary{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;padding:10px 14px}
-  .dashboard-page .mobile-stock-stats{gap:18px}
+  .dashboard-page>.mobile-stock-summary{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;padding:10px 14px}
+  .dashboard-page .mobile-stock-stats{grid-column:1;grid-row:2;gap:20px}
 }
 @media screen and (max-width:720.99px){
   .app-main:has(.dashboard-page)>.content{padding:8px 12px calc(70px + env(safe-area-inset-bottom))}
-  .dashboard-page{min-height:100%;align-content:space-between;gap:6px}
+  .dashboard-page{min-height:100%;align-content:start;gap:10px}
+  .dashboard-page>.dashboard-store-card{margin-bottom:0}
   .dashboard-store-card{gap:7px;padding:10px 12px}
   .dashboard-store-monogram{width:40px;height:40px}
   .dashboard-store-monogram span{font-size:18px}
@@ -1050,15 +1051,16 @@ a{color:#04588C}
   .dashboard-page .mobile-metric-icon svg{width:16px;height:16px}
   .dashboard-page .mobile-metric-label{font-size:10px}
   .dashboard-page .mobile-metric-copy strong{font-size:12px}
-  .dashboard-page .mobile-metric-copy small{font-size:9px}
+  .dashboard-page .mobile-metric-copy small{display:block;overflow:visible;font-size:10px!important;line-height:1.2;text-overflow:clip;white-space:normal}
   .dashboard-page .dashboard-actions-section>.mobile-quick-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
   .dashboard-page .dashboard-actions-section>.dashboard-desktop-actions{display:none!important}
   .dashboard-page .mobile-quick-actions button{min-height:58px;gap:4px;border-radius:10px;padding:5px 2px}
   .dashboard-page .mobile-quick-actions button svg{width:17px;height:17px}
   .dashboard-page .mobile-quick-actions button strong{font-size:9px;line-height:1.1}
-  .dashboard-page .mobile-stock-summary{grid-template-columns:minmax(0,1fr) auto;gap:5px 7px;padding:9px 10px}
-  .dashboard-page .mobile-stock-stats{gap:7px}
-  .dashboard-page .mobile-stock-stats small{font-size:9px!important}
+  .dashboard-page .mobile-stock-summary{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;gap:6px;padding:9px 10px}
+  .dashboard-page .mobile-stock-stats{grid-column:1;grid-row:2;justify-content:center;gap:12px}
+  .dashboard-page .mobile-stock-stats>span:not(.mobile-stock-divider){gap:4px}
+  .dashboard-page .mobile-stock-stats small{font-size:10px!important}
   .dashboard-page .mobile-stock-stats strong{font-size:13px}
-  .dashboard-page .dashboard-stock-subtitle{font-size:9px}
+  .dashboard-page .mobile-stock-hint{grid-column:1;grid-row:3;font-size:10px;line-height:1.2}
 }
