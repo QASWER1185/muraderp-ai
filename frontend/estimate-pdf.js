@@ -1,5 +1,105 @@
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
+export function savedEstimateRows(estimate){
+  const rows=estimate.lines.map((line,index)=>({line,index}));
+  return [...new Set(rows.map(({line})=>line.category||'Items'))].flatMap(category=>rows.filter(({line})=>(line.category||'Items')===category));
+}
+
+// Browser canvas shapes Urdu using the same bundled font as Customer Preview.
+// A continuous custom-size PDF page keeps every quotation row together.
+export async function createSavedEstimatePdfFile(estimate, store, documentObject = globalThis.document, { documentType = "estimate", template = "sanitary_electric" } = {}) {
+  await documentObject.fonts.load('16px "Noto Sans Arabic"');
+  await documentObject.fonts.ready;
+  const building=template==="building_material";
+  const width=1280, left=44, right=1236;
+  const canvas=documentObject.createElement('canvas');canvas.width=width;
+  const ctx=canvas.getContext('2d');
+  const measure=(value,size=24)=>{ctx.font=`700 ${size}px "Noto Sans Arabic", sans-serif`;return ctx.measureText(String(value??'')).width;};
+  const wrap=(value,max,size=23)=>{const rows=[];let row='';for(const word of String(value??'').split(/\s+/u)){if(row&&measure(`${row} ${word}`,size)>max){rows.push(row);row=word;}else row+=(row?' ':'')+word;}if(row)rows.push(row);return rows.length?rows:[''];};
+  const prepared=savedEstimateRows(estimate).map(({line,index})=>({line,number:index+1,label:wrap(line.product_name,building?480:360,24)}));
+  const customer=estimate.customer??{};
+  const customerAddress=wrap(customer.address??customer.city??customer.location??'',1120,23);
+  const notes=wrap(estimate.notes||'Rates subject to confirmation. Thank you for your business.',1120,23);
+  const groupCount=prepared.reduce((count,row,index)=>count+(index===0||row.line.category!==prepared[index-1].line.category?1:0),0);
+  const rowsHeight=prepared.reduce((sum,row)=>sum+Math.max(58,row.label.length*34+18),0);
+  const totalsCount=3+(Number(estimate.discount_total)>0?1:0);
+  const height=760+customerAddress.length*34+rowsHeight+groupCount*102+notes.length*34+totalsCount*52;
+  canvas.height=height;ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,width,height);
+  const draw=(value,x,y,size=24,color='#000000',align='left',weight=700)=>{ctx.font=`${weight} ${size}px "Noto Sans Arabic", sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.direction=/[\u0600-\u06ff]/u.test(String(value))?'rtl':'ltr';ctx.fillText(String(value??''),x,y);};
+  const num=value=>Number(value??0).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const rule=(y,color='#cbd5e1',thickness=2)=>{ctx.strokeStyle=color;ctx.lineWidth=thickness;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();};
+
+  ctx.fillStyle='#0E2E4F';ctx.fillRect(0,0,width,208);
+  draw(store.name,44,48,32,'#FFFFFF','left',800);
+  draw(store.categories,44,84,23,'#e7f2fb','left',600);
+  draw(store.phone,44,124,28,'#FFFFFF','left',800);
+  draw(store.address,44,164,22,'#e7f2fb','left',600);
+
+  let y=256;
+  draw(documentType==="invoice"?'INVOICE':'QUOTATION',left,y,36,'#0E2E4F','left',800);
+  draw(estimate.estimate_number,right,y,30,'#000000','right',800);
+  y+=50;
+  if(building){ctx.fillStyle='#e0f2fe';ctx.fillRect(left,y-28,300,38);draw('BUILDING MATERIAL',left+15,y,22,'#04588C','left',800);y+=34;}
+  draw(`Date: ${estimate.issue_date??''}`,right,y,23,'#0D0E20','right',700);
+  const customerBoxTop=y+24;
+  const customerDetails=[customer.phone??'',...customerAddress].filter(Boolean);
+  const customerBoxHeight=78+customerDetails.length*32;
+  ctx.fillStyle='#e0effe';ctx.fillRect(left,customerBoxTop,width-left*2,customerBoxHeight);
+  ctx.strokeStyle='#94a3b8';ctx.lineWidth=2;ctx.strokeRect(left,customerBoxTop,width-left*2,customerBoxHeight);
+  draw('BILL TO',left+18,customerBoxTop+30,21,'#04588C','left',800);
+  draw(customer.name??estimate.customer_name??'Customer name unavailable',left+18,customerBoxTop+64,29,'#000000','left',800);
+  customerDetails.forEach((detail,index)=>draw(detail,left+18,customerBoxTop+96+index*32,22,'#0D0E20','left',650));
+  draw(`${String(estimate.status??'').toUpperCase()} · ${estimate.lines.length} items`,right-18,customerBoxTop+30,21,'#04588C','right',800);
+  y=customerBoxTop+customerBoxHeight+28;
+
+  const columns=building
+    ?[{label:'Sr.',x:60,align:'left'},{label:'Item',x:124,align:'left'},{label:'Qty',x:725,align:'right'},{label:'Unit',x:850,align:'right'},{label:'Rate',x:1030,align:'right'},{label:'Amount (PKR)',x:1220,align:'right'}]
+    :[{label:'Sr.',x:60,align:'left'},{label:'Item',x:124,align:'left'},{label:'Qty',x:535,align:'right'},{label:'Unit',x:640,align:'right'},{label:'List Rate',x:765,align:'right'},{label:'Disc%',x:875,align:'right'},{label:'Net Rate',x:1035,align:'right'},{label:'Amount (PKR)',x:1220,align:'right'}];
+  const tableHeight=52;ctx.fillStyle='#007AB7';ctx.fillRect(left,y,width-left*2,tableHeight);
+  columns.forEach(({label,x,align})=>draw(label,align==='right'?x:x,y+34,21,'#FFFFFF',align,800));
+  y+=tableHeight;
+  let group=null,groupTotal=0;
+  const subtotal=()=>{if(group===null)return;const h=42;ctx.fillStyle='#f1f5f9';ctx.fillRect(left,y,width-left*2,h);draw(`${group} subtotal`,left+18,y+29,22,'#0E2E4F','left',800);draw(num(groupTotal),right-16,y+29,23,'#000000','right',800);y+=h;rule(y);};
+  prepared.forEach(({line,label,number})=>{
+    const category=line.category||'Items';
+    if(category!==group){subtotal();group=category;groupTotal=0;ctx.fillStyle='#e8f3fb';ctx.fillRect(left,y,width-left*2,48);draw(category.toUpperCase(),left+16,y+32,24,'#0E2E4F','left',800);y+=48;rule(y);}
+    const rowHeight=Math.max(58,label.length*34+18);
+    draw(number,60,y+34,23,'#0f172a','left',650);
+    label.forEach((part,index)=>draw(part,124,y+31+index*32,24,'#000000','left',750));
+    const values=building
+      ?[{value:line.quantity,x:725},{value:line.unit,x:850},{value:num(line.unit_price),x:1030},{value:num(line.line_total),x:1220}]
+      :[{value:line.quantity,x:535},{value:line.unit,x:640},{value:num(line.list_price),x:765},{value:`${Number(line.discount_percent).toFixed(2)}%`,x:875},{value:num(line.unit_price),x:1035},{value:num(line.line_total),x:1220}];
+    values.forEach(({value,x})=>draw(value,x,y+34,22,'#0f172a','right',700));
+    groupTotal+=Number(line.line_total)||0;y+=rowHeight;rule(y);
+  });
+  subtotal();y+=30;
+  draw('NOTES',left,y,21,'#04588C','left',800);notes.forEach((note,index)=>draw(note,left,y+34+index*32,22,'#0D0E20','left',650));
+  y+=Math.max(58,32+notes.length*32);
+  const totalRows=[['Subtotal',estimate.subtotal]];
+  if(Number(estimate.discount_total)>0)totalRows.push(['Discount',estimate.discount_total]);
+  totalRows.push(['Carriage / Delivery',estimate.pass_through_rent]);
+  const grandY=y+totalRows.length*48+10;
+  totalRows.forEach(([label,value],index)=>{const rowY=y+index*48;draw(label,790,rowY+30,24,'#000000','left',750);draw(num(value),right-14,rowY+30,24,'#000000','right',750);});
+  ctx.fillStyle='#007AB7';ctx.fillRect(770,grandY-8,466,54);
+  draw('Grand Total',790,grandY+28,27,'#FFFFFF','left',800);draw(num(estimate.grand_total),right-14,grandY+28,27,'#FFFFFF','right',800);
+  const payableY=grandY+74;draw('Customer Payable',790,payableY,24,'#000000','left',800);draw(num(estimate.customer_payable_total??(Number(estimate.grand_total)+Number(estimate.pass_through_rent))),right-14,payableY,24,'#000000','right',800);
+  const signatureY=Math.max(payableY+92,height-78);
+  rule(signatureY-30,'#94a3b8',2);draw('Authorized signature ____________________',left,signatureY,20,'#0D0E20','left',650);draw(store.phone,right,signatureY+34,20,'#04588C','right',700);
+  const jpeg=Uint8Array.from(atob(canvas.toDataURL('image/jpeg',0.94).split(',')[1]),c=>c.charCodeAt(0));
+  const encoder=new TextEncoder(),parts=[],offsets=[0];let offset=0;
+  const push=value=>{const bytes=typeof value==='string'?encoder.encode(value):value;parts.push(bytes);offset+=bytes.length;};
+  const pageWidth=595,pageHeight=height/width*pageWidth;
+  const content=`q ${pageWidth} 0 0 ${pageHeight} 0 0 cm /Quote Do Q`;
+  push('%PDF-1.4\n');
+  const object=(id,body)=>{offsets[id]=offset;push(`${id} 0 obj\n${body}\nendobj\n`);};
+  object(1,'<< /Type /Catalog /Pages 2 0 R >>');object(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  object(3,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Quote 4 0 R >> >> /Contents 5 0 R >>`);
+  offsets[4]=offset;push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`);push(jpeg);push('\nendstream\nendobj\n');
+  object(5,`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  const xref=offset;push('xref\n0 6\n0000000000 65535 f \n');for(let i=1;i<=5;i++)push(`${String(offsets[i]).padStart(10,'0')} 00000 n \n`);
+  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+  return new File(parts,`${String(estimate.estimate_number).replace(/[^A-Za-z0-9_-]/g,'_')}.pdf`,{type:'application/pdf'});
+}
 
 function ascii(value, maxLength = 120) {
   return String(value ?? "")

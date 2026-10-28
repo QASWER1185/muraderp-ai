@@ -9,6 +9,7 @@ import { env } from "../config/env.js";
 import { SupabaseErpService, type ErpService } from "../services/erp.service.js";
 import { DefaultEstimateService, type EstimateService } from "../services/estimate.service.js";
 import { CustomerMemoryStore } from "./customerMemoryStore.js";
+import { StoreMemoryStore } from './storeMemoryStore.js';
 import { SlipLearningStore } from "./slipLearningStore.js";
 import { CompanionLearningStore } from "./companionLearningStore.js";
 import { DepotIntelligenceStore } from "./depotIntelligenceStore.js";
@@ -250,7 +251,7 @@ export class CopilotRuntime {
     );
     if (plan.unifiedAction?.tool === "erp_create_customer" && plan.unifiedAction.input.openingBalance !== 0)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"accounting.post");
-    if (plan.unifiedAction?.tool === "erp_create_invoice" && plan.unifiedAction.input.paidAmount > 0)
+    if (plan.unifiedAction && ["erp_create_invoice","erp_convert_estimate_to_invoice"].includes(plan.unifiedAction.tool) && plan.unifiedAction.input.paidAmount > 0)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"payments.create");
     if (plan.unifiedAction?.data.newCustomer)
       await this.dependencies.authorization.assertPermission(plan.userId,plan.organizationId,"customers.write");
@@ -261,11 +262,69 @@ export class CopilotRuntime {
     await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[tool]);
     await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
     if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
+    if(tool==='erp_create_estimate'&&(input as any)?.mode==='DEMAND_SLIP_ESTIMATE')await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,'customers.write');
     const prepared = await this.dependencies.operations.prepare(tool,input,scope);
     if(prepared.data.newCustomer)await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"customers.write");
     const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
-    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:true as const};
+    if(prepared.data.mode==='DEMAND_SLIP_ESTIMATE'){
+      const saved=await this.saveDemandDraft(record.id,scope);
+      await new StoreMemoryStore(this.dependencies.database).rememberRates(scope,prepared.data.lines,record.id);
+      prepared.preview.savedEstimate=saved;
+      prepared.preview.summary=`جناب، گاہک ${prepared.data.customerName} اور DRAFT ایسٹیمیٹ ${saved.estimate_number} ERP میں محفوظ ہیں۔\n`+prepared.preview.summary;
+    }
+    return {intent:"erp_action" as const,tool:prepared.tool,draftId:record.id,idempotencyKey:key,preview:prepared.preview,requiresConfirmation:!prepared.data.incomplete&&prepared.data.mode!=='DEMAND_SLIP_ESTIMATE'};
+  }
+  async saveDemandDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}){
+    const source=await this.inspectUnifiedDraft(draftId,scope);
+    if(source.tool!=='erp_create_estimate')throw new ApiError(422,'ERP_ACTION_CLARIFICATION','جناب، ایسٹیمیٹ کا مسودہ منتخب کریں۔');
+    const {data,error}=await this.dependencies.database().rpc('save_copilot_demand_estimate',{
+      p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_action_id:draftId});
+    if(error)throw new ApiError(422,'DEMAND_DRAFT_SAVE_FAILED','ایسٹیمیٹ محفوظ نہیں ہو سکا؛ دوبارہ کوشش کریں۔');
+    return {...data,draftId,status:'DRAFT',saved:true,lineCount:source.items.length,storage:'estimates',financialPosting:false};
+  }
+  async rememberWorkingDraft(state:BusinessState,scope:{userId:string;organizationId:string;branchId:string}) {
+    if(!state.workingActionId)return;
+    const db=this.dependencies.database();
+    const {data:record,error}=await db.from('ai_copilot_actions').select('action_plan').eq('id',state.workingActionId).eq('organization_id',scope.organizationId).eq('user_id',scope.userId).eq('status','DRAFT').single();
+    if(error||record.action_plan.branchId!==scope.branchId)throw new ApiError(502,'DRAFT_SESSION_FAILED','Working draft session could not be retained.');
+    const action=record.action_plan.unifiedAction;
+    const workingDraft={state,customer:action.preview.customer,brand:action.input.brand,pricingRules:action.input.pricingRules,items:action.input.items,lines:action.data.lines,totals:action.data.totals};
+    const saved=await db.from('ai_copilot_actions').update({action_plan:{...record.action_plan,conversationId:state.conversationId,workingDraft}}).eq('id',state.workingActionId).eq('organization_id',scope.organizationId).eq('user_id',scope.userId).eq('status','DRAFT');
+    if(saved.error)throw new ApiError(502,'DRAFT_SESSION_FAILED','Working draft session could not be retained.');
+  }
+  async loadWorkingDraft(conversationId:string,scope:{userId:string;organizationId:string;branchId:string}) {
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    const {data,error}=await this.dependencies.database().from('ai_copilot_actions').select('action_plan').eq('organization_id',scope.organizationId).eq('user_id',scope.userId).eq('status','DRAFT').eq('action_plan->>branchId',scope.branchId).eq('action_plan->>conversationId',conversationId).order('created_at',{ascending:false}).limit(1).maybeSingle();
+    if(error)throw new ApiError(502,'DRAFT_SESSION_FAILED','Working draft session could not be read.');
+    return data?.action_plan?.workingDraft??null;
+  }
+  async inspectUnifiedDraft(draftId:string,scope:{userId:string;organizationId:string;branchId:string}) {
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    const {data:record,error}=await this.dependencies.database().from("ai_copilot_actions").select("status,action_plan")
+      .eq("id",draftId).eq("organization_id",scope.organizationId).eq("user_id",scope.userId).maybeSingle();
+    if(error)throw new ApiError(502,"ERP_READ_FAILED","The active action could not be read.");
+    const action=record?.action_plan?.unifiedAction;
+    if(!action || !Object.hasOwn(ACTION_TARGETS,action.tool) || record.status!=="DRAFT" || record.action_plan.branchId!==scope.branchId)
+      throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، اسی صارف اور برانچ کا غیر منظور شدہ مسودہ منتخب کریں۔");
+    await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,ERP_ACTION_PERMISSIONS[action.tool as ErpWriteName]);
+    return {draftId,tool:action.tool,mode:action.data.mode,nativeEstimateId:action.data.nativeEstimateId,customerName:action.data.customerName??action.input.customerName,customerId:action.data.customerId,preview:action.preview,brand:action.input.brand,discountScheme:action.input.discountScheme,items:(action.input.items??[]).map((item:any,index:number)=>({lineNumber:index+1,...item})),pricingRules:action.input.pricingRules};
+  }
+  async reviseUnifiedDraft(draftId:string,changes:Record<string,unknown>,scope:{userId:string;organizationId:string;branchId:string},source:CopilotActionPlan["source"]="text") {
+    await this.dependencies.branchAccess?.assertBranchAccess(scope,scope.branchId);
+    const {data:record,error}=await this.dependencies.database().from("ai_copilot_actions").select("status,action_plan")
+      .eq("id",draftId).eq("organization_id",scope.organizationId).eq("user_id",scope.userId).maybeSingle();
+    if(error)throw new ApiError(502,"ERP_READ_FAILED","The active action could not be read.");
+    const action=record?.action_plan?.unifiedAction;
+    if(!action || !Object.hasOwn(ACTION_TARGETS,action.tool) || record.status!=="DRAFT" || record.action_plan.branchId!==scope.branchId)
+      throw new ApiError(422,"ERP_ACTION_CLARIFICATION","جناب، اسی صارف اور برانچ کا غیر منظور شدہ مسودہ منتخب کریں؛ پوسٹ شدہ بل تبدیل نہیں ہو گا۔");
+    // Original tool validation and permissions run again. Changes can never
+    // override actor/tenant/branch, approval, idempotency or the tool itself.
+    if(action.tool==='erp_create_estimate'&&action.data.mode==='DEMAND_SLIP_ESTIMATE'){
+      const {items,addItems,removeProductIds,removeLineNumbers,...retained}=changes;
+      return this.createUnifiedDraft('erp_amend_estimate',{...retained,draftId},scope,source);
+    }
+    return this.createUnifiedDraft(action.tool,{...action.input,...changes},scope,source);
   }
   async getBusinessReport(input:unknown,scope:{userId:string;organizationId:string;branchId:string}) {
     await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"reports.view");

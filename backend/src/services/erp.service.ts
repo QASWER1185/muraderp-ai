@@ -17,7 +17,7 @@ export type Vendor = Tables["vendors"]["Row"];
 export type Warehouse = Tables["warehouses"]["Row"];
 
 export type BrandInput = Pick<Tables["brands"]["Insert"], "name">;
-export type CustomerInput = Pick<Tables["customers"]["Insert"], "name" | "phone" | "city">;
+export type CustomerInput = Pick<Tables["customers"]["Insert"], "name" | "phone" | "city" | "opening_balance">;
 export type ProductInput = Pick<
   Tables["products"]["Insert"],
   "name" | "sku" | "category" | "unit" | "purchase_price" | "sale_price"

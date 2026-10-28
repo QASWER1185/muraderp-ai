@@ -9,6 +9,8 @@ import type { PermissionCode } from "../auth/authorization.types.js";
 import { type ErpService } from "../services/erp.service.js";
 import { type PricingService } from "../services/pricing.service.js";
 import { SupabaseRateListRepository } from "../repositories/rate-list.repository.js";
+import { isOpenBrandRateList } from "../repositories/rate-list.repository.js";
+import { explicitBrand } from "./productResolver.js";
 import { CopilotRuntime } from "./copilot.runtime.js";
 import type { ToolCallingAiProvider } from "../ai/providers/contracts.js";
 
@@ -148,7 +150,7 @@ export class CopilotAgent {
       if (input.rateListId !== null) {
         const list = await this.dependencies.rateLists.getRateList(input.rateListId, org);
         if (!list || !list.is_active || list.price_type !== input.priceType ||
-          (list.scope_type === "CUSTOMER" && list.customer_id !== input.customerId) ||
+          (list.scope_type === "CUSTOMER" && list.customer_id !== input.customerId && !isOpenBrandRateList(list, explicitBrand(product.name))) ||
           (list.scope_type === "VENDOR" && list.vendor_id !== input.vendorId)) {
           return { data: { error: "Rate List is unavailable for this organization, party, and price type" } };
         }
@@ -158,6 +160,7 @@ export class CopilotAgent {
           organization_id: org, product_id: input.productId, quantity: input.quantity,
           price_type: input.priceType, as_of: new Date().toISOString(),
           customer_id: input.customerId, vendor_id: input.vendorId, rate_list_id: input.rateListId,
+          rate_list_brand: input.priceType === "SALE" ? explicitBrand(product.name) : undefined,
         });
         return { data: resolved ? { product: { id: product.id, name: product.name, sku: product.sku }, rate: resolved } : { product: { id: product.id, name: product.name }, rate: null, message: "No applicable current rate" } };
       } catch (error) {

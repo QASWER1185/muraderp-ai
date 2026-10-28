@@ -21,7 +21,7 @@ export function returnListMarkup(notes) {
 
 export function returnDetailMarkup({ credit_note: note, items }) {
   return `<div class="side-dialog-head"><div><p class="eyebrow">Posted credit note</p><h2>${escapeHtml(note.credit_note_number)}</h2></div><button class="icon-button" type="button" data-return-close aria-label="Close">${icon("close")}</button></div>
-    <dl class="detail-list"><div><dt>Status</dt><dd>${escapeHtml(note.status)}</dd></div><div><dt>Date</dt><dd>${escapeHtml(note.credit_date)}</dd></div><div><dt>Invoice</dt><dd>#${escapeHtml(note.invoice_id)}</dd></div><div><dt>Customer</dt><dd>#${escapeHtml(note.customer_id)}</dd></div><div><dt>Reason</dt><dd>${escapeHtml(note.reason)}</dd></div></dl>
+    <dl class="detail-list"><div><dt>Status</dt><dd>${escapeHtml(note.status)}</dd></div><div><dt>Date</dt><dd>${escapeHtml(note.credit_date)}</dd></div><div><dt>Original Invoice</dt><dd>#${escapeHtml(note.invoice_id)}</dd></div><div><dt>Customer</dt><dd>#${escapeHtml(note.customer_id)}</dd></div><div><dt>Reason</dt><dd>${escapeHtml(note.reason)}</dd></div></dl>
     <h3>Returned items</h3><div class="invoice-detail-lines">${items.map((item) => `<div><span>Product #${escapeHtml(item.product_id)} · ${escapeHtml(item.quantity)} ${escapeHtml(item.unit)} × ${money(item.unit_price)} · Warehouse #${escapeHtml(item.warehouse_id)}</span><strong>${money(item.line_total)}</strong></div>`).join("")}</div>
     <dl class="detail-list"><div><dt>Credit total</dt><dd><strong>${money(note.grand_total)}</strong></dd></div></dl>${note.notes ? `<p class="muted">${escapeHtml(note.notes)}</p>` : ""}`;
 }
@@ -176,4 +176,5 @@ export function mountReturns(container, options = {}) {
   });
   search.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => void load(), 250); });
   void load();
+  if (options.returnId) void openDetail(Number(options.returnId));
 }

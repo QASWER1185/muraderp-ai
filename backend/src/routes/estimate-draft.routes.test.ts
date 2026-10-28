@@ -24,7 +24,7 @@ function appFor() {
     lines: [],
     totals: { subtotal: 0, discount_total: 0, grand_total: 0, pass_through_rent: 0, customer_payable_total: 0 },
   });
-  const getCustomer = vi.fn<ErpService["getCustomer"]>().mockResolvedValue({ id: 7, organization_id: organizationId, name: "Customer", phone: "0300", city: "Lahore", created_at: "", updated_at: "" });
+  const getCustomer = vi.fn<ErpService["getCustomer"]>().mockResolvedValue({ id: 7, organization_id: organizationId, name: "Customer", phone: "0300", city: "Lahore", opening_balance: 0, created_at: "", updated_at: "" });
   const getProduct = vi.fn<ErpService["getProduct"]>().mockResolvedValue({ id: 10, organization_id: organizationId, brand_id: null, name: "Cement", sku: "CEM", category: "Cement", unit: "bag", purchase_price: 1000, sale_price: 1200, created_at: "", updated_at: "" });
   const assertAuthorized = vi.fn().mockResolvedValue(undefined);
   const listActiveSaleRateLists = vi.fn().mockResolvedValue([

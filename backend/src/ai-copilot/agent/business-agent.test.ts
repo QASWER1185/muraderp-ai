@@ -62,7 +62,7 @@ describe("Part 3 unified sequential business reasoning",()=>{
     const f=businessFixture();vi.mocked(f.business.repository.customerLedger).mockRejectedValue(new Error("db unavailable"));
     f.script(call("lookup_customers",{query:"Qasim"}),call("query_customer_ledger"),final("Outstanding zero"));
     const result=await f.core.run({message:"ledger"},scope);
-    expect(result.answer).toContain("متعلقہ ERP معلومات اس وقت دستیاب نہیں");expect(result.answer).not.toContain("Outstanding zero");
+    expect(result.answer).toContain("گاہک کا کھاتہ پڑھتے وقت");expect(result.answer).not.toContain("Outstanding zero");
   });
   it("invalidates ambiguous product context and refuses a follow-up without selecting a candidate",async()=>{
     const f=businessFixture();vi.mocked(f.services.search.searchProducts).mockResolvedValue(resolveCandidates([{...pipe,confidence:1,match_kind:"exact_name",category:"Pipe",brandName:"Popular"},{...dura,confidence:1,match_kind:"exact_name",category:"Pipe",brandName:"Dura"}],5));

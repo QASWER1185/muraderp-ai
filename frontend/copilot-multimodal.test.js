@@ -24,6 +24,15 @@ function setup(){
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it.each(["error","timeout"])("retains every slip in the retry snapshot while clearing the composer after a %s response",async status=>{
+    const f=setup();f.attach([image(),image(),image()]);
+    mocks.media.mockResolvedValueOnce({data:{status,answer:"AI سے جواب نہیں آیا؛ اسی گفتگو میں دوبارہ کوشش کریں۔",conversationToken:"signed",conversationId:"id"}});
+    await f.send("خادم حسین پلمبر کا ایسٹیمیٹ");
+    expect(f.query("#copilot-attachment").hidden).toBe(true);
+    expect(f.markup()).toContain("data-copilot-retry");
+    await f.click("[data-copilot-retry]");
+    expect(mocks.media.mock.calls[1][0].attachments).toHaveLength(3);
+  });
   it("clears text and all thumbnails before the pending network request completes",async()=>{
     const f=setup();let finish;mocks.media.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
     f.attach([image(),image(),image()]);f.query("#copilot-input").value="فیصل بٹ کا ایسٹیمیٹ";

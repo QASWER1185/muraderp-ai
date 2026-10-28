@@ -23,6 +23,7 @@ const invoiceSchema = z.strictObject({
   status: z.literal("DRAFT"),
   source_estimate_id: id.nullable(),
   source_type: z.enum(["DIRECT", "FROM_ESTIMATE"]),
+  document_template: z.enum(["sanitary_electric", "building_material"]).default("sanitary_electric"),
   definition: z.strictObject({
     invoice_number: z.string().trim().min(1).max(100),
     customer_id: id,

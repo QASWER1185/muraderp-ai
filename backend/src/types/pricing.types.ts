@@ -67,6 +67,8 @@ export interface PriceResolutionContext {
   vendor_id?: number | null | undefined;
   customer_id?: number | null | undefined;
   rate_list_id?: number | null | undefined;
+  /** Brand catalogs are store-wide even when legacy rows retain CUSTOMER scope metadata. */
+  rate_list_brand?: string | null | undefined;
 }
 
 export interface PricingCandidate {

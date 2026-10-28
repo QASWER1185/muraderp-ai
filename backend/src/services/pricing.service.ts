@@ -117,7 +117,7 @@ export class DefaultPricingService implements PricingService {
 }
 
 export interface RateListHintResolver {
-  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]>;
+  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id" | "rate_list_brand">): Promise<RateListRecord[]>;
 }
 
 export interface RateListAuthoringService {

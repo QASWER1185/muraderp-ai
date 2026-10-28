@@ -31,7 +31,7 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, _nex
       error: {
         code: "VALIDATION_ERROR",
         message: message("VALIDATION_ERROR","Request validation failed"),
-        details: error.flatten().fieldErrors,
+        details: Object.fromEntries([...new Set(error.issues.map(issue=>issue.path.join('.')||'_form'))].map(path=>[path,error.issues.filter(issue=>(issue.path.join('.')||'_form')===path).map(issue=>issue.message)])),
         requestId,
       },
     });
@@ -44,7 +44,7 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, _nex
       error: {
         code: error.code,
         message: message(error.code,error.message),
-        ...(error.details === undefined ? {} : { details: error.details }),
+        ...(error.code==='VALIDATION_ERROR' ? {details:error.details && Object.keys(error.details).length ? error.details : {_form:[error.message]}} : error.details === undefined ? {} : { details: error.details }),
         requestId,
       },
     });

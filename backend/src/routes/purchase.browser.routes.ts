@@ -1,3 +1,4 @@
+import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import type { PermissionCode } from "../auth/authorization.types.js";
@@ -29,15 +30,7 @@ function identityFor(request: Request) {
     const identity = requireAuthoritativeTransactionIdentity(request);
     return { userId: identity.actorUserId, organizationId: identity.organizationId, branchId: identity.branchId };
   }
-  const origin = request.header("Origin");
-  const fetchSite = request.header("Sec-Fetch-Site");
-  const originHost = origin && URL.canParse(origin) ? new URL(origin).host : null;
-  const forwardedHost = request.header("X-Forwarded-Host")?.trim();
-  const sameHost = originHost === request.get("host");
-  const sameProxiedHost = fetchSite === "same-origin" && originHost === forwardedHost;
-  if (fetchSite === "cross-site" || (origin && (!originHost || (!sameHost && !sameProxiedHost)))) {
-    throw new ApiError(403, "FORBIDDEN", "Same-origin request required");
-  }
+  assertBrowserSameOrigin(request);
   const actor = request.header("X-Actor-User-Id")?.trim();
   if (actor && actor !== request.browserPrincipal.userId) throw new ApiError(403, "FORBIDDEN", "Actor does not match authenticated session");
   return {

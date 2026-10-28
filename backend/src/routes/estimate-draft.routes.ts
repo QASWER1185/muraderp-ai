@@ -1,3 +1,4 @@
+import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import type { PermissionCode } from "../auth/authorization.types.js";
@@ -26,6 +27,7 @@ const draftSchema = z.strictObject({
   issue_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   currency_code: z.string().trim().min(3).max(10).default("PKR"),
   notes: z.string().trim().max(2_000).nullable().optional(),
+  document_template: z.enum(["sanitary_electric", "building_material"]).default("sanitary_electric"),
   overall_discount: z.number().finite().nonnegative().default(0),
   carriage_delivery: z.number().finite().nonnegative().default(0),
   default_rate_list_id: idSchema.nullable().optional(),
@@ -74,10 +76,7 @@ interface EstimateIdentity {
 }
 
 function sameOrigin(request: Request): void {
-  const origin = request.header("Origin");
-  if (request.header("Sec-Fetch-Site") === "cross-site" || (origin && new URL(origin).host !== request.get("host"))) {
-    throw new ApiError(403, "FORBIDDEN", "Same-origin request required");
-  }
+  assertBrowserSameOrigin(request);
 }
 
 function identityFor(request: Request): EstimateIdentity {
@@ -239,6 +238,7 @@ export function createEstimateDraftRouter(options: EstimateDraftRouterOptions = 
         issue_date: input.issue_date,
         currency_code: input.currency_code.toUpperCase(),
         notes: input.notes ?? null,
+        document_template: input.document_template,
         pass_through_rent: input.carriage_delivery,
         pass_through_rent_payee: input.carriage_delivery > 0 ? "Carriage / Delivery" : null,
         default_rate_list_id: input.default_rate_list_id ?? null,

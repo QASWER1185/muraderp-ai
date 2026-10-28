@@ -19,6 +19,7 @@ import { CopilotRuntime } from "../copilot.runtime.js";
 import { hasConfiguredAiProvider } from "../../ai/providers/factory.js";
 import { BasicInventoryModel } from "./basic-inventory-model.js";
 import { CustomerMemoryStore } from "../customerMemoryStore.js";
+import { StoreMemoryStore } from '../storeMemoryStore.js';
 import { CopilotAnalytics } from "../analytics.js";
 
 export function createConversationalTools(provider?: ToolCallingAiProvider): ErpToolRegistry {
@@ -30,6 +31,7 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
     analytics:new CopilotAnalytics(getSupabaseAdminClient),
     tenant: new TenantAccessService(authorization), erp,
     memory:new CustomerMemoryStore(),
+    storeMemory:new StoreMemoryStore(),
     catalog: new SupabaseCopilotCatalogRepository(getSupabaseAdminClient),
     search: new SupabaseEntitySearchService(), pricing: new DefaultPricingService(rateLists), rateLists,
     runtime: { createMasterDataDraft: (...args) => {
@@ -37,6 +39,10 @@ export function createConversationalTools(provider?: ToolCallingAiProvider): Erp
       return new CopilotRuntime(undefined, undefined, fullProvider).createMasterDataDraft(...args);
     },
     createUnifiedDraft:(...args)=>new CopilotRuntime().createUnifiedDraft(...args),
+    reviseUnifiedDraft:(...args)=>new CopilotRuntime().reviseUnifiedDraft(...args),
+    rememberWorkingDraft:(...args)=>new CopilotRuntime().rememberWorkingDraft(...args),
+    loadWorkingDraft:(...args)=>new CopilotRuntime().loadWorkingDraft(...args),
+    inspectUnifiedDraft:(...args)=>new CopilotRuntime().inspectUnifiedDraft(...args),
     getBusinessReport:(...args)=>new CopilotRuntime().getBusinessReport(...args),
     getDepotReport:(...args)=>new CopilotRuntime().getDepotReport(...args),
     confirmAndExecute:(...args)=>new CopilotRuntime().confirmAndExecute(...args),

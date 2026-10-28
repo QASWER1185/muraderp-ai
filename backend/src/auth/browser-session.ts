@@ -5,7 +5,9 @@ import { env } from "../config/env.js";
 import { ApiError } from "../errors/api-error.js";
 
 const COOKIE_NAME = "muraderp_session";
-const SESSION_TTL_SECONDS = 60 * 60;
+// A secure, persistent business session survives reloads and an overnight pause.
+// Membership and branch permissions are still checked on every ERP operation.
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 // Development sessions remain authenticated and signed. This is not an internal
 // service bearer token, and restarting requires a new Supabase session exchange.
 const LOCAL_SIGNING_SECRET = randomBytes(32);
@@ -31,6 +33,10 @@ function cookieValue(request: Request): string | undefined {
   return undefined;
 }
 export type BrowserPrincipal = { userId: string };
+export function issueBrowserSession(userId:string,response:Response):void {
+  const payload:SessionPayload={userId,exp:Math.floor(Date.now()/1000)+SESSION_TTL_SECONDS};
+  response.cookie(COOKIE_NAME,encode(payload),{httpOnly:true,secure:env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:SESSION_TTL_SECONDS*1000});
+}
 declare global { namespace Express { interface Request { browserPrincipal?: BrowserPrincipal; } } }
 export function browserSessionHandler(required = true): RequestHandler {
   return (request: Request, response: Response, next: NextFunction) => {
@@ -55,8 +61,8 @@ export async function bootstrapBrowserSession(accessToken: string, response: Res
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await supabase.auth.getUser(accessToken);
   if (error || !data.user) throw new ApiError(401, "UNAUTHORIZED", "Invalid or expired Supabase session");
-  const userId = data.user.id; const payload: SessionPayload = { userId, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS };
-  response.cookie(COOKIE_NAME, encode(payload), { httpOnly: true, secure: env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: SESSION_TTL_SECONDS * 1000 });
+  const userId = data.user.id;
+  issueBrowserSession(userId,response);
   return { userId };
 }
 export function clearBrowserSession(response: Response): void { response.clearCookie(COOKIE_NAME, { httpOnly: true, secure: env.NODE_ENV === "production", sameSite: "lax", path: "/" }); }

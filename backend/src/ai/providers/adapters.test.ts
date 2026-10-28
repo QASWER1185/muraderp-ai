@@ -196,6 +196,15 @@ describe("provider configuration and speech capabilities",()=>{
     const fetcher=fetchResult(native("gemini",[tool("gemini","erp_proposal",{proposal:[1,2]})]));
     expect(await createAiProvider(config("gemini"),fetcher).generate(z.array(z.number().positive()),"extract",[{type:"input_text",text:"one and two"}])).toEqual([1,2]);
   });
+  it('honors the server vision model for a browser key without replacing the chat model',async()=>{
+    const previous=env.AI_VISION_MODEL;env.AI_VISION_MODEL='configured-vision-model';
+    try{
+      const fetcher=fetchResult(native('gemini',[tool('gemini','erp_proposal',{proposal:{value:'read'}})]));
+      const provider=createGeminiUserProvider('test-only-gemini-key-1234567890',fetcher);
+      await provider.generate(schema,'read the image',[{type:'input_image',image_url:'data:image/png;base64,dGVzdA=='}]);
+      expect(String(fetcher.mock.calls[0]![0])).toContain('/configured-vision-model:generateContent');
+    }finally{env.AI_VISION_MODEL=previous;}
+  });
   it("builds a request-scoped Gemini provider from a user key without touching server configuration",async()=>{
     const fetcher=vi.fn<typeof fetch>(async()=>new Response(JSON.stringify(native("gemini",[text("gemini","verified")]))));
     const userKey="AIzaSyTestOnlyKey012345678901234567";

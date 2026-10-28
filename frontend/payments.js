@@ -38,7 +38,7 @@ export function validateCustomerPaymentDraft(input, receivable) {
 
 export function receivableListMarkup(receivables) {
   if (!receivables.length) return `<div class="empty-state">${icon("receipt", 26)}<h2>No posted invoices</h2><p>Invoice balances for this branch will appear here.</p></div>`;
-  return `<div class="invoice-list">${receivables.map((item) => `<div class="invoice-row"><span><strong>${escapeHtml(item.invoice_number)}</strong><small>${escapeHtml(item.customer_name)} · ${escapeHtml(item.status)}</small></span><span>Outstanding <strong>${money(item.outstanding, item.currency_code)}</strong></span></div>`).join("")}</div>`;
+  return `<div class="invoice-list">${receivables.map((item) => `<div class="invoice-row"><span><strong>${escapeHtml(item.invoice_number)}</strong><small>${escapeHtml(item.customer_name)} · ${escapeHtml(item.status)}</small></span><span>${Number(item.outstanding)<0?'Customer credit:':'Outstanding'} <strong>${Number(item.outstanding)<0?`Rs ${Math.abs(Number(item.outstanding)).toLocaleString('en-PK',{maximumFractionDigits:2})}`:money(item.outstanding, item.currency_code)}</strong></span></div>`).join("")}</div>`;
 }
 
 export function paymentListMarkup(payments) {
@@ -48,8 +48,8 @@ export function paymentListMarkup(payments) {
 
 export function paymentDetailMarkup({ payment, allocations }) {
   return `<div class="side-dialog-head"><div><p class="eyebrow">Customer payment</p><h2>${escapeHtml(payment.reference_number || `Payment #${payment.id}`)}</h2></div><button class="icon-button" type="button" data-payment-close aria-label="Close">${icon("close")}</button></div>
-    <dl class="detail-list"><div><dt>Customer</dt><dd>#${escapeHtml(payment.customer_id)}</dd></div><div><dt>Date</dt><dd>${escapeHtml(payment.payment_date)}</dd></div><div><dt>Method</dt><dd>${escapeHtml(methods[payment.payment_method] ?? payment.payment_method)}</dd></div><div><dt>Payment</dt><dd><strong>${money(payment.amount, payment.currency_code)}</strong></dd></div></dl>
-    <h3>Invoice allocations</h3><div class="invoice-detail-lines">${allocations.map((allocation) => `<div><span>${escapeHtml(allocation.invoice_number)} · Invoice #${escapeHtml(allocation.invoice_id)}</span><strong>${money(allocation.amount, payment.currency_code)}</strong></div>`).join("")}</div>${payment.notes ? `<p class="muted">${escapeHtml(payment.notes)}</p>` : ""}`;
+    <dl class="detail-list"><div><dt>Customer</dt><dd>#${escapeHtml(payment.customer_id)}</dd></div><div><dt>Receipt date</dt><dd>${escapeHtml(payment.payment_date)}</dd></div><div><dt>Payment method</dt><dd>${escapeHtml(methods[payment.payment_method] ?? payment.payment_method)}</dd></div><div><dt>Amount</dt><dd><strong>${money(payment.amount, payment.currency_code)}</strong></dd></div></dl>
+    <h3>Applied Invoices</h3><div class="invoice-detail-lines">${allocations.map((allocation) => `<div><span>${escapeHtml(allocation.invoice_number)} · Invoice #${escapeHtml(allocation.invoice_id)}</span><strong>${money(allocation.amount, payment.currency_code)}</strong></div>`).join("")}</div>${payment.notes ? `<p class="muted">${escapeHtml(payment.notes)}</p>` : ""}`;
 }
 
 export function mountPayments(container, options = {}) {
@@ -118,7 +118,7 @@ export function mountPayments(container, options = {}) {
     }
   }
 
-  async function openEditor() {
+  async function openEditor(prefillInvoiceId = null) {
     if (!context) { globalThis.dispatchEvent(new CustomEvent("muraderp:open-workspace")); return; }
     form.reset(); resetReview(); message.hidden = true;
     field("payment_date").value = new Date().toISOString().slice(0, 10);
@@ -130,6 +130,16 @@ export function mountPayments(container, options = {}) {
       const open = receivables.filter((item) => item.outstanding > 0);
       field("invoice_id").innerHTML = `<option value="">Choose invoice</option>${open.map((item) => `<option value="${escapeHtml(item.invoice_id)}">${escapeHtml(item.invoice_number)} · ${escapeHtml(item.customer_name)} · ${money(item.outstanding, item.currency_code)} outstanding</option>`).join("")}`;
       container.querySelector("#payment-invoice-summary").textContent = open.length ? "Choose the posted invoice to settle." : "No outstanding invoices are available in this branch.";
+      if (prefillInvoiceId != null) {
+        const selected = open.find((item) => Number(item.invoice_id) === Number(prefillInvoiceId));
+        if (selected) {
+          field("invoice_id").value = String(selected.invoice_id);
+          field("amount").value = String(selected.outstanding);
+          container.querySelector("#payment-invoice-summary").textContent = `${selected.customer_name} · ${selected.invoice_number} · ${money(selected.outstanding, selected.currency_code)} outstanding`;
+        } else {
+          container.querySelector("#payment-invoice-summary").textContent = "This invoice has no outstanding balance.";
+        }
+      }
       field("invoice_id").focus();
     } catch (error) { showError(error); }
   }
@@ -181,4 +191,6 @@ export function mountPayments(container, options = {}) {
     if (row) void openDetail(Number(row.dataset.paymentId));
   });
   void load();
+  if (options.sourceInvoiceId) void openEditor(Number(options.sourceInvoiceId));
+  else if (options.paymentId) void openDetail(Number(options.paymentId));
 }

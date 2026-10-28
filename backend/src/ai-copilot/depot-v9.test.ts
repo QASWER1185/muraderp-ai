@@ -27,6 +27,18 @@ function operations(){
   return {deps,product,ops:new DefaultErpOperations(deps)};
 }
 describe("V9 installation completeness",()=>{
+  it.each([["kg","سامان 4 کلو"],["gaz","ململ 4 گز"]])("preserves an explicitly written %s line from a demand slip",async(unit,rawLine)=>{
+    const raw={...document(0),lines:[{raw_line:rawLine,item_name:unit==="gaz"?"ململ":"سامان",material:null,size:null,specification:null,quantity:4,unit}]};
+    const provider:any={name:"gemini",generate:vi.fn(async(schema:any)=>schema.parse(raw)),transcribe:vi.fn()};
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"ان پرچیوں کا ایسٹیمیٹ بناؤ",media:media()},scope);
+    expect(result.extraction.document?.lines[0]).toMatchObject({quantity:4,unit,rawShorthand:rawLine});
+  });
+  it("keeps an explicit estimate on the slip route when its caption mentions an active rate list",async()=>{
+    const provider:any={name:"gemini",generate:vi.fn(async()=>document(0)),transcribe:vi.fn()};
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"گاہک کا نام خادم حسین پلمبر ہے۔ پرچیوں کا ایسٹیمیٹ فعال ریٹ لسٹ سے بناؤ",media:media()},scope);
+    expect(result.catalog).toBeUndefined();expect(result.extraction.document?.lines).toHaveLength(1);
+    expect(provider.generate.mock.calls[0][1]).toContain("demand-slip estimate");
+  });
   const service=new InstallationCompletenessService();
   it.each([["Commode",7],["Gas Geyser",4],["Electric Geyser",3],["Ceiling Fan",5],["Water Pump",3],["DB Panel",4]])("audits %s without adding items silently",(name,count)=>{
     const result=service.audit([{name,quantity:1}]);expect(result).toHaveLength(count);expect(service.prompt(result)).toContain("حاجی صاحب");expect(result.every(item=>!("price" in item))).toBe(true);
@@ -54,8 +66,9 @@ describe("V9 quotation authority and privacy",()=>{
   });
   it("never lists Popular candidates under an explicit Dura brand restriction",async()=>{
     const f=operations();f.deps.search.searchProducts.mockResolvedValue(resolveCandidates([{...f.product,brandName:"Popular",name:"Popular elbow",confidence:1,match_kind:"exact_name"}],5));
-    await expect(f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope)).rejects.toThrow(/Dura Max/);
-    try{await f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope);}catch(error){expect((error as Error).message).not.toContain("Popular");}
+    const pending=await f.ops.prepare("erp_create_estimate",{customerName:"Waseem",brand:"Dura Max",items:[{name:"Elbow 25mm",qty:1}]},scope);
+    expect(pending.data.incomplete).toBe(true);expect(pending.data.lines[0].pendingReason).toContain("Dura Max");
+    expect(JSON.stringify(pending.preview)).not.toContain("Popular");
   });
   it("filters in the database BEFORE ranking and still rejects malformed cross-brand RPC results",async()=>{
     const rpc=vi.fn(async()=>({data:[{id:1,name:"Popular Elbow",sku:"P",category:"Fittings",unit:"pcs",brand_name:"Popular",confidence:1,match_kind:"exact_name"}],error:null}));
@@ -87,6 +100,23 @@ describe("V9 quotation authority and privacy",()=>{
   });
 });
 describe("V9 multi-slip consolidation and count checks",()=>{
+  it('uses explicit customer, address, brand and pipe specs over conflicting page headers without swapping rows',async()=>{
+    let page=0;
+    const provider={generate:vi.fn(async()=>({...document(page++),customerName:'Old plumber',customerAddress:page===1?'Old road':'Other road',requestedBrand:page===1?'Popular':'Turk Plast',
+      observedLineCount:5,lines:[
+        {productName:'Pipe PN-20',productCode:null,brandHint:'Popular',material:'PPR-C',specification:'PN-20',size:'25mm',quantity:4,unit:'length',unitRate:null,discountPercent:null,confidence:.99},
+        {productName:'Pipe Heavy',productCode:null,brandHint:'Popular',material:'U-PVC',specification:'Heavy',size:'4 inch',quantity:18,unit:'length',unitRate:null,discountPercent:null,confidence:.99},
+        {productName:'Thread',productCode:null,brandHint:null,quantity:8,unit:'kg',unitRate:null,discountPercent:null,confidence:.99},
+        {productName:'Elbow Male',productCode:null,brandHint:'Popular',material:'PPR-C',specification:'Male',size:'25x1/2 inch',quantity:60,unit:'pcs',unitRate:null,discountPercent:null,confidence:.99},
+        {productName:'End Cap',rawShorthand:'end cap 32 mm - 10 pcs',productCode:null,brandHint:'Popular',material:'U-PVC',size:'32 mm',quantity:10,unit:'pcs',unitRate:null,discountPercent:null,confidence:.99}]})),transcribe:vi.fn()};
+    const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:'image',task:'estimate',message:'Customer: خالد محمود, Address: لیک سٹی 15 بی رائے ونڈ روڈ لاہور, Phone: 0315-409017, Dura Max, PPR-C pipe PN-16 @ 50%, U-PVC pipe Medium @ 50%, fittings 52%, threaded fittings Female',attachments:[1,2].map(i=>({fileName:i+'.png',media:media()}))},scope);
+    expect(result.reviewRequired).toBe(false);
+    expect(result.estimateRequest).toMatchObject({customerName:'خالد محمود',customerAddress:'لیک سٹی 15 بی رائے ونڈ روڈ لاہور',customerPhone:'0315-409017',brand:'Dura Max'});
+    const rows=result.estimateRequest!.items as any[];
+    expect(rows[0]).toMatchObject({qty:4,unit:'length',brand:'Dura Max'});expect(rows[0].name).toContain('PN-16');expect(rows[0].name).not.toContain('PN-20');
+    expect(rows[1]).toMatchObject({qty:18,unit:'length'});expect(rows[1].name).toContain('Medium');expect(rows[1].name).not.toContain('Heavy');
+    expect(rows[2]).toMatchObject({qty:8,unit:'pcs'});expect(rows[3].name).toContain('Female');expect(rows[3].name).not.toContain('Male');expect(rows[4].name).toContain('PPR-C');expect(result.extraction.document!.warnings.join(' ')).not.toMatch(/پتہ مختلف|برانڈ مختلف/);
+  });
   it("consolidates 3 images into one 3-line proposal without using observed prices",async()=>{
     const provider={generate:vi.fn(async(_schema:unknown,_instructions:string,content:unknown[])=>document(Number(JSON.stringify(content).match(/([123])\.png/)?.[1])-1)),transcribe:vi.fn()};
     const result=await new MultimodalAgentInput(new ProviderBusinessInput(provider)).normalize({source:"image",task:"estimate",message:"Waseem Mazhar Bhai Dura Max 50%",attachments:[1,2,3].map(i=>({fileName:i+".png",media:media()}))},scope);

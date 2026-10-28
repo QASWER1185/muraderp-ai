@@ -1,7 +1,9 @@
+import {normalizeVoiceChoices} from './voice-choices.js';
 /** Explicit brand choices are restrictions, including common spoken spellings. */
 export function canonicalBrand(value: string): string {
-  const normalized=value.normalize("NFKC").trim().toLowerCase().replace(/[\s_-]+/g," ");
+  const normalized=normalizeVoiceChoices(value).trim().toLowerCase().replace(/[\s_-]+/g," ");
   if (/^(?:d[ue]ra\s*max|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس)$/u.test(normalized)) return "Dura Max";
+  if (/^(?:dura\s*flow|(?:ڈیورا|ڈورا|دورا)\s*فلو)$/u.test(normalized)) return "Dura Flow";
   if(/^(?:popular|پاپولر)$/u.test(normalized))return "Popular";
   if(/^(?:turk\s*plast|ترک\s*پلاسٹ)$/u.test(normalized))return "Turk Plast";
   if(/^(?:he\s*china|ایچ\s*ای\s*چائنا)$/u.test(normalized))return "HE China";
@@ -12,8 +14,10 @@ export function explicitBrand(value: string): string | undefined {
   return brands.length===1?brands[0]:undefined;
 }
 export function brandsInText(value:string):string[] {
+  value=normalizeVoiceChoices(value);
   return [
     {name:"Dura Max",pattern:/\b(?:dura|dera)\s*max\b|(?:ڈیورا|ڈورا|ڈیرا|دورا)\s*میکس/iu},
+    {name:"Dura Flow",pattern:/\bdura\s*flow\b|(?:ڈیورا|ڈورا|دورا)\s*فلو/iu},
     {name:"Popular",pattern:/\bpopular\b|پاپولر/iu},
     {name:"Turk Plast",pattern:/\bturk\s*plast\b|ترک\s*پلاسٹ/iu},
     {name:"HE China",pattern:/\bhe\s*china\b|ایچ\s*ای\s*چائنا/iu},
@@ -49,6 +53,13 @@ function specifications(value:string,catalog=false):string[] {
 export function canonicalCatalogQuery(value:string,brand?:string):string {
   if(!sameBrand(brand??explicitBrand(value),"Dura Max"))return value;
   let query=value;
+  if(/\bppr[\s-]*c\b/i.test(query)&&/\b(?:elbow|tee|socket)\b/i.test(query)&&/\d+\s*[x×*]\s*\d+\s*mm\b/i.test(query)){
+    if(!/\breduc(?:e|ing|er)\b/i.test(query))query+=' Reducing';
+    query=query.replace(/(\d+)\s*[x×*]\s*(\d+)\s*mm\b/gi,(_,a,b)=>[Number(a),Number(b)].sort((x,y)=>x-y).join('x')+' mm');
+  }
+  // In the U-PVC catalog, a bare elbow is the standard 90° fitting;
+  // angle/plug/threaded variants remain explicit restrictions.
+  if(/\bu[\s-]*pvc\b/i.test(query)&&/\belbow\b/i.test(query)&&!/\b(?:plug|female|male|reducing)\b|\b(?:45|90)\b/i.test(query))query+=' 90°';
   if(/\bu[\s-]*pvc\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\b(?:medium|class|schedule|sch|conduit|heavy|light)\b/i.test(query))query+=" Medium";
   if(/\bppr[\s-]*c\b/i.test(query)&&/\bpipe\b/i.test(query)&&!/\bpn\s*[-:]?\s*\d+/i.test(query))query+=" PN-16";
   if(/\bp[\s-]*trap\b/i.test(query)&&!/\b(?:single|double)\b/i.test(query))query+=" Single";

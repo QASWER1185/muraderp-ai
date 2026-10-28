@@ -1,3 +1,4 @@
+import { demandMarkdownTable } from '../estimate-table.js';
 import { createHash, randomUUID } from "node:crypto";
 import { ApiError } from "../../errors/api-error.js";
 import type { AgentScope } from "../agent/erp-tools.js";
@@ -27,6 +28,8 @@ import { SiteTransferService, DEPOT_WRITES } from "../siteTransferService.js";
 import type { CompanionLearningStore } from "../companionLearningStore.js";
 import type { DepotIntelligenceStore } from "../depotIntelligenceStore.js";
 import { duraCatalogBaseline } from "../catalogIntegrity.js";
+import {DEMAND_SLIP_ESTIMATE,hardwareKind,hardwareLabel,hardwarePrompt} from '../demand-slip.js';
+import { StoreMemoryStore } from '../storeMemoryStore.js';
 
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const amount=(value:number)=>Math.round((value+Number.EPSILON)*100)/100;
@@ -35,6 +38,16 @@ function requireChoice(message:string):never { throw new ApiError(422,"ERP_ACTIO
 function equal(actual:unknown,expected:unknown,label:string) {
   if (JSON.stringify(actual)!==JSON.stringify(expected)) throw new ApiError(409,"ERP_APPROVAL_CHANGED",label+" changed. Prepare a fresh preview before confirming.");
 }
+const maleVariant=(name:string)=>/(?:\bmale\b|\bMT\b|نر)/iu.test(name);
+const femaleVariant=(name:string)=>/(?:\bfemale\b|\bFT\b|فیمیل|مادہ)/iu.test(name);
+const explicitVariant=(text:string):"Male"|"Female"|undefined=>{
+  const negativeMale=/(?:\b(?:no|not|without|don't|do not)\s+(?:male|MT)\b|\b(?:male|MT)\s+(?:نہ|نہیں|مت)|\bmale\s+not\b)/iu.test(text);
+  if(maleVariant(text)&&!negativeMale)return "Male";
+  if(femaleVariant(text))return "Female";
+  return undefined;
+};
+const threadedFittingRequest=(text:string)=>/(?:\b(?:elbow|tee|socket|adapter|union|nipple)\b|کہنی|ٹی|ساکٹ)/iu.test(text)&&
+  (/(?:\bthread(?:ed)?\b|\bBSP\b|\bNPT\b|\b\d+\s*[x×*]\s*\d+\s*\/\s*\d+|\b\d+\s*\/\s*\d+\s*["″]?|\b1\s*["″])/iu.test(text));
 export const ACTION_TARGETS:Record<ErpWriteName,CopilotTarget>={
   erp_amend_estimate:"estimate",erp_accept_companions:"estimate",erp_create_site:"depot_action",erp_prepare_site_return:"depot_action",
   erp_transfer_site_material:"depot_action",erp_deliver_site_transfer:"depot_action",erp_create_dispatch:"depot_action",erp_record_dispatch:"depot_action",
@@ -65,8 +78,10 @@ export interface ErpOperations {
 export class DefaultErpOperations implements ErpOperations {
   private readonly memory: CustomerMemory;
   private readonly depot:SiteTransferService;
+  private readonly storeMemory:StoreMemoryStore;
   constructor(private readonly deps:OperationsDependencies) {
     this.memory = deps.memory ?? new CustomerMemoryStore(deps.database);
+    this.storeMemory = new StoreMemoryStore(deps.database);
     this.depot=new SiteTransferService({...deps,memory:this.memory},(input,scope)=>this.prepare("erp_convert_estimate_to_invoice",input,scope));
   }
   private async rpc(name:string,args:Record<string,unknown>) {
@@ -87,11 +102,22 @@ export class DefaultErpOperations implements ErpOperations {
     if(id) { const row=await this.deps.erp.getCustomer(id,scope.organizationId);if(!row)requireChoice("Customer was not found in this organization.");return row; }
     if(!input.customerName)requireChoice("جناب، اس ایسٹیمیٹ کے لیے صرف گاہک کا نام بتا دیں۔");
     const match=await this.deps.search.searchCustomers(input.customerName,5,scope);
-    if(allowNew && match.resolution==="no_match") return {
-      name:input.customerName,city:input.customerAddress??"",newCustomer:{name:input.customerName,city:input.customerAddress??"",phone:""},
-    };
+    if(allowNew && match.resolution==="no_match") {
+      if(input.mode===DEMAND_SLIP_ESTIMATE){
+        const payload={name:input.customerName,address:input.customerAddress??'',phone:input.customerPhone??''};
+        const result=await this.rpc('commit_copilot_profile_action',{p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_service_principal:this.deps.principal,p_idempotency_key:'demand-customer-'+digest({...scope,...payload}),p_tool:'erp_create_customer',p_payload:payload});
+        return {id:result.id,name:payload.name,city:payload.address,phone:payload.phone};
+      }
+      return {name:input.customerName,city:input.customerAddress??"",newCustomer:{name:input.customerName,city:input.customerAddress??"",phone:input.customerPhone??""}};
+    }
     if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("Please clarify the customer: "+match.items.map(row=>row.name+" (ID "+row.id+")").join("; "));
-    return (await this.deps.erp.getCustomer(match.bestCandidate.id,scope.organizationId))!;
+    const customer=(await this.deps.erp.getCustomer(match.bestCandidate.id,scope.organizationId))!;
+    if(allowNew&&input.mode===DEMAND_SLIP_ESTIMATE){
+      const updates={...(input.customerPhone&&input.customerPhone!==customer.phone?{phone:input.customerPhone}:{}),...(input.customerAddress&&input.customerAddress!==customer.city?{address:input.customerAddress}:{})};
+      if(Object.keys(updates).length)await this.rpc('commit_copilot_profile_action',{p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,p_service_principal:this.deps.principal,p_idempotency_key:'demand-customer-'+digest({...scope,id:customer.id,updates}),p_tool:'erp_update_customer',p_payload:{customerId:customer.id,updates}});
+      return {...customer,...(updates.phone?{phone:updates.phone}:{}),...(updates.address?{city:updates.address}:{})};
+    }
+    return customer;
   }
   private async warehouse(id:number|undefined,scope:AgentScope) {
     if(id) {if(!await this.deps.erp.getWarehouse(id,scope.organizationId))requireChoice("Warehouse was not found in this organization.");return id;}
@@ -120,43 +146,130 @@ export class DefaultErpOperations implements ErpOperations {
     const profile=customer.id ? await this.memory.recall(scope,customer.id,customer.name) :
       {history:[],preferredBrands:[],transactionCount:0,averageTransactionVolume:0,averageOrderIntervalDays:null,context:"",customerId:0};
     const warehouseId=invoice?await this.warehouse(input.warehouseId,scope):undefined;
+    const storeMemory=invoice?{rates:[],rules:[]}:await this.storeMemory.recall(scope);
     const lines:any[]=[];
+    const listNames=new Map<number,Promise<string>>();
     for(let offset=0;offset<input.items.length;offset+=8) {
       const batch=await Promise.all(input.items.slice(offset,offset+8).map(async(original:any,index:number)=>{
+      if(input.mode===DEMAND_SLIP_ESTIMATE&&!/\bpipe\b|پائپ/iu.test(original.name??'')&&!/\bPN[ -]?\d+\b|\b(?:Medium|Heavy|Light)\b/iu.test(original.rawShorthand??''))
+        original={...original,name:(original.name??'').replace(/\bPN[ -]?\d+\b|\b(?:Medium|Heavy|Light)\b/giu,'').replace(/\s+/g,' ').trim()};
+      const hardware=input.mode===DEMAND_SLIP_ESTIMATE?hardwareKind(original.name??''):undefined;
+      let candidates:any[]=[];
+      try {
+      // Owner prices are transaction terms, not catalog updates. They do not
+      // require a catalog match or a purchase baseline to prepare an estimate.
+      if(!invoice&&original.rate!==undefined){
+        const product=original.productId?await this.deps.erp.getProduct(original.productId,scope.organizationId):null;
+        if(original.productId&&!product)requireChoice('منتخب آئٹم اس ادارے میں دستیاب نہیں۔');
+        if(!original.name&&!product)requireChoice('براہ کرم اس نرخ والے آئٹم کا نام بتا دیں۔');
+        const discount=original.discount??0;
+        return {line_number:offset+index+1,productName:[original.name??product?.name,original.size].filter(Boolean).join(' '),...(product?{product_id:product.id}:{}),size:original.size,brandName:original.brand??input.brand,quantity:original.qty,unit:original.unit??product?.unit??'pcs',unit_price:original.rate,discountPercent:discount,discount_amount:amount(original.qty*original.rate*discount/100),...(hardware?{hardware:true}:{}),pricing_source:'OWNER_QUOTED',ownerRate:original.rate};
+      }
+      if(input.mode===DEMAND_SLIP_ESTIMATE&&original.specificationPending)throw new ApiError(422,'ESTIMATE_PRODUCT_PENDING','اس سطر کا درست سائز واضح کریں؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔');
+      if(hardware){
+        const manual=input.hardwareRates?.find((entry:any)=>entry.kind===hardware);
+        if(manual)return {line_number:offset+index+1,productName:hardwareLabel(original.name),...(original.size?{size:original.size}:{}),quantity:original.qty,unit:original.unit??'pcs',unit_price:manual.rate,discountPercent:original.discount??0,discount_amount:amount(original.qty*manual.rate*(original.discount??0)/100),hardware:true,pricing_source:'OWNER_QUOTED',ownerRate:manual.rate};
+      }
       const item=applyHybridRules<any>(original,input.pricingRules??[]);
-      const brand=input.brand ?? item.brand ?? explicitBrand(item.name??"");
-      if(input.brand && item.brand && !sameBrand(item.brand,input.brand))requireChoice("اس پرچی کے تمام آئٹمز صرف "+canonicalBrand(input.brand)+" میں تیار ہوں گے۔ مختلف برانڈ کے لیے الگ درخواست دیں۔");
+      if(input.mode===DEMAND_SLIP_ESTIMATE&&!hardware&&sameBrand(input.brand??item.brand,'Dura Max')&&/\bpipe\b/i.test(item.name??'')&&!/ppr|pvc|\bg[.\s-]*i\b|brass/iu.test(item.name??'')&&/^[2-6]\s*(?:inch|["″])$/iu.test(item.size??''))item.name+=' U-PVC';
+      if(input.mode===DEMAND_SLIP_ESTIMATE&&!hardware&&/\bpipe\b/i.test(item.name??'')&&!/PN[ -]?\d|medium|heavy|light/i.test([item.name,item.size].join(' '))){
+        if(/u[ -]?pvc/i.test(item.name??''))item.name+=' Medium';
+        else if(/ppr/i.test(item.name??''))item.name+=' PN-16';
+      }
+      const brand=hardware?undefined:item.brand ?? input.brand ?? explicitBrand(item.name??"");
+
       let product=item.productId?await this.deps.erp.getProduct(item.productId,scope.organizationId):null;
-      if(!item.productId) {
-        if(!item.name)requireChoice("Each item needs a product name or Product ID.");
-        const query=[item.name,item.size].filter(Boolean).join(" ");
-        let match=brand ? await this.deps.search.searchProducts(query,5,scope,brand) : await this.deps.search.searchProducts(query,5,scope);
+      if(!item.name&&!product)requireChoice("Each item needs a product name or Product ID.");
+      const query=[item.name,item.size].filter(Boolean).join(" ");
+      let match:any=null;
+      if(!product) {
+        match=brand ? await this.deps.search.searchProducts(query,5,scope,brand) : await this.deps.search.searchProducts(query,5,scope);
         if(brand) {
-          match={...match,items:match.items.filter(row=>sameBrand(row.brandName,brand))};
+          match={...match,items:match.items.filter((row:any)=>sameBrand(row.brandName,brand))};
           if(!match.bestCandidate || !sameBrand(match.bestCandidate.brandName,brand))match={...match,resolution:"no_match",bestCandidate:null};
         }
+      }
+      const variantText=[input.message??'',query,original.rawShorthand??''].join(' ');
+      const requestedVariant=input.mode===DEMAND_SLIP_ESTIMATE?explicitVariant(variantText):undefined;
+      const currentRows:any[]=[...(match?.items??[])];
+      if(match?.bestCandidate&&!currentRows.some(row=>row.id===match.bestCandidate.id))currentRows.push(match.bestCandidate);
+      if(product)currentRows.push({id:product.id,name:product.name,unit:product.unit,brandName:product.brand_id==null?explicitBrand(product.name):await this.deps.search.getProductBrand(product.brand_id,scope.organizationId)});
+      const hasGenderedCandidate=currentRows.some(row=>maleVariant(row.name)||femaleVariant(row.name));
+      const forceFemale=input.mode===DEMAND_SLIP_ESTIMATE&&!requestedVariant&&(threadedFittingRequest(variantText)||hasGenderedCandidate);
+      const targetVariant=requestedVariant??(forceFemale?'Female':undefined);
+      if(targetVariant){
+        const isTarget=targetVariant==='Male'?maleVariant:femaleVariant;
+        const fitsBrand=(row:any)=>!brand||sameBrand(row.brandName,brand);
+        let variantRows=currentRows.filter(row=>isTarget(row.name)&&fitsBrand(row));
+        const neutralQuery=query.replace(/\b(?:male|female|MT|FT)\b/giu,' ').replace(/نر|فیمیل|مادہ/gu,' ').replace(/\s+/g,' ').trim();
+        if(variantRows.length!==1){
+          const variantQuery=[targetVariant,neutralQuery].filter(Boolean).join(' ');
+          const variantSearch=brand?await this.deps.search.searchProducts(variantQuery,8,scope,brand):await this.deps.search.searchProducts(variantQuery,8,scope);
+          variantRows=variantSearch.items.filter((row:any)=>isTarget(row.name)&&fitsBrand(row));
+        }
+        if(variantRows.length!==1){
+          const names=variantRows.map((row:any)=>row.name+" (ID "+row.id+")");
+          const question=targetVariant==='Female'
+            ?`درخواست میں Male واضح نہیں تھا، اس لیے Female threaded variant درکار ہے؛ ${query} کے لیے درست Female کیٹلاگ آئٹم نہیں ملا۔ درست سائز یا آئٹم بتا دیں۔`
+            :`${query} کے لیے Male threaded variant نہیں ملا؛ درست کیٹلاگ آئٹم بتا دیں۔`;
+          throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",names.length?question+" "+names.join("؛ "):question);
+        }
+        product=await this.deps.erp.getProduct(variantRows[0].id,scope.organizationId);
+      }
+      if(!item.productId&&!targetVariant) {
+        if(input.mode===DEMAND_SLIP_ESTIMATE&&(match.resolution!=='resolved'||!match.bestCandidate)){
+          // Present genuine active alternatives; never choose a different brand here.
+          let alternatives=match.items;
+          if(!alternatives.length){
+            const brands=await this.rows('brands','name',q=>q.eq('organization_id',scope.organizationId));
+            const options=await Promise.all(brands.filter(row=>!brand||!sameBrand(row.name,brand)).map(row=>this.deps.search.searchProducts(query,5,scope,row.name)));
+            alternatives=options.flatMap(option=>option.items);
+          }
+          candidates=(await Promise.all(alternatives.map(async(row:any)=>{
+            const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:'SALE',product_id:row.id,...(customer.id?{customer_id:customer.id}:{}),rate_list_brand:row.brandName??brand,quantity:item.qty,as_of:asOf+'T23:59:59.999Z'});
+            return rate?{productId:row.id,name:row.name,brand:row.brandName,unit:row.unit,rate:rate.unit_price,rateListId:rate.rate_list_id}:null;
+          }))).filter(Boolean);
+        }
         if(!brand && match.resolution!=="resolved") {
-          const preferred=profile.preferredBrands.filter(brand=>match.items.some(row=>row.category===brand.category && row.brandName===brand.brandName));
+          const preferred=profile.preferredBrands.filter(brand=>match.items.some((row:any)=>row.category===brand.category && row.brandName===brand.brandName));
           if(preferred.length===1) match=await this.deps.search.searchProducts([preferred[0]!.brandName,item.name,item.size].filter(Boolean).join(" "),5,scope);
         }
-        if(match.resolution!=="resolved"||!match.bestCandidate)requireChoice("براہِ کرم "+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کا سائز یا قسم واضح کر دیں۔ "+match.items.map(row=>row.name+" (ID "+row.id+")").join("؛ "));
+        if(match.resolution!=="resolved"||!match.bestCandidate)throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",hardware?
+          `اس ہارڈویئر آئٹم (${original.name??'نام واضح نہیں'}) کی درست کیٹلاگ آئٹم نہیں ملی؛ براہِ کرم نام، سائز اور ریٹ بتا دیں۔`:
+          match.items.length?
+          (match.items.some((row:any)=>/\b(?:female|male)\b/iu.test(row.name))?"براہِ کرم Male یا Female منتخب کریں؛ ":"براہِ کرم ")+(brand?canonicalBrand(brand)+" کا ":"")+item.name+" کی درست قسم منتخب کریں۔ "+match.items.map((row:any)=>row.name+" (ID "+row.id+")").join("؛ "):
+          [brand?canonicalBrand(brand):'',item.name,item.size].filter(Boolean).join(' ')+" منتخب برانڈ کی فعال ریٹ لسٹ میں موجود نہیں۔ کیا دوسرے برانڈ کا دستیاب نرخ یا اپنا نرخ استعمال کریں؟ "+candidates.map(row=>row.brand+" "+row.name+" PKR "+row.rate).join("؛ "));
         product=await this.deps.erp.getProduct(match.bestCandidate.id,scope.organizationId);
       }
       if(!product)requireChoice("جناب، اس ادارے کی ریٹ لسٹ میں یہ آئٹم نہیں ملا؛ اس کا درست نام یا سائز بتا دیں۔");
-      if(!matchesProductSpecification([item.name,item.size].filter(Boolean).join(" "),product.name))
-        requireChoice(item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
-      if(brand && !sameBrand(product.brand_id==null?null:await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
+      const specification=[item.name,item.size].filter(Boolean).join(" ");
+      const needsMaterialEvidence=/\bppr/iu.test(specification)&&!/\bppr/iu.test(product.name)&&!/\b(?:u[\s-]*)?pvc\b|\bcpvc\b|\bbrass\b|\bgalvanized\b|\bg[.\s-]*i(?:\b|\.)/iu.test(product.name)&&
+        matchesProductSpecification(specification.replace(/\bppr[\s-]*c\b/giu,""),product.name);
+      if(!needsMaterialEvidence && !matchesProductSpecification(specification,product.name))
+        throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",item.name+" کے لیے "+(item.size??"درخواست کردہ سائز یا پریشر")+" کا درست کیٹلاگ آئٹم درکار ہے؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔");
+      if(brand && !sameBrand(product.brand_id==null?explicitBrand(product.name):await this.deps.search.getProductBrand(product.brand_id,scope.organizationId),brand))
         requireChoice("منتخب آئٹم "+canonicalBrand(brand)+" کا نہیں ہے۔ اسی برانڈ کا درست آئٹم منتخب کریں۔");
       const countedPipe=(/\bpipe\b/i.test(product.name)||/^pipes?$/i.test(product.category))&&["pcs","length"].includes(canonicalUnit(item.unit??""))&&["pcs","length"].includes(canonicalUnit(product.unit));
-      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe)requireChoice(product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔");
-      const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),
+      const countedCan=input.mode===DEMAND_SLIP_ESTIMATE&&item.unit==='can'&&product.unit==='pcs'&&/solvent|solution/iu.test(product.name)&&/\d+\s*g\b/iu.test(product.name)&&/\d+\s*g\b/iu.test(specification);
+      if(item.unit&&canonicalUnit(item.unit)!==canonicalUnit(product.unit)&&!countedPipe&&!countedCan){
+        const reason=product.name+" کا ERP یونٹ "+product.unit+" ہے؛ مختلف یونٹ کی درست تبدیلی واضح کر دیں۔";
+        if(input.mode===DEMAND_SLIP_ESTIMATE)throw new ApiError(422,'ESTIMATE_RATE_PENDING',reason,{productId:product.id,productName:product.name,unit:item.unit});
+        requireChoice(reason);
+      }
+      const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,...(customer.id?{customer_id:customer.id}:{}),rate_list_brand:brand,
         quantity:item.qty,as_of:asOf+"T23:59:59.999Z",...(item.rateListId?{rate_list_id:item.rateListId}:{})});
-      if(!rate||rate.unit!==product.unit)requireChoice(product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔");
+      if(!rate||rate.unit!==product.unit)throw new ApiError(422,"ESTIMATE_RATE_PENDING",product.name+" کا واضح فعال نرخ نہیں ملا؛ اس کی درست ریٹ لسٹ بتا دیں۔",{productId:product.id,productName:product.name,unit:product.unit});
+      if(needsMaterialEvidence){
+        if(!listNames.has(rate.rate_list_id))listNames.set(rate.rate_list_id,Promise.resolve(this.deps.rates?.getRateList(rate.rate_list_id,scope.organizationId)).then(list=>list?.name??""));
+        const listName=await listNames.get(rate.rate_list_id)!;
+        if(!matchesProductSpecification(specification,product.name+" "+listName))throw new ApiError(422,"ESTIMATE_PRODUCT_PENDING",`${item.name} کے مٹیریل کی فعال ریٹ لسٹ سے تصدیق درکار ہے؛ درست PPR-C آئٹم منتخب کریں۔`);
+      }
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
       const baseline=duraCatalogBaseline(product.name,brand);
-      if(baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
-      const discount=item.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
+      if(input.mode!==DEMAND_SLIP_ESTIMATE&&baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
+      const categoryItem=applyHybridRules<any>({...item,name:product.name,category:product.category},input.pricingRules??[]);
+      const discount=hardware?0:categoryItem.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
       const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
       const merchantCost=!invoice && this.deps.intelligence?await this.deps.intelligence.purchaseFloor(scope,product.id,rate.unit_price,product.unit,rate.currency_code):null;
       const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
@@ -167,21 +280,41 @@ export class DefaultErpOperations implements ErpOperations {
         discount_amount:discountAmount,discountPercent:discount,pricing_source:"RESOLVED_RATE",
         rate_list_id:rate.rate_list_id,rate_list_version_id:rate.rate_list_version_id,resolved_price:rate,
         ...(merchantCost!=null?{merchantUnitCost:merchantCost}:{}),
-        ...(cost??{})};
+        ...(hardware?{hardware:true}:{}),...(cost??{})};
+      }catch(error){
+        if(invoice || !(error instanceof ApiError) || !["ESTIMATE_PRODUCT_PENDING","ESTIMATE_RATE_PENDING"].includes(error.code))throw error;
+        const name=[original.name,original.size].filter(Boolean).join(' '),unit=original.unit??'pcs';
+        const remembered=this.storeMemory.findRate(storeMemory,name,original.size,unit)??await this.storeMemory.historicalRate(scope,name,unit);
+        if(remembered&&!original.specificationPending){
+          return {line_number:offset+index+1,productName:name,quantity:original.qty,unit,unit_price:remembered.rate,discountPercent:original.discount??0,
+            discount_amount:amount(original.qty*remembered.rate*(original.discount??0)/100),pricing_source:'STORE_MEMORY',rememberedAt:remembered.learnedAt,
+            memoryNotice:`${name}: پچھلا محفوظ نرخ PKR ${remembered.rate}/${unit} شامل کیا ہے؛ تبدیلی ہو تو بتا دیں۔`};
+        }
+        const pending=error.details as {productId?:number;productName?:string;unit?:string}|undefined;
+        const pendingItem=applyHybridRules<any>(original,input.pricingRules??[]);
+        return {line_number:offset+index+1,productName:pending?.productName??([original.name,original.size].filter(Boolean).join(" ")||"آئٹم "+original.productId),product_id:pending?.productId??original.productId,
+          ...(original.size?{size:original.size}:{}),quantity:original.qty,unit:pending?.unit??original.unit??"",unit_price:null,discountPercent:hardware?0:pendingItem.discount??input.discountScheme?.percent??0,
+          ...(hardware?{hardware:true}:{}),candidates,pending:true,pendingReason:error.message,rateLabel:'ریٹ مطلوب'};
+      }
       }));
       lines.push(...batch);
     }
     if(invoice) {
       const required=new Map<number,number>();
       for(const line of lines)required.set(line.product_id,(required.get(line.product_id)??0)+line.quantity);
-      for(const line of lines)if(required.get(line.product_id)!>line.available)requireChoice("Insufficient stock for "+line.productName+".");
+      for(const line of lines)if(required.get(line.product_id)!>line.available)requireChoice(`${line.productName} کا موجودہ اسٹاک ${line.available} ${line.unit} ہے، جبکہ بل میں ${required.get(line.product_id)} درکار ہیں۔ مقدار کم کر دیں، ابھی ایسٹیمیٹ رکھیں، یا پہلے فیکٹری سے وصولی درج کر کے پورا بل تیار کریں۔`);
     }
-    const totals=calculateEstimateTotals(lines,input.carriageCharges??0);
+    const priced=lines.filter(line=>!line.pending);
+    const totals=calculateEstimateTotals(priced,input.carriageCharges??0);
+    for(const key of Object.keys(totals) as Array<keyof typeof totals>)totals[key]=amount(totals[key]);
     if((input.paidAmount??0)>totals.customer_payable_total)requireChoice("Paid amount exceeds the invoice payable amount.");
-    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf};
+    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf,
+      ...(input.mode===DEMAND_SLIP_ESTIMATE?{mode:DEMAND_SLIP_ESTIMATE,unmatched_hardware_items:lines.filter(x=>x.pending&&x.hardware)}:{}),
+      ...(priced.length!==lines.length?{incomplete:true,pendingCount:lines.length-priced.length}:{})};
   }
   async prepare(tool:ErpWriteName,raw:unknown,scope:AgentScope):Promise<PreparedErpAction> {
-    const input:any=ERP_ACTION_SCHEMAS[tool].parse(raw);
+    let input:any=ERP_ACTION_SCHEMAS[tool].parse(raw);
+    if(tool==="erp_create_customer"){input.phone??="";input.address??="";}
     if(DEPOT_WRITES.has(tool))return this.depot.prepare(tool,input,scope);
     if(tool==="erp_amend_estimate"||tool==="erp_accept_companions"){
       if(!input.draftId)requireChoice("جناب، پہلے ایسٹیمیٹ کا پری ویو تیار کر لیں تاکہ اسی میں سامان شامل کروں۔");
@@ -190,14 +323,38 @@ export class DefaultErpOperations implements ErpOperations {
         source.status!=="DRAFT" || source.action_plan.unifiedAction?.tool!=="erp_create_estimate")
         requireChoice("اس گفتگو کا فعال ایسٹیمیٹ پری ویو دستیاب نہیں؛ نیا پری ویو تیار کریں۔");
       const previous=source.action_plan.unifiedAction;
+      const locked=previous.data.mode===DEMAND_SLIP_ESTIMATE&&previous.input.items.length>0;
+
       const additions:any[]=input.addItems??[],warnings:string[]=[];
-      if(tool==="erp_accept_companions")for(const item of previous.data.companions??[]){
+      if(tool==="erp_accept_companions"&&!locked)for(const item of previous.data.companions??[]){
         const match=previous.input.brand?await this.deps.search.searchProducts(item.query,5,scope,previous.input.brand):await this.deps.search.searchProducts(item.query,5,scope);
         if(match.resolution==="resolved" && match.bestCandidate)additions.push({productId:match.bestCandidate.id,qty:item.quantity});
         else warnings.push(item.name+" کا مناسب برانڈ، سائز یا نرخ واضح نہیں؛ اسے خود سے شامل نہیں کیا گیا۔");
       }
-      const kept=previous.input.items.filter((item:any)=>!(input.removeProductIds??[]).includes(item.productId));
-      const next=await this.prepare("erp_create_estimate",{...previous.input,items:[...kept,...additions],...(input.discountScheme?{discountScheme:input.discountScheme}:{})},scope);
+      const ruleKey=(rule:any)=>{const key=rule.match.toLowerCase().trim();return /^(?:fittings?|فٹنگز?)$/u.test(key)?'fittings':/^(?:pipes?|پائپ)$/u.test(key)?'pipe':key;};
+      const updates:any[]=input.updateItems??[];
+      const previousItems=previous.input.items.map((item:any,index:number)=>({...item,...(previous.data.lines[index]?.product_id?{productId:previous.data.lines[index].product_id}:{})}));
+      const lineUpdates=input.updateLines??[];
+      if(new Set(lineUpdates.map((row:any)=>row.lineNumber)).size!==lineUpdates.length)requireChoice("جناب، ایک ہی سطر کے لیے دو تبدیلیاں آئی ہیں؛ ہر سطر کی حتمی درست تفصیل ایک بار بتا دیں۔");
+      if([...lineUpdates.map((row:any)=>row.lineNumber),...(input.removeLineNumbers??[])].some(number=>number>previousItems.length))requireChoice("جناب، یہ سطر موجودہ مسودے میں نہیں ہے؛ دکھائی گئی سطر کا درست نمبر بتا دیں۔");
+      if(updates.some(update=>!previousItems.some((item:any)=>item.productId===update.productId)))requireChoice("جناب، تبدیل کرنے والا آئٹم موجودہ مسودے میں نہیں ملا؛ اصل آئٹم منتخب کر دیں۔");
+      const kept=previousItems.flatMap((item:any,index:number)=>{
+        if((input.removeProductIds??[]).includes(item.productId)||(input.removeLineNumbers??[]).includes(index+1))return [];
+        const rowChange=lineUpdates.find((row:any)=>row.lineNumber===index+1)?.changes??{};
+        const updated={...item,...updates.find(update=>update.productId===item.productId),...rowChange,...(input.brand?{brand:input.brand}:{})};
+        if(input.brand&&input.brand!==item.brand)delete updated.productId;
+        if(rowChange.productId===undefined && ["name","size","brand"].some(key=>rowChange[key]!==undefined&&rowChange[key]!==item[key]))delete updated.productId;
+        if(rowChange.size===null)delete updated.size;
+        if(rowChange.size||rowChange.name)delete updated.specificationPending;
+        if((input.discountScheme||(input.pricingRules&&applyHybridRules<any>({...item,discount:undefined},input.pricingRules).discount!==undefined)) && rowChange.discount===undefined && !updates.some(update=>update.productId===item.productId && update.discount!==undefined))delete updated.discount;
+        return [updated];
+      });
+      const retained={...previous.input,...(previous.data.customerId?{customerId:previous.data.customerId}:{}),...(input.customerId?{customerId:input.customerId}:{}),...(input.customerName?{customerName:input.customerName,customerId:undefined}:{}),...(input.customerAddress?{customerAddress:input.customerAddress}:{}),...(input.customerPhone?{customerPhone:input.customerPhone}:{}),...(input.brand?{brand:input.brand}:{})};
+      const next=await this.prepare("erp_create_estimate",{...retained,items:[...kept,...additions],...(input.hardwarePricing?{hardwarePricing:input.hardwarePricing}:{}),...(input.hardwareRates?.length?{hardwareRates:[...(previous.input.hardwareRates??[]).filter((x:any)=>!input.hardwareRates.some((y:any)=>y.kind===x.kind)),...input.hardwareRates]}:{}),...(input.discountScheme?{discountScheme:input.discountScheme}:{}),...(input.pricingRules?{pricingRules:[...(previous.input.pricingRules??[]).filter((old:any)=>!input.pricingRules.some((rule:any)=>ruleKey(rule)===ruleKey(old))),...input.pricingRules]}:{})},scope);
+      const expected=kept.length+additions.length;
+      if(next.data.lines.length!==expected)throw new ApiError(409,'ESTIMATE_LINES_LOCKED','Every retained source line must survive the amendment.');
+      if(previous.data.nativeEstimateId)next.data.nativeEstimateId=previous.data.nativeEstimateId;
+      next.preview.summary="جی جناب، بالکل! آپ کی ہدایت کے مطابق اسی مسودے کی تازہ تفصیل حاضر ہے۔\n"+next.preview.summary;
       next.preview.warnings=[...(next.preview.warnings??[]),...warnings];return next;
     }
     let data:any={},title=tool.replace(/^erp_/,"").replaceAll("_"," ");
@@ -221,7 +378,7 @@ export class DefaultErpOperations implements ErpOperations {
       const customer=await this.customer(input,scope);data={customerId:customer.id,before:customer,updates:input.updates};
     } else if(tool==="erp_update_product_price") {
       const product=await this.deps.erp.getProduct(input.productId,scope.organizationId);if(!product)requireChoice("Product was not found.");
-      const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,quantity:1,as_of:new Date().toISOString(),...(input.rateListId?{rate_list_id:input.rateListId}:{})});
+      const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,quantity:1,as_of:new Date().toISOString(),rate_list_brand:explicitBrand(product.name),...(input.rateListId?{rate_list_id:input.rateListId}:{})});
       if(!rate)requireChoice("Choose an active authoritative Rate List for the price change.");
       data={...input,productName:product.name,before:product,rate};
     } else if(tool==="erp_record_payment") {
@@ -241,42 +398,52 @@ export class DefaultErpOperations implements ErpOperations {
       for(const item of source.items) {
         const cost=await this.inventory(item.product_id,warehouseId,scope,input.unitCosts?.find((row:any)=>row.productId===item.product_id)?.unitCost);
         await this.memory.assertFloor(scope,item.product_id,Number(item.unit_price),Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100,item.unit,source.record.currency_code,cost.unitCost);
-        if(item.quantity>cost.available)requireChoice("Insufficient stock for Product "+item.product_id+".");
+        if(item.quantity>cost.available)requireChoice(`آئٹم ${item.product_id} کا موجودہ اسٹاک ${cost.available} ${item.unit} ہے، جبکہ ایسٹیمیٹ میں ${item.quantity} درکار ہیں۔ مقدار کم کریں یا پہلے وصولی درج کریں؛ موجودہ ایسٹیمیٹ سے کام جاری رہے گا۔`);
         const {rate_list_selection_source:_selection,...commercial}=item;
         lines.push({...commercial,...cost,discountPercent:Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100});
       }
       data={customerId:source.record.customer_id,warehouseId,lines,totals:calculateEstimateTotals(lines,source.record.pass_through_rent??0),
         sourceEstimateId:input.estimateId,sourceFingerprint:digest(source),date:today()};
+      if(input.paidAmount>data.totals.customer_payable_total)requireChoice("جناب، وصول شدہ رقم بل کی کل قابلِ ادائیگی رقم سے زیادہ ہے؛ درست وصولی بتا دیں۔");
+      data.paidAmount=input.paidAmount;data.outstandingAmount=amount(data.totals.customer_payable_total-input.paidAmount);
     }
     data.documentNumber="AI-"+randomUUID().slice(0,18);
     if(tool==="erp_create_estimate"){
       const installation=new InstallationCompletenessService();
-      data.companions=installation.audit(data.lines.map((line:any)=>({name:line.productName,quantity:line.quantity})));
+      data.companions=installation.audit(data.lines.filter((line:any)=>!line.pending).map((line:any)=>({name:line.productName,quantity:line.quantity})));
       if(this.deps.companions){
-        const learned=await this.deps.companions.suggestions(scope,data.lines.map((line:any)=>line.product_id),input.brand);
+        const learned=await this.deps.companions.suggestions(scope,data.lines.filter((line:any)=>!line.pending).map((line:any)=>line.product_id),input.brand);
         data.companions.push(...learned.filter(item=>!data.companions.some((known:any)=>known.query.toLowerCase()===item.query.toLowerCase())));
       }
       data.creditWarnings=data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
-      const grouped=groupQuotation(data.lines.map((line:any)=>({...line,...(line.merchantUnitCost!=null?{unitCost:line.merchantUnitCost}:{})})));
-      data.quotation=quotationCard(data.customerName,grouped);data.privateMargin=grouped.privateMargin;
+      const grouped=groupQuotation(data.lines.filter((line:any)=>!line.pending).map((line:any)=>({...line,...(line.merchantUnitCost!=null?{unitCost:line.merchantUnitCost}:{})})));
+      if(!data.incomplete)data.quotation=quotationCard(data.customerName,grouped);data.privateMargin=grouped.privateMargin;
     }
     const count=data.lines?.length??data.catalog?.items.length;
     const sum=data.totals?.customer_payable_total??input.amount??input.newPrice;
-    const summary=tool==="erp_create_estimate" ?
-      "حاجی صاحب! "+data.customerName+(data.newCustomer?" ("+data.newCustomer.city+") کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
+    const summary=data.incomplete?`جناب، ${data.customerName} کے تمام ${count} آئٹمز مسودے میں شامل ہیں۔ ${data.pendingCount} آئٹمز کا ریٹ مطلوب ہے۔ نرخ والے آئٹمز کی جزوی رقم PKR ${data.totals.grand_total} ہے؛ یہ حتمی کل نہیں۔\n${hardwarePrompt(data.lines,input.hardwarePricing==="catalog")||'باقی آئٹمز کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔'}` :tool==="erp_create_estimate" ?
+      "حاجی صاحب! "+data.customerName+(data.newCustomer?(data.newCustomer.city?" ("+data.newCustomer.city+")":"")+" کو بطور نیا گاہک درج کرنے کے ساتھ":" کے لیے")+
       (input.brand?" "+canonicalBrand(input.brand):"")+(input.discountScheme?" "+input.discountScheme.percent+"% پر":"")+
       " "+count+" آئٹمز کا مکمل ایسٹیمیٹ پری ویو تیار کر دیا گیا ہے۔ کل رقم PKR "+data.totals.grand_total+" ہے۔ تفصیل دیکھ لیں؛ ERP میں محفوظ کرنے کے لیے آخر میں منظوری دے دیں۔" :
       "میں "+(data.customerName??input.name??data.catalog?.name??data.productName??"منتخب ریکارڈ")+" کے لیے "+
       (count?count+" آئٹمز کا ":sum!==undefined?"PKR "+sum+" کا ":"")+title+" درج کرنے جا رہا ہوں۔ کیا آپ منظوری دیتے ہیں؟" + (data.memoryMessage?"\n"+data.memoryMessage:"");
-    return {tool,input,data,preview:{title,summary,
+    const billing=["erp_create_invoice","erp_convert_estimate_to_invoice"].includes(tool)?`\nبل کی قابلِ ادائیگی رقم PKR ${data.totals.customer_payable_total}؛ نقد کاؤنٹر وصولی PKR ${input.paidAmount??0}؛ بقایا کھاتہ PKR ${amount(data.totals.customer_payable_total-(input.paidAmount??0))}۔ نقد بل کے لیے پوری وصولی، یا ادھار کے لیے مطلوبہ جزوی وصولی اسی گفتگو میں بتا دیں۔`:"";
+    const creditWarnings=billing && data.customerId && this.deps.intelligence?await this.deps.intelligence.creditWarnings(scope,data.customerId):[];
+    const catalogPending=data.mode===DEMAND_SLIP_ESTIMATE?data.lines.filter((line:any)=>line.pending&&!line.hardware):[];
+    const catalogNotice=catalogPending.length?'\n\nفعال کیٹلاگ میں درج ذیل درست انتخاب دستیاب یا واضح نہیں؛ ان پر متبادل نرخ نہیں لگائے گئے:\n'+catalogPending.map((line:any)=>`${line.line_number}. ${line.productName}: ${line.pendingReason}`).join('\n'):'';
+    const memoryNotice=(data.lines??[]).flatMap((line:any)=>line.memoryNotice?[line.memoryNotice]:[]).join('\n');
+    return {tool,input,data,preview:{title,summary:summary+billing+(memoryNotice?'\n'+memoryNotice:'')+(data.mode===DEMAND_SLIP_ESTIMATE?"\n\n"+demandMarkdownTable(data.lines)+catalogNotice:""),...(billing?{warnings:creditWarnings}:{}),
       lines:data.lines??data.catalog?.items??[tool==="erp_update_product_price"?{product:data.productName,oldPrice:data.rate.unit_price,newPrice:input.newPrice,reason:input.reason}:tool==="erp_update_customer"?input.updates:input],
-      ...(data.totals?{totals:data.totals}:{}),
+      ...(data.mode?{mode:data.mode,customer:{id:data.customerId,name:data.customerName,address:input.customerAddress??data.newCustomer?.city??'',phone:input.customerPhone??data.newCustomer?.phone??''},unmatched_hardware_items:data.unmatched_hardware_items,saveDraftAvailable:true,hardwareQuestion:hardwarePrompt(data.lines,input.hardwarePricing==="catalog")}:{}),
+      ...(data.incomplete?{incomplete:true,partialTotals:data.totals}:data.totals?{totals:data.totals}:{}),
       ...(tool==="erp_create_estimate"?{companions:data.companions,quotation:data.quotation,privateMargin:data.privateMargin,
         warnings:[...data.creditWarnings,new InstallationCompletenessService().prompt(data.companions)].filter(Boolean)}:{}),
       ...(tool==="erp_record_payment"&&!data.allocations.length?{warnings:["یہ غیر مختص پیشگی وصولی ہے؛ کسی مخصوص invoice کو ادا شدہ نہیں کیا جائے گا۔"]}:{})}};
   }
   async execute(action:PreparedErpAction,scope:AgentScope,key:string) {
     const {tool,input,data}=action;
+    if(data.mode===DEMAND_SLIP_ESTIMATE&&data.lines?.some((line:any)=>!line.product_id))requireChoice('جناب، یہ تخمینہ مکمل مسودے میں محفوظ ہے؛ مالی بل بنانے سے پہلے متفرق سامان کے کیٹلاگ آئٹمز منسلک کریں۔');
+    if(data.incomplete || data.lines?.some((line:any)=>line.pending))requireChoice("جناب، پینڈنگ نرخوں والا مسودہ محفوظ نہیں ہو گا۔ پہلے تمام آئٹمز کے فعال نرخ واضح کر کے نیا پری ویو تیار کریں۔");
     if(DEPOT_WRITES.has(tool))return this.depot.execute(action,scope,key);
     if(tool==="erp_customer_return") {
       // Revalidate the exact approved source, never silently rebind to a newer sale.

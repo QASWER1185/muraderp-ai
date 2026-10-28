@@ -31,6 +31,7 @@ const draft = z.strictObject({
   issue_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   currency_code: z.literal("PKR"),
   notes: z.string().trim().max(2000).nullable().optional(),
+  document_template: z.enum(["sanitary_electric", "building_material"]).default("sanitary_electric"),
   discount_total: z.number().finite().nonnegative().default(0),
   pass_through_rent: z.number().finite().nonnegative().default(0),
   lines: z.array(line).min(1).max(500),
@@ -148,6 +149,7 @@ export function createInvoiceBrowserRouter(options: InvoiceBrowserOptions = {}):
     response.json({ data: {
       id: source.record.id, estimate_number: source.record.estimate_number,
       customer_id: source.record.customer_id, currency_code: source.record.currency_code,
+      document_template: source.record.document_template ?? "sanitary_electric",
       pass_through_rent: source.record.pass_through_rent ?? 0,
       lines: source.items.map((item) => ({ line_number: item.line_number, product_id: item.product_id, quantity: item.quantity, unit: item.unit, unit_price: item.unit_price, discount_amount: item.discount_amount })),
     } });
@@ -184,7 +186,7 @@ export function createInvoiceBrowserRouter(options: InvoiceBrowserOptions = {}):
       idempotency_key: key,
       warehouse_id: input.warehouse_id,
       invoice: {
-        id: 0, status: "DRAFT", source_estimate_id: null, source_type: "DIRECT",
+        id: 0, status: "DRAFT", source_estimate_id: null, source_type: "DIRECT", document_template: input.document_template,
         definition: {
           invoice_number: input.invoice_number,
           customer_id: input.customer_id,
@@ -232,6 +234,7 @@ export function createInvoiceBrowserRouter(options: InvoiceBrowserOptions = {}):
       idempotency_key: key, warehouse_id: input.warehouse_id,
       invoice: {
         id: 0, status: "DRAFT", source_type: "FROM_ESTIMATE", source_estimate_id: source.record.id,
+        document_template: source.record.document_template ?? "sanitary_electric",
         definition: { invoice_number: input.invoice_number, customer_id: source.record.customer_id, issue_date: input.issue_date, currency_code: source.record.currency_code, notes: source.record.notes ?? null, salesperson_id: null },
         lines: source.items.map((item) => ({ line_number: item.line_number, product_id: item.product_id, quantity: item.quantity, unit: item.unit, unit_price: item.unit_price, discount_amount: item.discount_amount, pricing_source: item.pricing_source })),
         subtotal, discount_total: discount, grand_total: decimalSum([subtotal, -discount]),

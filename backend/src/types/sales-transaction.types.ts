@@ -1,4 +1,5 @@
 import type { InvoiceDocument, InvoiceTransactionResult } from "./invoice.types.js";
+import { isDocumentTemplate } from "./document-template.types.js";
 
 export interface SalesTransactionLine {
   line_number: number;
@@ -33,6 +34,9 @@ export function assertSalesTransactionRequest(request: SalesTransactionRequest):
   if (!UUID_PATTERN.test(request.actor_user_id)) throw new Error("actor_user_id must be a UUID");
   if (request.branch_id !== null && !UUID_PATTERN.test(request.branch_id)) throw new Error("branch_id must be a UUID when provided");
   if (request.invoice.id !== 0) throw new Error("new sales transaction must not reuse an existing invoice id");
+  if (request.invoice.document_template !== undefined && !isDocumentTemplate(request.invoice.document_template)) {
+    throw new Error("document_template is invalid");
+  }
   if (!Number.isInteger(request.invoice.definition.customer_id) || request.invoice.definition.customer_id <= 0) {
     throw new Error("customer_id must be a positive integer");
   }

@@ -1,3 +1,4 @@
+import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { Router, type Request, type RequestHandler } from "express";
 import { z } from "zod";
 import { createServiceRoleAuthorizationGateway } from "../auth/supabase-authorization.gateway.js";
@@ -29,8 +30,7 @@ function identityFor(request: Request) {
   }
   const actor = request.header("X-Actor-User-Id");
   if (actor && actor !== request.browserPrincipal.userId) throw new ApiError(403, "FORBIDDEN", "Actor does not match authenticated session");
-  const origin = request.header("Origin");
-  if (request.header("Sec-Fetch-Site") === "cross-site" || (origin && new URL(origin).host !== request.get("host"))) throw new ApiError(403, "FORBIDDEN", "Same-origin request required");
+  assertBrowserSameOrigin(request);
   return {
     userId: request.browserPrincipal.userId,
     organizationId: z.string().uuid().parse(request.header("X-Organization-Id")),

@@ -11,7 +11,7 @@ export function validateWarehouseDraft(input) {
   return { name, location: location || null };
 }
 export function warehouseRowsMarkup(rows) {
-  return rows.map((row) => `<button class="product-row" type="button" data-warehouse-id="${escapeHtml(row.id)}"><span class="product-avatar">${icon("warehouse", 18)}</span><span class="product-main"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.location || "No location saved")}</small></span>${icon("chevron", 16)}</button>`).join("");
+  return rows.map((row) => `<button class="product-row" type="button" data-warehouse-id="${escapeHtml(row.id)}"><span class="product-avatar">${icon("warehouse", 18)}</span><span class="product-main"><strong>${escapeHtml(row.name)}</strong><small>ID ${escapeHtml(row.id)} · ${escapeHtml(row.location || "No location saved")}</small></span>${icon("chevron", 16)}</button>`).join("");
 }
 
 export function mountWarehouses(container, options = {}) {
@@ -62,7 +62,7 @@ export function mountWarehouses(container, options = {}) {
     try {
       const response = await (options.getWarehouse ?? getWarehouse)(context, row.dataset.warehouseId);
       selected = response.data;
-      detailContent.innerHTML = `<div class="side-dialog-head"><h2>${escapeHtml(selected.name)}</h2><button class="icon-button" type="button" data-warehouse-detail-close aria-label="Close">${icon("close")}</button></div><dl class="detail-list"><div><dt>Location</dt><dd>${escapeHtml(selected.location || "No location saved")}</dd></div></dl><button class="button primary" type="button" data-warehouse-edit>Edit Warehouse</button>`;
+      detailContent.innerHTML = `<div class="side-dialog-head"><h2>${escapeHtml(selected.name)}</h2><button class="icon-button" type="button" data-warehouse-detail-close aria-label="Close">${icon("close")}</button></div><dl class="detail-list"><div><dt>Warehouse ID</dt><dd>${escapeHtml(selected.id)}</dd></div><div><dt>Location</dt><dd>${escapeHtml(selected.location || "No location saved")}</dd></div></dl><button class="button primary" type="button" data-warehouse-edit>Edit Warehouse</button>`;
     } catch (error) { detailContent.innerHTML = `<div class="side-dialog-head"><h2>Warehouse unavailable</h2><button class="icon-button" type="button" data-warehouse-detail-close aria-label="Close">${icon("close")}</button></div><p class="form-message">${escapeHtml(error?.message ?? "Could not load warehouse.")}</p>`; }
   });
   detail.addEventListener("click", (event) => { if (event.target.closest("[data-warehouse-detail-close]")) detail.close(); if (event.target.closest("[data-warehouse-edit]")) openEditor(selected); });

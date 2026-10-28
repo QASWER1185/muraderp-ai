@@ -8,6 +8,19 @@ function setup(data: unknown = [row],error: unknown = null) {
   return {rpc,from,search:new SupabaseEntitySearchService(()=>({rpc,from}) as any)};
 }
 describe('database entity search service',()=>{
+  it('resolves an explicit legacy brand name only through tenant-scoped fallback search',async()=>{
+    const f=setup();f.rpc.mockResolvedValueOnce({data:[],error:null}).mockResolvedValueOnce({data:[{...row,name:'Dura Flow Elbow 45° 6"',sku:'DF45',brand_name:null,confidence:.7}],error:null});
+    expect(await f.search.searchProducts('U-PVC Elbow 45° 6 inch',5,scope,'DuraFlow')).toMatchObject({resolution:'resolved',bestCandidate:{id:1,brandName:'Dura Flow'}});
+    expect(f.rpc.mock.calls[1]?.[1]).toMatchObject({p_organization_id:'o',p_user_id:'u',p_branch_id:'b'});
+  });
+  it('resolves a complete equivalent fitting identity despite word order and a low lexical score',async()=>{
+    const f=setup([{...row,name:'Dura Max Female Elbow 25 x 1/2 inch',brand_name:'Dura Max',confidence:.72}]);
+    expect(await f.search.searchProducts('Female Elbow 25x1/2 inch',5,scope,'Dura Max')).toMatchObject({resolution:'resolved',bestCandidate:{id:1}});
+  });
+  it('keeps duplicate equivalent identities ambiguous rather than picking a cheaper-looking row',async()=>{
+    const f=setup([{...row,name:'Dura Max Female Elbow 25 x 1/2 inch',brand_name:'Dura Max',confidence:.99},{...row,id:2,name:'Dura Max Elbow Female 25x1/2 inch',brand_name:'Dura Max',confidence:.7}]);
+    expect((await f.search.searchProducts('Female Elbow 25x1/2 inch',5,scope,'Dura Max')).resolution).toBe('ambiguous');
+  });
   it('selects an exact fitting family over equal-score mixer and angle variants',async()=>{
     const {search}=setup([{...row,name:'Dura Max Elbow 25 mm',brand_name:'Dura Max'},
       {...row,id:2,name:'Dura Max Mixer Elbow 25 mm',brand_name:'Dura Max'},

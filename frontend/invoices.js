@@ -1,9 +1,11 @@
 import { listCustomers } from "./customer-api.js";
 import { icon } from "./icons.js";
 import { createInvoice, createInvoiceFromEstimate, getInvoice, getReadyEstimate, listInvoices, listReadyEstimates } from "./invoice-api.js";
-import { listProducts } from "./product-api.js";
-import { listWarehouses } from "./warehouse-api.js";
+import { getProduct, listProducts } from "./product-api.js";
+import { getWarehouse, listWarehouses } from "./warehouse-api.js";
 import { getWorkspaceContext } from "./workspace-context.js";
+import { documentTemplateLabel, documentTemplateOptions, mobileDocumentPreview, normalizeDocumentTemplate, SANITARY_ELECTRIC } from "./document-templates.js";
+import { createSavedEstimatePdfFile, downloadEstimatePdf } from "./estimate-pdf.js";
 
 const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 const money = (value) => new Intl.NumberFormat("en-PK", { style: "currency", currency: "PKR" }).format(Number(value) || 0);
@@ -14,17 +16,26 @@ export function invoiceErrorMessage(error) {
   return error instanceof Error ? error.message : "Invoices could not be loaded.";
 }
 
-export function invoiceListMarkup(invoices) {
+export function invoiceListMarkup(invoices, customerNames = new Map()) {
   if (!invoices.length) return `<div class="empty-state">${icon("receipt", 26)}<h2>No invoices yet</h2><p>Posted invoices for this branch will appear here.</p></div>`;
-  return `<div class="invoice-list">${invoices.map((invoice) => `<button class="invoice-row" type="button" data-invoice-id="${escapeHtml(invoice.id)}"><span><strong>${escapeHtml(invoice.invoice_number)}</strong><small>${escapeHtml(invoice.issue_date)} · Customer #${escapeHtml(invoice.customer_id)}</small></span><span class="status-pill neutral">${escapeHtml(invoice.status)}</span><strong>${money(invoice.grand_total)}</strong>${icon("chevron")}</button>`).join("")}</div>`;
+  return `<div class="invoice-list">${invoices.map((invoice) => `<button class="invoice-row" type="button" data-invoice-id="${escapeHtml(invoice.id)}"><span><strong>${escapeHtml(invoice.invoice_number)}</strong><small>${escapeHtml(invoice.issue_date)} · ${escapeHtml(invoice.customer?.name ?? invoice.customer_name ?? customerNames.get(String(invoice.customer_id)) ?? "Customer name unavailable")}</small></span><span class="status-pill neutral">${escapeHtml(invoice.status)}</span><strong>${money(invoice.grand_total)}</strong>${icon("chevron")}</button>`).join("")}</div><div class="invoice-mobile-cards">${invoices.map((invoice) => `<button class="invoice-mobile-card" type="button" data-invoice-id="${escapeHtml(invoice.id)}"><span class="invoice-mobile-head"><strong>${escapeHtml(invoice.invoice_number)}</strong><time>${escapeHtml(invoice.issue_date)}</time><span class="status-pill status-${escapeHtml(String(invoice.status).toLowerCase())}">${escapeHtml(invoice.status)}</span></span><strong class="invoice-mobile-customer" dir="auto">${escapeHtml(invoice.customer?.name ?? invoice.customer_name ?? customerNames.get(String(invoice.customer_id)) ?? "Customer name unavailable")}</strong><span class="invoice-mobile-total">${money(invoice.grand_total)}</span></button>`).join("")}</div>`;
 }
 
-export function invoiceDetailMarkup({ invoice, lines }) {
-  return `<div class="side-dialog-head"><div><p class="eyebrow">Posted Invoice</p><h2>${escapeHtml(invoice.invoice_number)}</h2></div><button class="icon-button" type="button" data-invoice-close aria-label="Close">${icon("close")}</button></div>
-    <dl class="detail-list"><div><dt>Status</dt><dd>${escapeHtml(invoice.status)}</dd></div><div><dt>Date</dt><dd>${escapeHtml(invoice.issue_date)}</dd></div><div><dt>Customer</dt><dd>#${escapeHtml(invoice.customer_id)}</dd></div><div><dt>Warehouse</dt><dd>#${escapeHtml(invoice.warehouse_id)}</dd></div></dl>
-    <h3>Lines</h3><div class="invoice-detail-lines">${lines.map((line) => `<div><span>Product #${escapeHtml(line.product_id)} · ${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} × ${money(line.unit_price)}</span><strong>${money(line.line_total)}</strong></div>`).join("")}</div>
+export function invoiceDetailMarkup({ invoice, lines, customer = invoice.customer ?? {}, warehouse = invoice.warehouse ?? {} }) {
+  const heading = `<div class="side-dialog-head"><div><p class="eyebrow">Posted Invoice</p><h2>${escapeHtml(invoice.invoice_number)}</h2></div><button class="icon-button" type="button" data-invoice-close aria-label="Close">${icon("close")}</button></div>`;
+  const actions = `<div class="invoice-document-actions"><button class="button secondary" type="button" data-invoice-print>Print</button><button class="button secondary" type="button" data-invoice-pdf>Download PDF</button><button class="button customer-whatsapp" type="button" data-invoice-whatsapp>WhatsApp Share</button>${invoice.status !== 'VOID' ? `<button class="button primary" type="button" data-invoice-receive-payment="${escapeHtml(invoice.id)}" ${invoice.status === 'PAID' ? 'disabled title="This invoice has no outstanding balance"' : ''}>Receive Payment</button>` : ""}</div><p class="invoice-share-feedback" role="status" aria-live="polite"></p>`;
+  const desktop = `<div class="invoice-desktop-detail">
+    <dl class="detail-list"><div><dt>Status</dt><dd>${escapeHtml(invoice.status)}</dd></div><div><dt>Date</dt><dd>${escapeHtml(invoice.issue_date)}</dd></div><div><dt>Customer</dt><dd dir="auto">${escapeHtml(customer?.name ?? invoice.customer_name ?? "Customer name unavailable")}</dd></div><div><dt>Warehouse</dt><dd>${escapeHtml(warehouse?.name ?? invoice.warehouse_name ?? "Warehouse details unavailable")}</dd></div></dl>
+    <h3>Lines</h3><div class="invoice-detail-lines">${lines.map((line) => `<div><span dir="auto">${escapeHtml(line.product_name ?? "Product name unavailable")} · ${escapeHtml(line.quantity)} ${escapeHtml(line.unit)} × ${money(line.unit_price)}</span><strong>${money(line.line_total)}</strong></div>`).join("")}</div>
     <dl class="detail-list"><div><dt>Subtotal</dt><dd>${money(invoice.subtotal)}</dd></div><div><dt>Discount</dt><dd>${money(invoice.discount_total)}</dd></div><div><dt>Invoice total</dt><dd><strong>${money(invoice.grand_total)}</strong></dd></div><div><dt>Pass-through rent</dt><dd>${money(invoice.pass_through_rent)}</dd></div></dl>
-    ${invoice.notes ? `<p class="muted">${escapeHtml(invoice.notes)}</p>` : ""}`;
+    ${invoice.notes ? `<p class="muted">${escapeHtml(invoice.notes)}</p>` : ""}</div>`;
+  const mobile = mobileDocumentPreview({
+    documentType: "invoice", template: normalizeDocumentTemplate(invoice.document_template),
+    documentNumber: invoice.invoice_number, issueDate: invoice.issue_date, status: invoice.status,
+    customer, lines, totals: { ...invoice, customer_payable_total: Number(invoice.customer_payable_total ?? (Number(invoice.grand_total) + Number(invoice.pass_through_rent))) },
+    notes: invoice.notes,
+  });
+  return heading + actions + desktop + mobile;
 }
 
 export function validateInvoiceDraft(input) {
@@ -48,6 +59,7 @@ export function validateInvoiceDraft(input) {
     invoice_number: invoiceNumber, customer_id: positiveId(input.customer_id, "Customer"),
     warehouse_id: positiveId(input.warehouse_id, "Warehouse"), issue_date: input.issue_date,
     currency_code: "PKR", notes: String(input.notes ?? "").trim() || null,
+    document_template: normalizeDocumentTemplate(input.document_template),
     discount_total: discount, pass_through_rent: amount(input.pass_through_rent, "Pass-through rent"), lines,
   };
 }
@@ -63,12 +75,18 @@ export function mountInvoices(container, options = {}) {
   let invoices = [];
   let nextCursor = null;
   let products = [];
+  const customerNames = new Map();
+  const customerRecords = new Map();
+  const warehouseNames = new Map();
+  let warehouseLookupLoaded = false;
+  let customerLookupLoaded = false;
+  let activeInvoiceDetails = null;
   let pendingKey = null;
   let pendingDraft = null;
   let sourceEstimate = null;
   container.innerHTML = `<section class="page-heading"><div><p class="eyebrow">Sales</p><h1>Invoices</h1><p class="page-intro">Posted invoices in your current workspace.</p></div><div class="invoice-heading-actions"><button class="button secondary" type="button" data-invoice-from-estimate>From ready estimate</button><button class="button primary" type="button" data-invoice-new>+ New Invoice</button></div></section><section class="surface"><div class="section-head"><h2>Invoice register</h2><button class="button secondary" type="button" data-invoice-refresh>Refresh</button></div><div id="invoice-results" aria-live="polite"></div><button class="button secondary" type="button" data-invoice-next hidden>Load more</button></section>
     <dialog id="invoice-detail" class="side-dialog"><div id="invoice-detail-content"></div></dialog>
-    <dialog id="invoice-editor" class="invoice-dialog"><form id="invoice-form"><div class="side-dialog-head"><div><p class="eyebrow" id="invoice-editor-eyebrow">Direct sale</p><h2>New Invoice</h2></div><button class="icon-button" type="button" data-invoice-editor-close aria-label="Close">${icon("close")}</button></div><p class="muted">Posting an invoice updates stock, receivables, and accounting. Enter the explicit cost for every line.</p><div id="invoice-source-selector" hidden><label>Ready estimate<select name="source_estimate_id"></select></label><button class="button secondary" type="button" data-invoice-load-estimate>Load estimate</button></div><div class="invoice-entry-meta"><label>Invoice number<input name="invoice_number" maxlength="100" required></label><label>Date<input name="issue_date" type="date" required></label><label>Customer<select name="customer_id" required></select></label><label>Warehouse<select name="warehouse_id" required></select></label></div><div id="invoice-entry-lines"></div><button class="button secondary" type="button" data-invoice-add-line>+ Add line</button><div class="invoice-entry-meta"><label>Discount (PKR)<input name="discount_total" type="number" min="0" step="any" value="0" required></label><label>Pass-through rent (PKR)<input name="pass_through_rent" type="number" min="0" step="any" value="0" required></label></div><label>Notes<textarea name="notes" maxlength="2000"></textarea></label><p id="invoice-form-result" class="form-message" role="alert" hidden></p><div id="invoice-review" hidden></div><div class="dialog-actions"><button class="button secondary" type="button" data-invoice-editor-close>Cancel</button><button class="button primary" type="submit" id="invoice-action">Review Invoice</button></div></form></dialog>`;
+    <dialog id="invoice-editor" class="invoice-dialog"><form id="invoice-form"><div class="side-dialog-head"><div><p class="eyebrow" id="invoice-editor-eyebrow">Direct sale</p><h2>New Invoice</h2></div><button class="icon-button" type="button" data-invoice-editor-close aria-label="Close">${icon("close")}</button></div><p class="muted">Posting an invoice updates stock, receivables, and accounting. Enter the explicit cost for every line.</p><div id="invoice-source-selector" hidden><label>Ready estimate<select name="source_estimate_id"></select></label><button class="button secondary" type="button" data-invoice-load-estimate>Load estimate</button></div><div class="invoice-entry-meta"><label>Invoice number<input name="invoice_number" maxlength="100" required></label><label>Date<input name="issue_date" type="date" required></label><label>Customer<select name="customer_id" required></select></label><label>Warehouse<select name="warehouse_id" required></select></label></div><div id="invoice-template-picker">${documentTemplateOptions(SANITARY_ELECTRIC,"document_template","invoice-document-template")}</div><p id="invoice-template-inherited" class="muted" hidden></p><div id="invoice-entry-lines"></div><button class="button secondary" type="button" data-invoice-add-line>+ Add line</button><div class="invoice-entry-meta"><label>Discount (PKR)<input name="discount_total" type="number" min="0" step="any" value="0" required></label><label>Pass-through rent (PKR)<input name="pass_through_rent" type="number" min="0" step="any" value="0" required></label></div><label>Notes<textarea name="notes" maxlength="2000"></textarea></label><p id="invoice-form-result" class="form-message" role="alert" hidden></p><div id="invoice-review" hidden></div><div class="dialog-actions"><button class="button secondary" type="button" data-invoice-editor-close>Cancel</button><button class="button primary" type="submit" id="invoice-action">Review Invoice</button></div></form></dialog>`;
   const results = container.querySelector("#invoice-results");
   const next = container.querySelector("[data-invoice-next]");
   const detail = container.querySelector("#invoice-detail");
@@ -85,10 +103,17 @@ export function mountInvoices(container, options = {}) {
     if (!context) { results.innerHTML = `<div class="empty-state"><h2>Choose your workspace</h2><p>Choose an authorized business and branch to view invoices.</p><button class="button secondary" type="button" data-open-workspace>Choose workspace</button></div>`; return; }
     results.innerHTML = append ? results.innerHTML : `<div class="loading-state"><span class="spinner"></span>Loading invoices...</div>`;
     try {
-      const page = await listInvoices(context, { cursor: append ? nextCursor : undefined });
+      const [page, customerPage] = await Promise.all([
+        listInvoices(context, { cursor: append ? nextCursor : undefined }),
+        customerLookupLoaded ? Promise.resolve(null) : listCustomers(context, { limit: 100 }).catch(() => null),
+      ]);
+      if (customerPage) {
+        for (const customer of customerPage.data ?? []) { customerNames.set(String(customer.id), customer.name); customerRecords.set(String(customer.id), customer); }
+        customerLookupLoaded = true;
+      }
       invoices = append ? [...invoices, ...page.data] : page.data;
       nextCursor = page.next_cursor;
-      results.innerHTML = invoiceListMarkup(invoices);
+      results.innerHTML = invoiceListMarkup(invoices, customerNames);
       next.hidden = nextCursor == null;
     } catch (error) { results.innerHTML = `<div class="empty-state error-state"><h2>Invoices unavailable</h2><p>${escapeHtml(invoiceErrorMessage(error))}</p></div>`; }
   }
@@ -97,6 +122,10 @@ export function mountInvoices(container, options = {}) {
     if (!context) { globalThis.dispatchEvent(new CustomEvent("muraderp:open-workspace")); return; }
     form.reset(); message.hidden = true; review.hidden = true; pendingDraft = null; pendingKey = null; sourceEstimate = null; action.textContent = "Review Invoice";
     container.querySelector("#invoice-source-selector").hidden = !fromEstimate;
+    container.querySelector("#invoice-template-picker").hidden = fromEstimate;
+    const inheritedTemplate = container.querySelector("#invoice-template-inherited");
+    inheritedTemplate.hidden = !fromEstimate;
+    inheritedTemplate.textContent = fromEstimate ? "Load an estimate to inherit its template." : "";
     container.querySelector("#invoice-editor-eyebrow").textContent = fromEstimate ? "Ready estimate" : "Direct sale";
     container.querySelector("[data-invoice-add-line]").hidden = fromEstimate;
     field("customer_id").disabled = false;
@@ -112,6 +141,7 @@ export function mountInvoices(container, options = {}) {
         const ready = await listReadyEstimates(context);
         field("source_estimate_id").innerHTML = `<option value="">Choose ready estimate</option>${(ready.data ?? []).map((item) => option(item.id, `${item.estimate_number} · Customer #${item.customer_id}`)).join("")}`;
         if (!(ready.data ?? []).length) throw new Error("No ready estimates are available in this branch.");
+        if(options.sourceEstimateId){field("source_estimate_id").value=String(options.sourceEstimateId);await loadSourceEstimate();}
       } else lineContainer.insertAdjacentHTML("beforeend", lineMarkup(products));
       field("issue_date").value = new Date().toISOString().slice(0, 10);
       field("invoice_number").focus();
@@ -125,19 +155,20 @@ export function mountInvoices(container, options = {}) {
       const response = await getReadyEstimate(context, sourceId);
       sourceEstimate = response.data;
       if (sourceEstimate.currency_code !== "PKR") throw new Error("This Invoice form supports PKR estimates only.");
+      container.querySelector("#invoice-template-inherited").textContent = `Template inherited from estimate: ${documentTemplateLabel(sourceEstimate.document_template)}`;
       pendingDraft = null; pendingKey = null; review.hidden = true; action.textContent = "Review Invoice";
-      lineContainer.innerHTML = sourceEstimate.lines.map((line) => {
+      lineContainer.replaceChildren(...sourceEstimate.lines.map((line) => {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = lineMarkup(products, line.product_id);
         const row = wrapper.firstElementChild;
         row.dataset.lineNumber = String(line.line_number);
         for (const [name, value] of Object.entries({ product_id: line.product_id, quantity: line.quantity, unit: line.unit, unit_price: line.unit_price })) {
-          row.querySelector(`[name="${name}"]`).value = value;
+          row.querySelector(`[name="${name}"]`).value = String(value);
           row.querySelector(`[name="${name}"]`).disabled = true;
         }
         row.querySelector("[data-invoice-remove-line]").hidden = true;
-        return row.outerHTML;
-      }).join("");
+        return row;
+      }));
       if (![...field("customer_id").options].some((entry) => Number(entry.value) === sourceEstimate.customer_id)) {
         field("customer_id").insertAdjacentHTML("beforeend", option(sourceEstimate.customer_id, `Customer #${sourceEstimate.customer_id}`));
       }
@@ -175,6 +206,7 @@ export function mountInvoices(container, options = {}) {
         } else pendingDraft = validateInvoiceDraft({
           invoice_number: field("invoice_number").value, issue_date: field("issue_date").value,
           customer_id: field("customer_id").value, warehouse_id: field("warehouse_id").value,
+          document_template: field("document_template").value,
           discount_total: field("discount_total").value, pass_through_rent: field("pass_through_rent").value,
           notes: field("notes").value,
           lines: [...lineContainer.querySelectorAll(".invoice-entry-line")].map((row) => Object.fromEntries(["product_id", "quantity", "unit", "unit_price", "unit_cost"].map((name) => [name, row.querySelector(`[name="${name}"]`).value]))),
@@ -201,16 +233,68 @@ export function mountInvoices(container, options = {}) {
   async function openDetail(id) {
     detail.querySelector("#invoice-detail-content").innerHTML = `<div class="loading-state">Loading invoice...</div>`;
     if (!detail.open) detail.showModal();
-    try { const response = await getInvoice(context, id); detail.querySelector("#invoice-detail-content").innerHTML = invoiceDetailMarkup(response.data); }
+    try {
+      const response = await getInvoice(context, id);
+      const data = response.data;
+      if (!products.length) { try { products = (await listProducts(context, { limit: 100 })).data ?? []; } catch { /* The invoice response may already include product names. */ } }
+      const knownProductIds = new Set(products.map((product) => String(product.id)));
+      const unresolvedProductIds = [...new Set((data.lines ?? []).map((line) => String(line.product_id)).filter((id) => id && !knownProductIds.has(id)))];
+      if (unresolvedProductIds.length) {
+        const resolvedProducts = await Promise.allSettled(unresolvedProductIds.map((productId) => getProduct(context, productId)));
+        products = [...products, ...resolvedProducts.flatMap((result) => result.status === "fulfilled" && result.value?.data ? [result.value.data] : [])];
+      }
+      const productById = new Map(products.map((product) => [String(product.id), product]));
+      data.customer ??= customerRecords.get(String(data.invoice?.customer_id ?? data.customer_id));
+      if (!warehouseLookupLoaded) {
+        try {
+          const warehousePage = await listWarehouses(context, { limit: 100 });
+          for (const warehouse of warehousePage.data ?? []) warehouseNames.set(String(warehouse.id), warehouse.name);
+          warehouseLookupLoaded = true;
+        } catch { /* Keep the invoice readable even if warehouse names are unavailable. */ }
+      }
+      const invoiceRecord = data.invoice ?? data;
+      const warehouseId = invoiceRecord.warehouse_id;
+      data.warehouse ??= invoiceRecord.warehouse ?? (warehouseId == null ? null : { name: warehouseNames.get(String(warehouseId)) });
+      if (!data.warehouse?.name && warehouseId != null) {
+        try { data.warehouse = (await getWarehouse(context, warehouseId)).data; } catch { /* Do not show the raw warehouse ID. */ }
+      }
+      data.lines = (data.lines ?? []).map((line) => ({ ...line, product_name: line.product_name ?? productById.get(String(line.product_id))?.name ?? "Product name unavailable", category: line.category ?? productById.get(String(line.product_id))?.category ?? "Items" }));
+      activeInvoiceDetails = data;
+      detail.querySelector("#invoice-detail-content").innerHTML = invoiceDetailMarkup(data);
+    }
     catch (error) { detail.querySelector("#invoice-detail-content").innerHTML = `<div class="side-dialog-head"><h2>Invoice unavailable</h2><button class="icon-button" type="button" data-invoice-close aria-label="Close">${icon("close")}</button></div><p>${escapeHtml(invoiceErrorMessage(error))}</p>`; }
   }
-  container.addEventListener("click", (event) => {
+  container.addEventListener("click", async (event) => {
     if (event.target.closest("[data-invoice-refresh]")) void load();
     if (event.target.closest("[data-invoice-next]")) void load(true);
     if (event.target.closest("[data-invoice-new]")) void openEditor();
     if (event.target.closest("[data-invoice-from-estimate]")) void openEditor(true);
     if (event.target.closest("[data-invoice-load-estimate]")) void loadSourceEstimate();
     if (event.target.closest("[data-invoice-close]")) detail.close();
+    if (event.target.closest("[data-invoice-print]")) globalThis.print();
+    if (event.target.closest("[data-invoice-pdf]") && activeInvoiceDetails) {
+      const { invoice, lines, customer = {} } = activeInvoiceDetails;
+      try {
+        const pdfLines = lines.map((line) => ({ ...line, list_price: Number(line.list_price ?? line.unit_price), discount_percent: Number(line.discount_percent ?? 0) }));
+        const file = await createSavedEstimatePdfFile({
+          ...invoice, estimate_number: invoice.invoice_number, lines: pdfLines,
+          customer, customer_name: customer.name, item_count: lines.length,
+          customer_payable_total: Number(invoice.customer_payable_total ?? (Number(invoice.grand_total) + Number(invoice.pass_through_rent))),
+        }, { name: "M. MURAD BUILDING MATERIAL STORE", categories: "Electric | Sanitary | Building Material | Hardware", phone: "0308-6235608", address: "Plaza No 4, Al Kabir Town, Raiwind Road, Lahore" }, document, { documentType: "invoice", template: normalizeDocumentTemplate(invoice.document_template) });
+        downloadEstimatePdf(file);
+      } catch (error) {
+        detail.querySelector(".invoice-share-feedback").textContent = error instanceof Error ? error.message : "Invoice PDF could not be prepared.";
+      }
+    }
+    if (event.target.closest("[data-invoice-whatsapp]") && activeInvoiceDetails) {
+      const { invoice, customer = {} } = activeInvoiceDetails;
+      const digits = String(customer.phone ?? "").replace(/\D/g, "");
+      const phone = digits.startsWith("0") ? `92${digits.slice(1)}` : digits;
+      const text = `${invoice.invoice_number} · ${customer.name ?? "Invoice"} · PKR ${Number(invoice.grand_total ?? 0).toLocaleString("en-PK")}`;
+      globalThis.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    }
+    const receivePayment = event.target.closest("[data-invoice-receive-payment]");
+    if (receivePayment) { globalThis.location.hash = `#/payments/from-invoice/${encodeURIComponent(receivePayment.dataset.invoiceReceivePayment)}`; return; }
     if (event.target.closest("[data-invoice-editor-close]")) editor.close();
     if (event.target.closest("[data-open-workspace]")) globalThis.dispatchEvent(new CustomEvent("muraderp:open-workspace"));
     if (event.target.closest("[data-invoice-add-line]")) { lineContainer.insertAdjacentHTML("beforeend", lineMarkup(products)); pendingDraft = null; pendingKey = null; review.hidden = true; action.textContent = "Review Invoice"; }
@@ -219,4 +303,6 @@ export function mountInvoices(container, options = {}) {
     if (row) void openDetail(Number(row.dataset.invoiceId));
   });
   void load();
+  if(options.sourceEstimateId)void openEditor(true);
+  if(options.invoiceId)void openDetail(Number(options.invoiceId));
 }

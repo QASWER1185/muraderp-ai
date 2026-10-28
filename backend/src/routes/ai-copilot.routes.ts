@@ -159,9 +159,10 @@ export function createAiCopilotRouter(
   let activeTools = conversationalTools;
   const getConversationalTools = () => { activeTools ??= createConversationalTools(); return activeTools; };
   const confirmConversation = async (message:string,scope:{userId:string;organizationId:string;branchId:string},token?:string,conversationId?:string) => {
-    if(!isAffirmation(message))return null;
+    if(!isAffirmation(message)||(!token&&conversationId))return null;
     await getConversationalTools().assertScope(scope);
     const state=readBusinessState(token,scope,conversationId);
+    if(state.workingActionMode==='DEMAND_SLIP_ESTIMATE')return null;
     return confirmConversationAction(state,scope,(pending,context)=>getRuntime().confirmAndExecute(
       pending.draftId,context.organizationId,context.userId,pending.idempotencyKey,context.branchId));
   };
@@ -245,7 +246,7 @@ export function createAiCopilotRouter(
         extraction: normalized.extraction, toolNames: ["extract_rate_list_catalog", "prepare_rate_list_import"] } });
       return;
     }
-    if (normalized.reviewRequired) {
+    if (normalized.reviewRequired && (!normalized.estimateRequest || !(normalized.estimateRequest.items as any[])?.length || (normalized.estimateRequest.items as any[]).some(item=>!item.qty))) {
       response.json({data:{answer:"جناب، پرچی کے چند الفاظ یا مقدار واضح نہیں۔ نیچے تفصیل درست کر دیں تاکہ مکمل ایسٹیمیٹ تیار کر دوں۔",
         status:"clarification",conversationToken:writeBusinessState(state),conversationId:state.conversationId,
         extraction:normalized.extraction,reviewText:normalized.message,requiresConfirmation:false,toolNames:[]}});
@@ -261,9 +262,9 @@ export function createAiCopilotRouter(
           choices.customerName=state.estimateCustomerChoice.name;
           if(state.estimateCustomerChoice.address)choices.customerAddress=state.estimateCustomerChoice.address;
         }
-        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,input.message);
+        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,normalized.userInstruction??input.message);
         response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
-          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:true,toolNames:["erp_create_estimate"]}});
+          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:prepared.requiresConfirmation,toolNames:["erp_create_estimate"]}});
       } catch(error) {
         if(error instanceof ApiError && [401,403].includes(error.status))throw error;
         const known=error instanceof ApiError && ["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code);
@@ -310,6 +311,15 @@ export function createAiCopilotRouter(
     response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review || result.requiresConfirmation) });
   });
 
+  router.post('/demand-drafts/:id/save',authorize,async(request,response)=>{
+    const userId=request.browserPrincipal?.userId;
+    if(!userId)throw new ApiError(401,'UNAUTHORIZED','A browser user session is required.');
+    const organizationId=z.string().uuid().parse(headerValue(request,'X-Organization-Id'));
+    const branchId=z.string().uuid().parse(headerValue(request,'X-Branch-Id'));
+    const id=z.string().uuid().parse(request.params.id);
+    const saved=await getRuntime().saveDemandDraft(id,{userId,organizationId,branchId});
+    response.setHeader('Cache-Control','no-store');response.json({data:saved});
+  });
   router.post("/conversation/drafts", authorize, async (request, response) => {
     const userId = request.browserPrincipal?.userId;
     if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required.");

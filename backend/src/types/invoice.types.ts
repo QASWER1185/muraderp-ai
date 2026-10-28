@@ -1,5 +1,6 @@
 import type { PricedEstimateLine } from "./estimate.types.js";
 import type { EstimateDocument } from "./estimate-document.types.js";
+import type { DocumentTemplate } from "./document-template.types.js";
 
 /**
  * Invoice is the authoritative sales transaction.
@@ -32,6 +33,8 @@ export interface InvoiceDraft {
 export interface InvoiceDocument extends InvoiceDraft {
   id: number;
   status: InvoiceStatus;
+  /** Optional for legacy internal callers; new browser/API flows always set it. */
+  document_template?: DocumentTemplate;
 }
 
 export interface InvoiceTransactionResult {
@@ -60,6 +63,7 @@ export function buildInvoiceFromEstimate(
     discount_total: estimate.totals.discount_total,
     grand_total: estimate.totals.grand_total,
     pass_through_rent: estimate.totals.pass_through_rent,
+    document_template: estimate.definition.document_template ?? "sanitary_electric",
   };
 }
 
@@ -72,6 +76,7 @@ export function buildDirectInvoice(
   grand_total: number,
   pass_through_rent: number,
   id = 0,
+  document_template: DocumentTemplate = "sanitary_electric",
 ): InvoiceDocument {
   return {
     id,
@@ -84,5 +89,6 @@ export function buildDirectInvoice(
     discount_total,
     grand_total,
     pass_through_rent,
+    document_template,
   };
 }

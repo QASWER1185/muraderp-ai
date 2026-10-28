@@ -1,6 +1,6 @@
 import { signIn, getSession, signOut } from "./auth.js";
 import { mountCopilot } from "./copilot-ui.js";
-import { mountEstimates } from "./estimates.js";
+import { mountEstimateWorkspace } from "./estimate-register.js";
 import { mountCustomers } from "./customers.js";
 import { mountVendors } from "./vendors.js";
 import { mountProducts } from "./products.js";
@@ -39,7 +39,9 @@ const routeFromLocation = () => globalThis.location.hash.replace(/^#\/?/, "") ||
 let currentSection = routeFromLocation();
 
 function renderNav(active) {
-  nav.innerHTML = `<div class="brand"><span class="brand-symbol">M</span><span><strong>MuradERP</strong><small>Business workspace</small></span></div>${groups.map(([label, items]) => `<div class="nav-group"><p>${label}</p>${items.map(([id, name, iconName]) => `<button class="nav-item${id === active ? " active" : ""}" type="button" data-route="${id}">${icon(iconName)}<span>${name}</span></button>`).join("")}</div>`).join("")}<button class="nav-copilot" type="button" data-open-copilot>${icon("sparkles")}<span><strong>Ask Copilot</strong><small>Ask or prepare an action</small></span></button>`;
+  const brandName = active === "dashboard" ? "MURAD" : "MuradERP";
+  const brandSubtitle = active === "dashboard" ? "Building Material Store" : "Business workspace";
+  nav.innerHTML = `<div class="brand"><span class="brand-symbol">M</span><span><strong>${brandName}</strong><small>${brandSubtitle}</small></span></div>${groups.map(([label, items]) => `<div class="nav-group"><p>${label}</p>${items.map(([id, name, iconName]) => `<button class="nav-item${id === active ? " active" : ""}" type="button" data-route="${id}">${icon(iconName)}<span>${name}</span></button>`).join("")}</div>`).join("")}<button class="nav-copilot" type="button" data-open-copilot>${icon("sparkles")}<span><strong>Ask Copilot</strong><small>Ask or prepare an action</small></span></button>`;
   // Bind the controls themselves: navigation must not depend on a click
   // reaching document (including keyboard/assistive activation).
   nav.querySelectorAll("[data-route]").forEach((button) => {
@@ -48,41 +50,61 @@ function renderNav(active) {
   });
 }
 
+const mobileNav = document.querySelector("#mobile-bottom-nav");
+if (mobileNav) {
+  mobileNav.querySelectorAll("[data-icon]").forEach((node) => { node.innerHTML = icon(node.dataset.icon, 20); });
+}
+const themeColor = document.querySelector('meta[name="theme-color"]');
+const mobileTheme = globalThis.matchMedia?.("(max-width: 720.99px)");
+function applyViewportTheme() { if (themeColor) themeColor.content = mobileTheme?.matches ? "#0E2E4F" : "#007AB7"; }
+applyViewportTheme();
+mobileTheme?.addEventListener?.("change", applyViewportTheme);
+function updateMobileNav(active = currentSection) {
+  const section = String(active).split("/")[0];
+  const copilotOpen = Boolean(document.querySelector("#copilot")?.open);
+  mobileNav?.querySelectorAll("button").forEach((button) => {
+    const route = button.dataset.navigate?.split("/")[0];
+    button.classList.toggle("active", route ? !copilotOpen && route === section : button.hasAttribute("data-open-copilot") && copilotOpen);
+  });
+}
+
 function unavailableMarkup(label) {
   return `<section class="page-heading"><div><p class="eyebrow">ERP workspace</p><h1>${label}</h1><p class="page-intro">This module is not available in the browser yet.</p></div></section><section class="surface"><div class="empty-state">${icon("building", 26)}<h2>Browser access not configured</h2><p>The authoritative backend does not currently expose a verified browser workflow for ${label.toLowerCase()}. No live status or sample records are being shown.</p></div></section>`;
 }
 
 function navigate(routeId, updateHistory = true) {
-  currentSection = sections.some(([section]) => section === routeId) ? routeId : "dashboard";
+  const baseRoute = String(routeId).split("/")[0];
+  currentSection = sections.some(([section]) => section === baseRoute) ? routeId : "dashboard";
   const hash = `#/${currentSection}`;
   if (updateHistory && globalThis.location.hash !== hash) {
     globalThis.history[globalThis.location.hash ? "pushState" : "replaceState"](null, "", hash);
   }
-  const label = sections.find(([section]) => section === currentSection)?.[1] ?? "Dashboard";
+  const label = sections.find(([section]) => section === currentSection.split("/")[0])?.[1] ?? "Dashboard";
   title.textContent = label;
-  renderNav(currentSection);
+  renderNav(currentSection.split("/")[0]);
+  updateMobileNav(currentSection);
   // Page modules bind listeners and retain async render targets. Give each
   // mount its own container so an old page cannot handle or overwrite it.
   const nextContent = content.cloneNode(false);
   content.replaceWith(nextContent);
   content = nextContent;
   content.innerHTML = currentSection === "dashboard" ? dashboardMarkup() : unavailableMarkup(label);
-  const id=currentSection;
+  const id=currentSection.split("/")[0];
   if(id==="dashboard")mountDashboard(content);
   if(id==="customers")mountCustomers(content);
   if(id==="vendors")mountVendors(content);
   if(id==="products")mountProducts(content);
-  if(id==="invoices")mountInvoices(content);
-  if(id==="returns")mountReturns(content);
+  if(id==="invoices")mountInvoices(content,{sourceEstimateId:currentSection.startsWith("invoices/from-estimate/")?Number(currentSection.split("/")[2]):undefined,invoiceId:/^invoices\/\d+$/.test(currentSection)?Number(currentSection.split("/")[1]):undefined});
+  if(id==="returns")mountReturns(content,{returnId:/^returns\/\d+$/.test(currentSection)?Number(currentSection.split("/")[1]):undefined});
   if(id==="purchases")mountPurchases(content);
   if(id==="warehouses")mountWarehouses(content);
   if(id==="inventory")mountStock(content);
-  if(id==="payments")mountPayments(content);
+  if(id==="payments")mountPayments(content,{paymentId:/^payments\/\d+$/.test(currentSection)?Number(currentSection.split("/")[1]):undefined,sourceInvoiceId:/^payments\/from-invoice\/\d+$/.test(currentSection)?Number(currentSection.split("/")[2]):undefined});
   if(id==="vendor-payments")mountVendorPayments(content);
   if(id==="rates")mountRateLists(content);
   if(id==="accounting")mountAccounting(content);
   if(id==="reports")mountReports(content);
-  if(id==="estimates")mountEstimates(content);
+  if(id==="estimates")mountEstimateWorkspace(content,{route:currentSection});
   shell.classList.remove("menu-open");
   content.focus({ preventScroll: true });
 }
@@ -99,6 +121,7 @@ const copilotUi = mountCopilot({
   openNativeAction: (intent, recordId) => {
     const section = ({ estimate: "estimates", supplier_bill: "purchases", customer_return: "returns", rate_list_update: "rates", customer_payment: "payments", vendor_payment: "vendor-payments" })[intent] ?? "dashboard";
     navigate(section);
+    if (intent === "estimate" && Number.isSafeInteger(Number(recordId))) { navigate(`estimates/${recordId}`); return; }
     if (intent === "estimate") { const sourceInput = content.querySelector('input[name="source"]'); if (sourceInput) { sourceInput.value = String(recordId); sourceInput.focus(); } }
   },
 });
@@ -108,8 +131,17 @@ document.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : event.target?.parentElement;
   const route = target?.closest("[data-navigate]")?.dataset.navigate;
   if (route) navigate(route);
-  if (target?.closest("[data-open-copilot]")) copilotUi.open();
+  if (target?.closest("[data-open-new-invoice]")) {
+    navigate("invoices");
+    queueMicrotask(() => content.querySelector("[data-invoice-new]")?.click());
+  }
+  if (target?.closest("[data-open-new-customer]")) {
+    navigate("customers");
+    queueMicrotask(() => content.dispatchEvent(new Event("muraderp:customer-new")));
+  }
+  if (target?.closest("[data-open-copilot]")) { copilotUi.open(); updateMobileNav(); }
 });
+document.querySelector("#copilot")?.addEventListener("close", () => updateMobileNav());
 globalThis.addEventListener("popstate", () => navigate(routeFromLocation(), false));
 globalThis.addEventListener("hashchange", () => navigate(routeFromLocation(), false));
 document.querySelector("#menu").addEventListener("click", () => shell.classList.toggle("menu-open"));
@@ -207,6 +239,7 @@ globalThis.addEventListener("muraderp:open-workspace", openWorkspace);
 
 const previousWorkspace = getWorkspaceContext();
 clearWorkspaceContext();
-getSession().then(async (session) => { authenticatedUserId = session?.data?.userId ?? null; authButton.textContent = authenticatedUserId ? "Account" : "Sign in"; document.querySelector("#auth-signout").hidden = !authenticatedUserId; if (authenticatedUserId) await connectDiscoveredWorkspace(previousWorkspace); }).catch(() => { authenticatedUserId = null; authButton.textContent = "Sign in"; });
+async function restoreSession() { try { const session=await getSession(); authenticatedUserId=session?.data?.userId??null; authButton.textContent=authenticatedUserId?"Account":"Sign in"; document.querySelector("#auth-signout").hidden=!authenticatedUserId; if(authenticatedUserId){await connectDiscoveredWorkspace(previousWorkspace);void flushOfflineQueue().then(updateConnectionStatus);} else navigate(currentSection); } catch(error) {content.innerHTML='<div class="empty-state"><h2>Session temporarily unavailable</h2><p>Your session has not been cleared.</p><button class="button secondary" data-session-retry>Try again</button></div>';content.querySelector("[data-session-retry]").onclick=()=>void restoreSession();} }
+void restoreSession();
 subscribeOfflineState(updateConnectionStatus);
-navigate(currentSection); updateConnectionStatus(); void flushOfflineQueue().then(updateConnectionStatus);
+content.innerHTML = '<div class="loading-state" role="status">Restoring your secure session…</div>'; updateConnectionStatus();

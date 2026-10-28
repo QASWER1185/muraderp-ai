@@ -5,6 +5,7 @@ import { createServiceRoleAuthorizationGateway } from "../auth/supabase-authoriz
 import { TenantAccessService } from "../auth/tenant-access.service.js";
 import { ApiError } from "../errors/api-error.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
+import { SupabaseCustomerCenterRepository, type CustomerCenterRange, type CustomerCenterRepository } from "../repositories/customer-center.repository.js";
 import {
   SupabaseErpService,
   type CustomerInput,
@@ -18,11 +19,20 @@ const pageSchema = z.object({
   cursor: idSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const customerListQuerySchema = pageSchema.extend({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).refine((value) => !value.from || !value.to || value.from <= value.to, { message: "The start date must be on or before the end date" });
+const customerCenterRangeSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+}).refine((value) => !value.from || !value.to || value.from <= value.to, { message: "The start date must be on or before the end date" });
 const shortText = z.string().trim().min(1).max(200);
 const customerSchema = z.strictObject({
   name: shortText,
   phone: z.string().trim().min(1).max(50),
   city: z.string().trim().min(1).max(120),
+  opening_balance: z.number().finite().min(-999999999999).max(999999999999).default(0),
 });
 const customerPatchSchema = customerSchema
   .partial()
@@ -38,6 +48,7 @@ export interface CustomerRouterOptions {
   internalApiToken?: string | undefined;
   servicePrincipalId?: string | undefined;
   service?: CustomerService | undefined;
+  centerRepository?: CustomerCenterRepository | undefined;
   tenantAuthorizer?: CustomerAuthorizer | undefined;
   authenticate?: RequestHandler | undefined;
 }
@@ -78,6 +89,7 @@ function customerIdentity(request: Request): CustomerIdentity {
 export function createCustomerRouter(options: CustomerRouterOptions = {}): Router {
   const router = Router();
   const service = options.service ?? new SupabaseErpService();
+  const centerRepository = options.centerRepository ?? new SupabaseCustomerCenterRepository();
   const authenticate = options.authenticate ?? createCopilotAuth(options.internalApiToken, options.servicePrincipalId);
   let tenantAuthorizer = options.tenantAuthorizer;
 
@@ -96,7 +108,34 @@ export function createCustomerRouter(options: CustomerRouterOptions = {}): Route
 
   router.get("/", async (request, response) => {
     const identity = await authorize(request, "customers.read");
-    response.status(200).json(await service.listCustomers(pageSchema.parse(request.query), identity.organizationId));
+    const query = customerListQuerySchema.parse(request.query);
+    const page = await service.listCustomers({ cursor: query.cursor, limit: query.limit }, identity.organizationId);
+    const range: CustomerCenterRange = { ...(query.from ? { from: query.from } : {}), ...(query.to ? { to: query.to } : {}) };
+    const metrics = await centerRepository.listMetrics(identity.organizationId, identity.branchId, page.data.map((customer) => customer.id), range);
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).json({
+      ...page,
+      data: page.data.map((customer) => ({
+        ...customer,
+        ...(metrics.get(customer.id) ?? { balance: 0, estimates_count: 0, estimates_total_amount: 0, invoices_total_amount: 0, payments_total_amount: 0 }),
+      })),
+    });
+  });
+
+  router.get("/:id/center", async (request, response) => {
+    const identity = await authorize(request, "customers.read");
+    const customer = await service.getCustomer(idSchema.parse(request.params.id), identity.organizationId);
+    if (!customer) throw new ApiError(404, "NOT_FOUND", "Customer was not found");
+    const queryRange = customerCenterRangeSchema.parse(request.query);
+    const range: CustomerCenterRange = { ...(queryRange.from ? { from: queryRange.from } : {}), ...(queryRange.to ? { to: queryRange.to } : {}) };
+    const summaryAndTransactions = await centerRepository.getCenter(identity.organizationId, identity.branchId, customer.id, range);
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).json({
+      data: {
+        customer: { id: customer.id, name: customer.name, phone: customer.phone, address: (customer as typeof customer & { address?: string | null }).address ?? customer.city ?? "", city: customer.city },
+        ...summaryAndTransactions,
+      },
+    });
   });
 
   router.get("/:id", async (request, response) => {

@@ -13,7 +13,7 @@ export async function brandRates(input:{query:string;brands:string[];quantity:nu
     const product=match.resolution==="resolved"?match.bestCandidate:null;
     const discountPercent=input.discount_percent??tradeDiscounts[brand]??null;
     if(!product||!sameBrand(product.brandName,brand))return {brand,product:null,listPrice:null,discountPercent,netPrice:null,unit:null,currency:"PKR",status:match.items.length?"سائز یا قسم منتخب کریں":"فعال کیٹلاگ آئٹم نہیں ملا"};
-    const rate=await services.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,quantity:input.quantity,as_of:new Date().toISOString()});
+    const rate=await services.pricing.resolvePrice({organization_id:scope.organizationId,price_type:"SALE",product_id:product.id,quantity:input.quantity,rate_list_brand:brand,as_of:new Date().toISOString()});
     signal?.throwIfAborted();
     if(!rate)return {brand,product:product.name,listPrice:null,discountPercent,netPrice:null,unit:product.unit,currency:"PKR",status:"فعال نرخ نہیں ملا"};
     const version=await services.rateLists.getVersion(rate.rate_list_version_id);

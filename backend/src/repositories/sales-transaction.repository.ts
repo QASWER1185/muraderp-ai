@@ -52,6 +52,7 @@ function invoicePayload(request: SalesTransactionRequest): Record<string, unknow
     grand_total: request.invoice.grand_total,
     pass_through_rent: request.invoice.pass_through_rent,
     notes: request.invoice.definition.notes ?? null,
+    document_template: request.invoice.document_template ?? "sanitary_electric",
   };
 }
 

@@ -10,6 +10,8 @@ import { calculateEstimateTotals } from "../../services/estimate.service.js";
 import type { ResolvedPrice } from "../../types/pricing.types.js";
 import type { AgentScope, ToolServices } from "./erp-tools.js";
 import type { BusinessState } from "./business-state.js";
+import { explicitBrand } from "../productResolver.js";
+import { isOpenBrandRateList } from "../../repositories/rate-list.repository.js";
 import { customerPaymentSchema, vendorPaymentSchema, paymentStateSchema, type PaymentPreparation } from "./payment-state.js";
 
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -162,6 +164,7 @@ export class BusinessIntelligenceTools {
     const resolve = async (type: "SALE" | "PURCHASE") => {
       try {
         const value = await this.base.pricing.resolvePrice({ organization_id: scope.organizationId, product_id: reference.id, quantity: qty, price_type: type, as_of: asOf,
+          ...(type === "SALE" ? { rate_list_brand: explicitBrand(reference.name) } : {}),
           ...(type === "SALE" && customer ? { customer_id: customer.id } : {}), ...(type === "SALE" && state.rateListId ? { rate_list_id: state.rateListId } : {}) });
         signal?.throwIfAborted();
         if (value && (value.product_id !== reference.id || !Number.isFinite(value.unit_price) || value.unit_price < 0)) throw new Error("Invalid authoritative price");
@@ -177,7 +180,7 @@ export class BusinessIntelligenceTools {
     if (state.rateListId) {
       const list = (await this.base.rateLists.listActiveSaleRateLists(scope.organizationId)).find(row => row.id === state.rateListId);
       signal?.throwIfAborted();
-      if (!list || list.scope_type === "VENDOR" || (list.scope_type === "CUSTOMER" && list.customer_id !== customer?.id)) throw new ApiError(403, "RATE_LIST_ACCESS_DENIED", "Sale rate list is not applicable.");
+      if (!list || list.scope_type === "VENDOR" || (list.scope_type === "CUSTOMER" && list.customer_id !== customer?.id && !isOpenBrandRateList(list, explicitBrand(reference.name)))) throw new ApiError(403, "RATE_LIST_ACCESS_DENIED", "Sale rate list is not applicable.");
     }
     const sale = await resolve("SALE");
     const cost = includeCost ? await resolve("PURCHASE") : { value: null, status: "not_requested" };

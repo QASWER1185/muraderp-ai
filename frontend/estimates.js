@@ -1,7 +1,8 @@
 import { createCustomer, listCustomers } from "./customer-api.js";
 import { createEstimateDraft } from "./estimate-api.js";
-import { listEstimateRateLists, prepareEstimateWhatsAppShare, previewEstimateRateList } from "./estimate-conversion.js";
-import { createEstimatePdfFile, downloadEstimatePdf, shareEstimatePdf } from "./estimate-pdf.js";
+import { listEstimateRateLists, previewEstimateRateList } from "./estimate-conversion.js";
+import { createSavedEstimatePdfFile, downloadEstimatePdf } from "./estimate-pdf.js";
+import { documentTemplateOptions, mobileDocumentPreview, normalizeDocumentTemplate, SANITARY_ELECTRIC } from "./document-templates.js";
 import { icon } from "./icons.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { listProducts } from "./product-api.js";
@@ -11,10 +12,10 @@ const DRAFT_KEY = "muraderp.estimate-draft";
 const DRAFT_VERSION = 2;
 const STANDARD_RATE_LIST = "Store Standard Rates";
 const STORE = {
-  name: "MURAD BUILDING MATERIALS STORE",
-  categories: "Cement, Bricks, Sand, Electric, Sanitary, All Other Building Materials",
-  phone: "0308 6235608",
-  address: "Al Kabir Town, Raiwind Road, Lahore.",
+  name: "M. MURAD BUILDING MATERIAL STORE",
+  categories: "Electric | Sanitary | Building Material | Hardware",
+  phone: "0308-6235608",
+  address: "Plaza No 4, Al Kabir Town, Raiwind Road, Lahore",
 };
 
 function escapeHtml(value) {
@@ -119,6 +120,7 @@ export function validateEstimateDraft(draft) {
     issue_date: draft.issueDate,
     currency_code: "PKR",
     notes: String(draft.notes ?? "").trim() || null,
+    document_template: normalizeDocumentTemplate(draft.documentTemplate),
     overall_discount: totals.discountAmount,
     carriage_delivery: totals.carriageDelivery,
     default_rate_list_id: draft.rateListId == null ? null : Number(draft.rateListId),
@@ -146,19 +148,23 @@ export function previewableEstimateDraft(state) {
 export function estimatePreviewMarkup(draft) {
   const totals = calculateDraftTotals(draft.lines, draft.overallDiscount, draft.carriageDelivery);
   const displayDate = new Date(`${draft.issueDate}T00:00:00`).toLocaleDateString("en-PK", { dateStyle: "long" });
-  return `<article class="estimate-document">
+  const lines = draft.lines.map((line, index) => {
+    const product = draft.products?.find((entry) => Number(entry.id) === Number(line.productId));
+    return { ...line, product_name: product?.name ?? line.productLabel, category: product?.category ?? "Items", list_price: line.rate, unit_price: line.rate, line_total: number(line.quantity) * number(line.rate), line_number: index + 1 };
+  });
+  return `<article class="estimate-document estimate-desktop-document">
     <header class="estimate-document-header"><div class="estimate-logo">M</div><div><h2><span>M</span> ${STORE.name}</h2><p>${STORE.categories}</p><div><span>${STORE.phone}</span><span>${STORE.address}</span></div></div><aside><strong>ESTIMATE</strong><span>${escapeHtml(draft.estimateNumber)}</span><small>${displayDate}</small></aside></header>
     <section class="estimate-document-customer"><div><small>ESTIMATE FOR</small><strong>${escapeHtml(draft.customerName)}</strong><span>${escapeHtml(draft.phone)}</span><span>${escapeHtml(draft.address)}</span></div><div><small>RATE LIST / COMPANY</small><strong>${escapeHtml(draft.rateListName || STANDARD_RATE_LIST)}</strong><span>Rates subject to confirmation</span><span>Prepared in PKR</span></div></section>
     <table><thead><tr><th>#</th><th>Item</th><th>Quantity</th><th>Rate</th><th>Total</th></tr></thead><tbody>${draft.lines.map((line, index) => `<tr><td>${index + 1}</td><td><strong>${escapeHtml(line.productLabel)}</strong></td><td>${number(line.quantity).toLocaleString("en-PK")}</td><td>${money(line.rate)}</td><td><strong>${money(number(line.quantity) * number(line.rate))}</strong></td></tr>`).join("")}</tbody></table>
     <footer><div><small>NOTES</small><p>${escapeHtml(draft.notes || "Thank you for choosing Murad Building Materials Store.")}</p><span>Authorized Signature</span></div><dl><div><dt>Subtotal</dt><dd>${money(totals.subtotal)}</dd></div><div><dt>Discount (${percentage(totals.discountPercent)}%)</dt><dd>− ${money(totals.discountAmount)}</dd></div><div><dt>Amount After Discount</dt><dd>${money(totals.amountAfterDiscount)}</dd></div><div><dt>Carriage / Delivery</dt><dd>${money(totals.carriageDelivery)}</dd></div><div class="document-grand-total"><dt>Grand Total</dt><dd>${money(totals.grandTotal)}</dd></div></dl></footer>
-  </article>`;
+  </article>${mobileDocumentPreview({ documentType: "estimate", template: draft.documentTemplate, documentNumber: draft.estimateNumber, issueDate: draft.issueDate, status: "DRAFT", customer: { name: draft.customerName, phone: draft.phone, address: draft.address }, lines, totals: { ...totals, customer_payable_total: totals.grandTotal, item_count: lines.length }, notes: draft.notes })}`;
 }
 
 export function estimatePageMarkup() {
   return `<div class="estimate-page"><section class="estimate-page-heading"><div><p class="eyebrow">Sales document</p><h1>Create Estimate</h1><p>Prepare a clear, professional estimate for your customer.</p></div><div><button class="button secondary" type="button" data-estimate-preview>${icon("eye", 17)} Preview</button><button class="button primary" type="button" data-estimate-save>Save Estimate</button></div></section>
   <div id="estimate-workspace-notice" class="estimate-notice" role="status"><span class="spinner"></span><span>Loading customers, products, and rate lists...</span></div>
   <section class="estimate-editor surface">
-    <div class="estimate-brand-header"><div class="estimate-logo">M</div><div class="estimate-brand-identity"><p class="eyebrow">Official Estimate</p><h2><span>M</span> ${STORE.name}</h2><p>${STORE.categories}</p><div class="business-contact"><span>${icon("phone", 14)} ${STORE.phone}</span><span>${icon("location", 14)} ${STORE.address}</span></div></div><div class="estimate-rate-context"><small>Rate List / Company</small><strong id="estimate-rate-list-name">${STANDARD_RATE_LIST}</strong><button class="button secondary compact" type="button" data-change-rate-list>${icon("refresh", 14)} Change Rate List</button></div><div class="estimate-meta"><label>Estimate No.<input id="estimate-number" value="${defaultNumber()}" maxlength="100" /></label><label>Date<input id="estimate-date" type="date" value="${new Date().toLocaleDateString("en-CA")}" /></label></div></div>
+    <div class="estimate-brand-header"><div class="estimate-logo">M</div><div class="estimate-brand-identity"><p class="eyebrow">Official Estimate</p><h2><span>M</span> ${STORE.name}</h2><p>${STORE.categories}</p><div class="business-contact"><span>${icon("phone", 14)} ${STORE.phone}</span><span>${icon("location", 14)} ${STORE.address}</span></div></div><div class="estimate-rate-context"><small>Rate List / Company</small><strong id="estimate-rate-list-name">${STANDARD_RATE_LIST}</strong><button class="button secondary compact" type="button" data-change-rate-list>${icon("refresh", 14)} Change Rate List</button></div><div class="estimate-meta">${documentTemplateOptions(SANITARY_ELECTRIC, "document_template", "estimate-document-template")}<small class="mobile-template-help" data-template-help>List − Disc% = Net</small><label>Estimate No.<input id="estimate-number" value="${defaultNumber()}" maxlength="100" /></label><label>Date<input id="estimate-date" type="date" value="${new Date().toLocaleDateString("en-CA")}" /></label></div></div>
 
     <section class="estimate-section"><div class="estimate-section-heading"><div><span>01</span><div><h3>Customer Details</h3><p>Select an existing customer or enter a new one.</p></div></div></div><div class="customer-entry-grid"><label class="customer-picker">Existing customer<select id="estimate-customer"><option value="">New / walk-in customer</option></select></label><label>Customer Name<input id="estimate-customer-name" autocomplete="name" placeholder="Customer name" /></label><label>Phone Number<input id="estimate-phone" autocomplete="tel" placeholder="03XX XXXXXXX" /></label><label>Address<input id="estimate-address" autocomplete="street-address" placeholder="Customer address" /></label></div></section>
 
@@ -169,6 +175,7 @@ export function estimatePageMarkup() {
     <section class="estimate-footer-grid"><label>Notes<textarea id="estimate-notes" rows="4" placeholder="Payment terms, delivery details, or a note for the customer"></textarea></label><aside class="estimate-totals"><div><span>Subtotal</span><strong id="estimate-subtotal">${money(0)}</strong></div><label class="total-input discount-percent-input"><span>Discount</span><span class="percentage-field"><input id="estimate-overall-discount" type="number" min="0" max="100" step="any" value="0" inputmode="decimal" aria-label="Estimate discount percentage" /><b aria-hidden="true">%</b></span></label><div><span>Discount Amount</span><strong id="estimate-discount-amount">− ${money(0)}</strong></div><div class="amount-after-discount"><span>Amount After Discount</span><strong id="estimate-after-discount">${money(0)}</strong></div><label class="total-input"><span>Carriage / Delivery</span><input id="estimate-carriage" type="number" min="0" step="any" value="0" inputmode="decimal" /></label><div class="grand-total"><span>Grand Total</span><strong id="estimate-grand-total">${money(0)}</strong></div><small>Final totals are validated by the server when saved.</small></aside></section>
     <p id="estimate-message" class="estimate-message" role="status" aria-live="polite" hidden></p>
     <div class="estimate-actions"><span><span class="draft-dot"></span> Draft saves locally as you work</span><div><button class="button secondary" type="button" data-estimate-preview>${icon("eye", 17)} Preview</button><button class="button whatsapp-button" type="button" data-estimate-whatsapp disabled>${icon("send", 16)} Share on WhatsApp</button><button class="button primary" type="button" data-estimate-save>Save Estimate</button></div></div>
+    <section class="mobile-live-preview"><div><p class="eyebrow">Before saving</p><h2>Live Compact Preview</h2></div><div id="estimate-live-preview"></div></section>
   </section>
 
   <dialog id="estimate-rate-list-dialog" class="estimate-business-dialog"><form method="dialog" class="estimate-dialog-card" data-rate-list-form><header><div><p class="eyebrow">Pricing</p><h2>Change Rate List</h2><p>Choose an authorized company rate list for this Estimate.</p></div><button class="icon-button" value="cancel" aria-label="Close">${icon("close")}</button></header><div class="current-rate-list"><span>Current Rate List</span><strong data-current-rate-list>${STANDARD_RATE_LIST}</strong></div><div id="estimate-rate-list-options" class="rate-list-options"><span class="spinner"></span><span>Loading authorized rate lists...</span></div><p id="estimate-rate-list-message" class="dialog-message" role="status" hidden></p><footer><button class="button secondary" value="cancel">Cancel</button><button class="button primary" type="submit" data-review-rates>Review New Rates</button></footer></form></dialog>
@@ -193,7 +200,8 @@ export function mountEstimates(container, options = {}) {
   const storage = options.storage ?? globalThis.sessionStorage;
   const context = options.context ?? getWorkspaceContext(storage);
   const state = {
-    customers: [], products: [], rateLists: [], customerId: null, customerName: "", phone: "", address: "",
+    customers: [], products: [], rateLists: [], customerId: options.initialCustomerId == null ? null : Number(options.initialCustomerId), customerName: "", phone: "", address: "",
+    documentTemplate: SANITARY_ELECTRIC,
     estimateNumber: container.querySelector("#estimate-number").value,
     issueDate: container.querySelector("#estimate-date").value,
     notes: "", overallDiscount: 0, carriageDelivery: 0, rateListId: null, rateListName: STANDARD_RATE_LIST,
@@ -204,6 +212,7 @@ export function mountEstimates(container, options = {}) {
   const customerName = container.querySelector("#estimate-customer-name");
   const phone = container.querySelector("#estimate-phone");
   const address = container.querySelector("#estimate-address");
+  const templateSelect = container.querySelector("#estimate-document-template");
   const notice = container.querySelector("#estimate-workspace-notice");
   const message = container.querySelector("#estimate-message");
   const previewDialog = container.querySelector("#estimate-preview");
@@ -221,6 +230,7 @@ export function mountEstimates(container, options = {}) {
   function draftSnapshot() {
     return {
       customerId: state.customerId, customerName: state.customerName, phone: state.phone, address: state.address,
+      documentTemplate: normalizeDocumentTemplate(state.documentTemplate),
       estimateNumber: state.estimateNumber, issueDate: state.issueDate, notes: state.notes,
       overallDiscount: state.overallDiscount, carriageDelivery: state.carriageDelivery,
       rateListId: state.rateListId, rateListName: state.rateListName, lines: state.lines,
@@ -239,6 +249,12 @@ export function mountEstimates(container, options = {}) {
     container.querySelector("#estimate-discount-amount").textContent = `− ${money(totals.discountAmount)}`;
     container.querySelector("#estimate-after-discount").textContent = money(totals.amountAfterDiscount);
     container.querySelector("#estimate-grand-total").textContent = money(totals.grandTotal);
+    renderLivePreview();
+  }
+  function renderLivePreview() {
+    const preview = container.querySelector("#estimate-live-preview");
+    if (!preview) return;
+    preview.innerHTML = estimatePreviewMarkup(previewableEstimateDraft({ ...draftSnapshot(), products: state.products }));
   }
   function renderRateContext() {
     container.querySelector("#estimate-rate-list-name").textContent = state.rateListName || STANDARD_RATE_LIST;
@@ -256,6 +272,9 @@ export function mountEstimates(container, options = {}) {
     state.customerName = customerName.value; state.phone = phone.value; state.address = address.value;
     state.estimateNumber = container.querySelector("#estimate-number").value;
     state.issueDate = container.querySelector("#estimate-date").value;
+    state.documentTemplate = normalizeDocumentTemplate(templateSelect.value);
+    const templateHelp = container.querySelector("[data-template-help]");
+    if (templateHelp) templateHelp.textContent = state.documentTemplate === "building_material" ? "Direct Rate (Qty × Rate)" : "List − Disc% = Net";
     state.notes = container.querySelector("#estimate-notes").value;
     state.overallDiscount = number(discountInput.value);
     discountInput.setCustomValidity(state.overallDiscount < 0 || state.overallDiscount > 100 ? "Enter a discount percentage between 0 and 100." : "");
@@ -273,10 +292,12 @@ export function mountEstimates(container, options = {}) {
         restoredDraft.overallDiscount = legacySubtotal > 0 ? Math.min(100, legacyDiscountAmount / legacySubtotal * 100) : 0;
       }
       Object.assign(state, restoredDraft, { overallDiscount: number(restoredDraft.overallDiscount), idempotencyKey: null, savedEstimateId: null, pendingRatePreview: null });
+      state.documentTemplate = normalizeDocumentTemplate(restoredDraft.documentTemplate);
       state.lines = normalizeEstimateLines((state.lines ?? []).map((line) => ({ ...line, key: line.key || lineKey(), rateListId: line.rateListId ?? state.rateListId ?? null })));
       customerName.value = state.customerName; phone.value = state.phone; address.value = state.address;
       container.querySelector("#estimate-number").value = state.estimateNumber;
       container.querySelector("#estimate-date").value = state.issueDate;
+      templateSelect.value = state.documentTemplate;
       container.querySelector("#estimate-notes").value = state.notes;
       discountInput.value = String(state.overallDiscount);
       carriageInput.value = String(state.carriageDelivery);
@@ -304,11 +325,20 @@ export function mountEstimates(container, options = {}) {
     if (customerResult.status === "fulfilled") {
       state.customers = customerResult.value.data ?? [];
       customerSelect.innerHTML = `<option value="">New / walk-in customer</option>${state.customers.map((customer) => `<option value="${escapeHtml(customer.id)}">${escapeHtml(customer.name)} · ${escapeHtml(customer.phone)}</option>`).join("")}`;
-      if (state.customerId != null) customerSelect.value = String(state.customerId);
+      if (options.initialCustomerId != null) state.customerId = Number(options.initialCustomerId);
+      if (state.customerId != null) {
+        customerSelect.value = String(state.customerId);
+        const customer = state.customers.find((item) => String(item.id) === String(state.customerId));
+        if (customer) {
+          state.customerName = customer.name ?? ""; state.phone = customer.phone ?? ""; state.address = customer.address ?? customer.city ?? "";
+          customerName.value = state.customerName; phone.value = state.phone; address.value = state.address;
+        }
+      }
     }
     if (productResult.status === "fulfilled") {
       state.products = productResult.value.data ?? [];
       container.querySelector("#estimate-products").innerHTML = state.products.map((product) => `<option value="${escapeHtml(productLabel(product))}"></option>`).join("");
+      renderLivePreview();
     }
     if (customerResult.status === "fulfilled" && productResult.status === "fulfilled" && rateListResult.status === "fulfilled") {
       notice.className = "estimate-notice ready";
@@ -325,10 +355,23 @@ export function mountEstimates(container, options = {}) {
     previewDialog.showModal();
   }
 
-  function makePdf() {
+  async function makePdf() {
     syncDraftFields();
     const draft = previewableEstimateDraft(state);
-    return createEstimatePdfFile(draft, calculateDraftTotals(draft.lines, draft.overallDiscount, draft.carriageDelivery));
+    const totals = calculateDraftTotals(draft.lines, draft.overallDiscount, draft.carriageDelivery);
+    const lines = draft.lines.map((line, index) => {
+      const product = state.products.find((entry) => Number(entry.id) === Number(line.productId));
+      const quantity = number(line.quantity);
+      const rate = number(line.rate);
+      return { line_number: index + 1, product_name: product?.name ?? line.productLabel, category: product?.category ?? "Items", quantity, unit: line.unit, list_price: rate, discount_percent: 0, unit_price: rate, line_total: quantity * rate };
+    });
+    return createSavedEstimatePdfFile({
+      estimate_number: draft.estimateNumber, issue_date: draft.issueDate, status: "DRAFT",
+      document_template: draft.documentTemplate, customer: { name: draft.customerName, phone: draft.phone, address: draft.address },
+      customer_name: draft.customerName, lines, subtotal: totals.subtotal, discount_total: totals.discountAmount,
+      pass_through_rent: totals.carriageDelivery, grand_total: totals.grandTotal,
+      customer_payable_total: totals.grandTotal, notes: draft.notes,
+    }, STORE, document, { template: draft.documentTemplate });
   }
 
   async function saveEstimate() {
@@ -470,28 +513,22 @@ export function mountEstimates(container, options = {}) {
 
   async function shareOnWhatsApp() {
     if (state.savedEstimateId == null) { showMessage("Save this Estimate before sharing it on WhatsApp.", "error"); return; }
-    const shareButton = container.querySelector("[data-estimate-whatsapp]");
-    shareButton.disabled = true; showMessage("Preparing the customer PDF for WhatsApp...", "neutral");
-    try {
-      const file = makePdf();
-      const totals = calculateDraftTotals(state.lines, state.overallDiscount, state.carriageDelivery);
-      let shareText = `${STORE.name}\nEstimate ${state.estimateNumber}\nGrand Total: ${money(totals.grandTotal)}`;
-      if (context && navigator.onLine) {
-        try {
-          const delivery = await (options.prepareWhatsAppShare ?? prepareEstimateWhatsAppShare)({ ...context, estimateId: state.savedEstimateId });
-          if (delivery?.message) shareText = delivery.message;
-        } catch { /* The local PDF and user-controlled share sheet remain available. */ }
-      }
-      const mode = await (options.sharePdf ?? shareEstimatePdf)({ file, title: `Estimate ${state.estimateNumber}`, text: shareText });
-      showMessage(mode === "PDF_SHARED" ? "The Estimate PDF was sent to the share sheet. Choose WhatsApp, select the customer, and press Send." : "The Estimate PDF was downloaded and the share flow opened. Attach the downloaded PDF, select the customer, and press Send.", "success");
-    } catch (error) { if (error?.name !== "AbortError") showMessage(error instanceof Error ? error.message : "WhatsApp sharing is unavailable in this browser.", "error"); }
-    finally { shareButton.disabled = state.savedEstimateId == null; }
+    const digits = String(state.phone ?? "").replace(/\D/g, "");
+    const phoneNumber = digits.startsWith("0") ? `92${digits.slice(1)}` : digits;
+    const totals = calculateDraftTotals(state.lines, state.overallDiscount, state.carriageDelivery);
+    const shareText = `${STORE.name}\nEstimate ${state.estimateNumber}\n${state.customerName}\nGrand Total: PKR ${money(totals.grandTotal)}`;
+    const shareUrl = new URL(`https://wa.me/${phoneNumber}`);
+    shareUrl.searchParams.set("text", shareText);
+    globalThis.open(shareUrl.toString(), "_blank", "noopener,noreferrer");
+    showMessage("WhatsApp opened with a prefilled message. Review it and tap Send there.", "success");
   }
 
-  restoreDraft(); state.lines = normalizeEstimateLines(state.lines); renderRateContext(); renderLines(); updateShareAvailability();
+  restoreDraft();
+  if (options.initialCustomerId != null) { state.customerId = Number(options.initialCustomerId); state.customerName = ""; state.phone = ""; state.address = ""; }
+  state.lines = normalizeEstimateLines(state.lines); renderRateContext(); renderLines(); updateShareAvailability();
   [customerName, phone, address].forEach((field) => field.addEventListener("input", () => {
     if (state.customerId != null) { state.customerId = null; customerSelect.value = ""; }
-    syncDraftFields(); invalidateSave();
+    syncDraftFields(); renderLivePreview(); invalidateSave();
   }));
   [container.querySelector("#estimate-number"), container.querySelector("#estimate-date"), container.querySelector("#estimate-notes"), discountInput, carriageInput].forEach((field) => field.addEventListener("input", () => { syncDraftFields(); renderTotals(); invalidateSave(); }));
   customerSelect.addEventListener("change", () => {
@@ -499,7 +536,7 @@ export function mountEstimates(container, options = {}) {
     state.customerId = customer?.id ?? null;
     if (customer) { customerName.value = customer.name; phone.value = customer.phone; address.value = customer.city; }
     else { customerName.value = ""; phone.value = ""; address.value = ""; customerName.focus(); }
-    syncDraftFields(); invalidateSave(); void loadRateLists().catch(() => {});
+    syncDraftFields(); renderLivePreview(); invalidateSave(); void loadRateLists().catch(() => {});
   });
   linesBody.addEventListener("input", (event) => {
     const row = event.target.closest("tr[data-line-key]"); if (!row) return;
@@ -560,6 +597,7 @@ export function mountEstimates(container, options = {}) {
     const line = createEstimateLine(); state.lines.push(line); renderLines({ focusKey: line.key }); invalidateSave();
   }));
   container.querySelectorAll("[data-estimate-preview]").forEach((button) => button.addEventListener("click", openPreview));
+  templateSelect.addEventListener("change", () => { state.documentTemplate = normalizeDocumentTemplate(templateSelect.value); syncDraftFields(); renderLivePreview(); saveLocal(); });
   container.querySelectorAll("[data-estimate-save]").forEach((button) => button.addEventListener("click", () => void saveEstimate()));
   container.querySelector("[data-estimate-whatsapp]").addEventListener("click", () => void shareOnWhatsApp());
   container.querySelector("[data-change-rate-list]").addEventListener("click", () => void openRateListDialog());
@@ -569,8 +607,8 @@ export function mountEstimates(container, options = {}) {
   container.querySelector("[data-back-to-rate-lists]").addEventListener("click", () => { rateReviewDialog.close(); rateListDialog.showModal(); });
   container.querySelector("[data-estimate-preview-close]").addEventListener("click", () => previewDialog.close());
   container.querySelector("[data-estimate-print]").addEventListener("click", () => window.print());
-  container.querySelector("[data-estimate-pdf]").addEventListener("click", () => {
-    try { downloadEstimatePdf(makePdf()); showMessage("The customer-facing Estimate PDF was downloaded.", "success"); }
+  container.querySelector("[data-estimate-pdf]").addEventListener("click", async () => {
+    try { downloadEstimatePdf(await makePdf()); showMessage("The customer-facing Estimate PDF was downloaded.", "success"); }
     catch (error) { showMessage(error instanceof Error ? error.message : "The PDF could not be prepared.", "error"); }
   });
   root.addEventListener("click", (event) => { if (event.target.closest("[data-open-workspace]")) globalThis.dispatchEvent(new CustomEvent("muraderp:open-workspace")); });

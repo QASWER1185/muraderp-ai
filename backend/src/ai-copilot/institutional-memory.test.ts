@@ -104,7 +104,7 @@ describe("zero loss customer return binding",()=>{
   it("queries only the exact customer's posted product history in the current tenant and branch",async()=>{
     const f=dbFixture([sale]);expect(await new CustomerMemoryStore(()=>f.db).latestSale(scope,7,11)).toEqual(sale);
     expect(f.query.eq.mock.calls).toEqual(expect.arrayContaining([["customer_id",7],["product_id",11],["document_type","invoice"],["branch_id",scope.branchId]]));
-    expect(f.query.limit).toHaveBeenCalledWith(1);expect(f.query.order).toHaveBeenCalledWith("invoice_date",{ascending:false});
+    expect(f.query.range).toHaveBeenCalledWith(0,499);expect(f.query.order).toHaveBeenCalledWith("invoice_date",{ascending:false});
   });
   it("refuses a return without exact purchase history",async()=>{
     await expect(new CustomerMemoryStore(()=>dbFixture().db).latestSale(scope,7,999)).rejects.toMatchObject({code:"RETURN_HISTORY_REQUIRED"});

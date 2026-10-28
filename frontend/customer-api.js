@@ -40,7 +40,17 @@ async function customerRequest(path, context, options = {}) {
 export async function listCustomers(context, page = {}) {
   const query = new URLSearchParams({ limit: String(page.limit ?? 50) });
   if (page.cursor !== undefined && page.cursor !== null) query.set("cursor", String(page.cursor));
+  if (page.from) query.set("from", String(page.from));
+  if (page.to) query.set("to", String(page.to));
   return customerRequest(`/api/v1/customers?${query}`, context);
+}
+
+export async function getCustomerCenter(context, id, range = {}) {
+  const query = new URLSearchParams();
+  if (range.from) query.set("from", String(range.from));
+  if (range.to) query.set("to", String(range.to));
+  const suffix = query.size ? `?${query}` : "";
+  return customerRequest(`/api/v1/customers/${encodeURIComponent(id)}/center${suffix}`, context);
 }
 
 export async function createCustomer(context, input) {

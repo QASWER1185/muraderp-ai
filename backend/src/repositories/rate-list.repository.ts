@@ -18,10 +18,20 @@ export interface RateListRepository {
   createDraftVersion(input: RateListDraftVersionInput): Promise<RateListDraftVersionResult>;
   listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]>;
   findBestRateListItem(context: PriceResolutionContext): Promise<ResolvedPrice | null>;
-  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]>;
+  findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id" | "rate_list_brand">): Promise<RateListRecord[]>;
 }
 export interface RateListLifecycleRepository { getVersion(versionId: number): Promise<RateListVersionRecord>; activateVersion(versionId: number): Promise<RateListVersionRecord>; archiveVersion(versionId: number): Promise<RateListVersionRecord>; }
 const scopePriority: Record<RateListScopeType, number> = { CUSTOMER: 3, VENDOR: 2, GLOBAL: 1 };
+const brandKey = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const recognizedBrands = ["Dura Max", "Dura Flow", "Popular", "Turk Plast", "HE China"];
+export function isOpenBrandRateList(list: Pick<RateListRecord, "scope_type" | "name" | "code">, brand?: string | null): boolean {
+  if (list.scope_type !== "CUSTOMER") return false;
+  const text = brandKey(`${list.name} ${list.code}`);
+  const listedBrand = recognizedBrands.find((candidate) => text.includes(brandKey(candidate)));
+  if (!brand?.trim()) return listedBrand !== undefined;
+  const expected = brandKey(brand);
+  return listedBrand ? brandKey(listedBrand) === expected : text.includes(expected);
+}
 
 export class SupabaseRateListRepository implements RateListRepository, RateListLifecycleRepository {
   constructor(private readonly clientFactory: () => SupabaseClient<Database> = getSupabaseAdminClient) {}
@@ -55,7 +65,7 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
   }
   async listActiveSaleRateLists(organizationId: string): Promise<RateListRecord[]> { const client = this.clientFactory() as PricingDatabaseClient; const { data, error } = await client.from("rate_lists").select("id, organization_id, name, code, price_type, scope_type, vendor_id, customer_id, currency_code, is_active, created_at, updated_at").eq("organization_id", organizationId).eq("price_type", "SALE").eq("is_active", true).order("name", { ascending: true }); if (error) throw error; return (data ?? []) as RateListRecord[]; }
 
-  async findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id">): Promise<RateListRecord[]> {
+  async findRateListsByHint(hint: string, context: Pick<PriceResolutionContext, "organization_id" | "price_type" | "vendor_id" | "customer_id" | "rate_list_brand">): Promise<RateListRecord[]> {
     const client = this.clientFactory() as PricingDatabaseClient;
     const normalized = hint.trim().toLowerCase();
     if (!normalized) return [];
@@ -64,7 +74,7 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
     return ((data ?? []) as RateListRecord[]).filter((list) => {
       const textMatch = list.name.toLowerCase() === normalized || list.code.toLowerCase() === normalized;
       if (!textMatch) return false;
-      if (list.scope_type === "CUSTOMER") return list.customer_id === context.customer_id;
+      if (list.scope_type === "CUSTOMER") return list.customer_id === context.customer_id || isOpenBrandRateList(list, context.rate_list_brand);
       if (list.scope_type === "VENDOR") return list.vendor_id === context.vendor_id;
       return true;
     });
@@ -76,7 +86,7 @@ export class SupabaseRateListRepository implements RateListRepository, RateListL
     if (context.rate_list_id != null) rateListQuery = rateListQuery.eq("id", context.rate_list_id);
     const { data: rawRateLists, error: rateListError } = await rateListQuery; if (rateListError) throw rateListError;
     const rateLists = (rawRateLists ?? []) as RateListRecord[];
-    const applicableRateLists = rateLists.filter((rateList) => { if (context.rate_list_id != null) return rateList.id === context.rate_list_id; if (rateList.scope_type === "CUSTOMER") return rateList.customer_id === context.customer_id; if (rateList.scope_type === "VENDOR") return rateList.vendor_id === context.vendor_id; return rateList.scope_type === "GLOBAL"; });
+    const applicableRateLists = rateLists.filter((rateList) => { if (context.rate_list_id != null) return rateList.id === context.rate_list_id && (rateList.scope_type !== "CUSTOMER" || rateList.customer_id === context.customer_id || isOpenBrandRateList(rateList, context.rate_list_brand)); if (rateList.scope_type === "CUSTOMER") return rateList.customer_id === context.customer_id || isOpenBrandRateList(rateList, context.rate_list_brand); if (rateList.scope_type === "VENDOR") return rateList.vendor_id === context.vendor_id; return rateList.scope_type === "GLOBAL"; });
     if (applicableRateLists.length === 0) return null;
 
     const { data: rawVersions, error: versionError } = await client.from("rate_list_versions").select("id, rate_list_id, version_number, status, effective_from, effective_to, created_at, updated_at").in("rate_list_id", applicableRateLists.map((r) => r.id)).eq("status", "ACTIVE"); if (versionError) throw versionError;

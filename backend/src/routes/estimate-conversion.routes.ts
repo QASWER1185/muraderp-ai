@@ -1,3 +1,4 @@
+import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
@@ -23,8 +24,7 @@ function defaultService(): EstimateCloneRepriceService {
 
 function identityFor(request: Request) {
   if (!request.browserPrincipal) return requireAuthoritativeTransactionIdentity(request);
-  const origin = request.header("Origin");
-  if (request.header("Sec-Fetch-Site") === "cross-site" || (origin && new URL(origin).host !== request.get("host"))) throw new ApiError(403, "FORBIDDEN", "Same-origin request required");
+  assertBrowserSameOrigin(request);
   const actor = request.header("X-Actor-User-Id");
   if (actor && actor !== request.browserPrincipal.userId) throw new ApiError(403, "FORBIDDEN", "Actor does not match authenticated session");
   return { organizationId: z.string().uuid().parse(request.header("X-Organization-Id")), branchId: z.string().uuid().parse(request.header("X-Branch-Id")), actorUserId: request.browserPrincipal.userId };

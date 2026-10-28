@@ -85,6 +85,7 @@ export class SupabaseEstimateRepository implements EstimateRepository {
         source_reference: input.source_reference ?? null,
         pass_through_rent: input.definition.pass_through_rent ?? 0,
         pass_through_rent_payee: input.definition.pass_through_rent_payee ?? null,
+        document_template: input.definition.document_template ?? "sanitary_electric",
       })
       .select()
       .single();
@@ -150,6 +151,9 @@ export class SupabaseEstimateRepository implements EstimateRepository {
     const { data, error } = await (client as any).rpc("create_estimate_atomic", {
       p_definition: {
         ...input.definition,
+        ...(input.definition.document_template && !input.conversion_request ? {
+          layout_key: `${input.definition.layout_key ?? "CLASSIC_PAKISTAN"}|${input.definition.document_template}`,
+        } : {}),
         branch_id: branchId,
         ...(input.conversion_request ? { conversion_request: input.conversion_request, source_fingerprint: input.source_fingerprint } : {}),
       },

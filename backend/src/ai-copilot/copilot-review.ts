@@ -8,6 +8,8 @@ import type { StructuredAiProvider } from "../ai/providers/contracts.js";
 import { ProviderDocumentExtractor } from "../ai-input/provider-extraction.js";
 import type { PricingService } from "../services/pricing.service.js";
 import type { ResolvedPrice } from "../types/pricing.types.js";
+import { explicitBrand } from "./productResolver.js";
+import { isOpenBrandRateList } from "../repositories/rate-list.repository.js";
 
 const MAX_CATALOG_ROWS = 5_000;
 const MATCH_CANDIDATE_LIMIT = 5;
@@ -324,7 +326,9 @@ export class CopilotReviewService {
     const catalog = await this.catalog.getCatalog(request.organizationId);
     if (!catalog.products.some((product) => product.id === request.productId)) throw new ApiError(422, "PRODUCT_NOT_FOUND", "Product is not available in this organization");
     if (request.customerId !== undefined && !catalog.customers.some((customer) => customer.id === request.customerId)) throw new ApiError(422, "CUSTOMER_NOT_FOUND", "Customer is not available in this organization");
-    if (request.rateListId !== undefined && !catalog.rateLists.some((list) => list.id === request.rateListId && list.priceType === "SALE" && list.isActive !== false && (list.scopeType === "GLOBAL" || (list.scopeType === "CUSTOMER" && list.customerId === request.customerId)))) {
+    const selectedProduct = catalog.products.find((product) => product.id === request.productId)!;
+    const productBrand = selectedProduct.brandName ?? explicitBrand(selectedProduct.name);
+    if (request.rateListId !== undefined && !catalog.rateLists.some((list) => list.id === request.rateListId && list.priceType === "SALE" && list.isActive !== false && (list.scopeType === "GLOBAL" || (list.scopeType === "CUSTOMER" && list.customerId === request.customerId) || (list.scopeType === "CUSTOMER" && isOpenBrandRateList({ scope_type: list.scopeType, name: list.name, code: list.code }, productBrand))))) {
       throw new ApiError(422, "SALE_RATE_LIST_NOT_FOUND", "Active sale Rate List is not available for this customer");
     }
     try {
@@ -332,6 +336,7 @@ export class CopilotReviewService {
         organization_id: request.organizationId, price_type: "SALE", product_id: request.productId,
         quantity: request.quantity, as_of: new Date().toISOString(),
         ...(request.customerId === undefined ? {} : { customer_id: request.customerId }),
+        rate_list_brand: productBrand,
         ...(request.rateListId === undefined ? {} : { rate_list_id: request.rateListId }),
       });
       if (!resolvedPrice) return { resolvedPrice: null, amount: null, warning: "No current authorized sale rate was found; choose a valid rate context or ask for clarification." };
@@ -392,9 +397,11 @@ export class CopilotReviewService {
         aliases: [candidate.sku, `${candidate.brandName ?? ""} ${candidate.name}`],
         details: { sku: candidate.sku, unit: candidate.unit, ...(candidate.brandName ? { brand: candidate.brandName } : {}) },
       })));
+      const matchedProduct = catalog.products.find((candidate) => candidate.id === product.selectedId);
+      const productBrand = matchedProduct?.brandName ?? explicitBrand(matchedProduct?.name ?? line.productName);
       const applicableLists = catalog.rateLists.filter((rateList) => rateList.priceType === ratePriceType)
         .filter((rateList) => rateList.isActive !== false)
-        .filter((rateList) => rateList.scopeType === "GLOBAL" || (rateList.scopeType === "CUSTOMER" && effectiveCustomerId != null && rateList.customerId === effectiveCustomerId) || (rateList.scopeType === "VENDOR" && effectiveVendorId != null && rateList.vendorId === effectiveVendorId));
+        .filter((rateList) => rateList.scopeType === "GLOBAL" || (rateList.scopeType === "CUSTOMER" && effectiveCustomerId != null && rateList.customerId === effectiveCustomerId) || (rateList.scopeType === "CUSTOMER" && ratePriceType === "SALE" && isOpenBrandRateList({ scope_type: rateList.scopeType, name: rateList.name, code: rateList.code }, productBrand)) || (rateList.scopeType === "VENDOR" && effectiveVendorId != null && rateList.vendorId === effectiveVendorId));
       const rateInput = requestedRateListHint(request.text) ?? line.brandHint;
       const rateList = request.rateListId !== undefined
         ? matchValues(String(request.rateListId), applicableLists.map((candidate) => ({ id: candidate.id, label: String(candidate.id), aliases: [candidate.name, candidate.code], details: { name: candidate.name, code: candidate.code, currency: candidate.currencyCode } })))
@@ -412,6 +419,7 @@ export class CopilotReviewService {
             organization_id: request.organizationId, price_type: "SALE", product_id: product.selectedId,
             quantity: line.quantity, as_of: new Date().toISOString(),
             ...(effectiveCustomerId === undefined ? {} : { customer_id: effectiveCustomerId }),
+            ...(ratePriceType === "SALE" ? { rate_list_brand: productBrand } : {}),
             ...(rateList.selectedId === undefined ? {} : { rate_list_id: rateList.selectedId }),
           });
           if (!price) warnings.push("No current authorized sale rate was found; choose a valid rate context or ask for clarification.");
