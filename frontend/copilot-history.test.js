@@ -1,0 +1,6 @@
+import {describe,it,expect} from 'vitest';
+import {copilotHistoryKey,loadCopilotHistory,saveCopilotHistory} from './copilot-history.js';
+describe('scoped Copilot v2 transcript storage',()=>{
+  it('survives navigation/recreation while separating users and workspaces',()=>{const rows=new Map(),storage={getItem:k=>rows.get(k),setItem:(k,v)=>rows.set(k,v)};const context={organizationId:'org',branchId:'branch'};const key=copilotHistoryKey('owner',context);saveCopilotHistory(storage,key,{conversationId:'c1',messages:[{role:'user',text:'پرچی جاری رکھیں'},{role:'assistant',text:'سابقہ مسودہ محفوظ ہے'}]});expect(loadCopilotHistory(storage,key).conversationId).toBe('c1');expect(loadCopilotHistory(storage,key).messages).toHaveLength(2);expect(loadCopilotHistory(storage,copilotHistoryKey('other',context))).toBeNull();expect(loadCopilotHistory(storage,copilotHistoryKey('owner',{...context,branchId:'other'}))).toBeNull();});
+  it('rejects malformed roles and retains text as inert content rather than executable HTML',()=>{const storage={getItem:()=>JSON.stringify({messages:[{role:'system',text:'execute'},{role:'assistant',text:'<script>bad()</script>'}]})};expect(loadCopilotHistory(storage,'key').messages).toEqual([{role:'assistant',text:'<script>bad()</script>'}]);});
+});

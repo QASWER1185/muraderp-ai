@@ -23,11 +23,11 @@ describe("Copilot browser API tenant context", () => {
     await expect(testCopilotProvider()).rejects.toMatchObject({code:"AI_API_KEY_REJECTED",message:"The provider rejected this key."});
     expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/settings/test", expect.objectContaining({ method: "POST", body: "{}", credentials: "include" }));
   });
-  it("sends the next read to the Phase 1 agent with signed conversation context", async () => {
+  it("sends the next read to the Copilot v2 native agent with signed conversation context", async () => {
     const fetch = vi.fn().mockResolvedValue(response({ data: { answer: "PKR 477", conversationToken: "new-token" } }));
     vi.stubGlobal("fetch", fetch);
     await askCopilot("اس کا موجودہ سیل ریٹ بتاؤ، مقدار 1 میٹر", "org-1", "branch-1", "signed-token");
-    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/agent", expect.objectContaining({
+    expect(fetch).toHaveBeenCalledWith("/api/v1/ai/copilot/v2/chat", expect.objectContaining({
       credentials: "include",
       headers: expect.objectContaining({ "X-Organization-Id": "org-1", "X-Branch-Id": "branch-1" }),
       body: JSON.stringify({ message: "اس کا موجودہ سیل ریٹ بتاؤ، مقدار 1 میٹر", conversationToken: "signed-token" }),

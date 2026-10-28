@@ -1,5 +1,6 @@
 const CACHE_NAME = "muraderp-ai-shell-v39";
 const APP_SHELL = [
+  "/copilot-history.js",
   "/copilot-recovery.js",
   "/",
   "/index.html",

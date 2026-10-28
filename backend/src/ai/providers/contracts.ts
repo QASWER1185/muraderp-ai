@@ -3,6 +3,7 @@ import type { AiInputRequest } from "../../ai-input/ai-input.types.js";
 
 export type AiProviderName = "openai" | "groq" | "compatible" | "gemini" | "anthropic";
 export type AiProviderConfiguration = {
+  nativeToolsOnly?: boolean | undefined;
   provider?: AiProviderName; apiKey?: string | undefined; baseUrl?: string | undefined;
   model: string; visionModel?: string | undefined; speechModel: string;
   speechProvider?: AiProviderName | undefined; speechApiKey?: string | undefined;

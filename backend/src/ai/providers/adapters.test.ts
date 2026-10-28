@@ -88,20 +88,20 @@ describe.each(["gemini","anthropic"] as const)("%s isolated native adapter",prov
   });
   it("requires a key and contains network/authentication/invalid JSON failures",async()=>{
     const fetcher=fetchResult({error:"secret"},401);const adapter=createAiProvider(config(provider),fetcher);
-    await expect(createAiProvider({...config(provider),apiKey:undefined},fetcher).toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_NOT_CONFIGURED"});
+    await expect(createAiProvider({...config(provider),apiKey:undefined},fetcher).toolTurn("safe",[{role:"user",content:"test"}],[])).rejects.toMatchObject({code:"AI_NOT_CONFIGURED"});
     expect(fetcher).not.toHaveBeenCalled();
-    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_API_KEY_REJECTED"});
+    await expect(adapter.toolTurn("safe",[{role:"user",content:"test"}],[])).rejects.toMatchObject({code:"AI_API_KEY_REJECTED"});
     fetcher.mockRejectedValueOnce(new Error("secret"));
-    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_PROVIDER_UNAVAILABLE"});
+    await expect(adapter.toolTurn("safe",[{role:"user",content:"test"}],[])).rejects.toMatchObject({code:"AI_PROVIDER_UNAVAILABLE"});
     fetcher.mockResolvedValueOnce(new Response("not JSON"));
-    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
+    await expect(adapter.toolTurn("safe",[{role:"user",content:"test"}],[])).rejects.toMatchObject({code:"AI_INVALID_OUTPUT"});
   });
   it("classifies Gemini invalid-key 400s without exposing upstream response details",async()=>{
     const fetcher=fetchResult({error:{message:"API key not valid. PRIVATE PROVIDER DETAIL",status:"INVALID_ARGUMENT"}},400);
     const adapter=createAiProvider(config("gemini"),fetcher);
-    await expect(adapter.toolTurn("safe",[],[])).rejects.toMatchObject({status:401,code:"AI_API_KEY_REJECTED",message:"The AI provider rejected this API key. Check that it is active and authorized for the Gemini API."});
+    await expect(adapter.toolTurn("safe",[{role:"user",content:"test"}],[])).rejects.toMatchObject({status:401,code:"AI_API_KEY_REJECTED",message:"The AI provider rejected this API key. Check that it is active and authorized for the Gemini API."});
     const badRequest=fetchResult({error:{message:"PRIVATE schema detail",status:"INVALID_ARGUMENT"}},400);
-    const rejected = createAiProvider(config("gemini"),badRequest).toolTurn("safe",[],[]);
+    const rejected = createAiProvider(config("gemini"),badRequest).toolTurn("safe",[{role:"user",content:"test"}],[]);
     await expect(rejected).rejects.toMatchObject({code:"AI_PROVIDER_BAD_REQUEST"});
     await expect(rejected).rejects.not.toThrow("PRIVATE");
   });
@@ -157,8 +157,8 @@ describe("provider configuration and speech capabilities",()=>{
       expect(hasConfiguredAiProvider()).toBe(true);
       expect(configuredAiProvider()).toMatchObject({provider:"gemini",apiKey:serverKey,model:"gemini-3.5-flash-lite"});
       const fetcher = fetchResult(native("gemini", [text("gemini", "READY")]));
-      await createGeminiUserProvider(undefined,fetcher).toolTurn("ping",[],[]);
-      await createGeminiUserProvider(`  ${browserKey}\n`,fetcher).toolTurn("ping",[],[]);
+      await createGeminiUserProvider(undefined,fetcher).toolTurn("ping",[{role:"user",content:"ping"}],[]);
+      await createGeminiUserProvider(`  ${browserKey}\n`,fetcher).toolTurn("ping",[{role:"user",content:"ping"}],[]);
       expect(fetcher.mock.calls.map(([, init]) => init!.headers)).toEqual([
         {"Content-Type":"application/json","x-goog-api-key":serverKey},
         {"Content-Type":"application/json","x-goog-api-key":browserKey},

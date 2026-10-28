@@ -174,7 +174,7 @@ export interface CopilotRuntimeDependencies {
   servicePrincipalId?: string;
 }
 
-function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContract): CopilotRuntimeDependencies {
+function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContract, options?:{verifiedPreferencesOnly?:boolean}): CopilotRuntimeDependencies {
   const rateListRepository = new SupabaseRateListRepository();
   const estimateRepository = new SupabaseEstimateRepository();
   const pricing = new DefaultPricingService(rateListRepository);
@@ -224,15 +224,15 @@ function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContra
     rateLists:dependencies.rateLists as RateListService,rates:rateListRepository,estimates:estimateRepository,
     invoices:new SupabaseInvoiceBrowserRepository(),payments:dependencies.customerPayments!,paymentReader:new SupabaseCustomerPaymentBrowserRepository(),
     database:client,principal:servicePrincipalId,memory:dependencies.memory!,returns:dependencies.returns,
-    companions:new CompanionLearningStore(client),intelligence:new DepotIntelligenceStore(client) });
+    companions:new CompanionLearningStore(client),intelligence:new DepotIntelligenceStore(client),...(options?.verifiedPreferencesOnly?{verifiedPreferencesOnly:true}:{}) });
   return dependencies;
 }
 
 export class CopilotRuntime {
   private readonly dependencies: CopilotRuntimeDependencies;
 
-  constructor(erp: ErpService = new SupabaseErpService(), dependencies?: CopilotRuntimeDependencies, requestProvider?: AiProviderContract) {
-    this.dependencies = dependencies ?? defaultDependencies(erp, requestProvider);
+  constructor(erp: ErpService = new SupabaseErpService(), dependencies?: CopilotRuntimeDependencies, requestProvider?: AiProviderContract, options?:{verifiedPreferencesOnly?:boolean}) {
+    this.dependencies = dependencies ?? defaultDependencies(erp, requestProvider,options);
   }
 
   private async assertPlanAuthorized(plan: CopilotActionPlan): Promise<void> {

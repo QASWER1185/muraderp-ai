@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createCopilotV2Router } from './copilot-v2.routes.js';
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
@@ -12,7 +13,8 @@ import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
 import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
 import { writeBusinessState } from "../ai-copilot/agent/business-state.js";
-import { createAiProvider, createGeminiUserProvider, hasConfiguredAiProvider } from "../ai/providers/factory.js";
+import { createGeminiUserProvider } from "../ai/providers/factory.js";
+import { env } from '../config/env.js';
 import type { AiProviderContract } from "../ai/providers/contracts.js";
 import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
 import { normalizeGeminiApiKey } from "../ai/providers/http.js";
@@ -128,6 +130,7 @@ export function createAiCopilotRouter(
   requestAgentFactory: (provider: AiProviderContract) => ReadOnlyCopilotAgent = (provider): ReadOnlyCopilotAgent => createCopilotAgent(provider).core,
 ) {
   const router = Router();
+  router.use(createCopilotV2Router({internalApiToken,servicePrincipalId,legacyAliases:!agent&&!readOnlyAgent&&!conversationalTools&&!multimodalInput}));
   const payloadKeys = new WeakMap<object, unknown>();
   // Keep optional transport credentials out of strict ERP schemas, model input,
   // signed conversation state, and any later request-body logging.
@@ -170,7 +173,7 @@ export function createAiCopilotRouter(
   router.get("/settings", authorize, (request, response) => {
     if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
     response.setHeader("Cache-Control", "no-store");
-    response.json({ data: { serverConfigured: hasConfiguredAiProvider() } });
+    response.json({ data: { serverConfigured: Boolean(env.GEMINI_API_KEY) } });
   });
 
   router.post("/analytics/:tool",authorize,async(request,response)=>{
@@ -195,7 +198,7 @@ export function createAiCopilotRouter(
       return result;
     };
     const key = userApiKey(request, payloadKeys.get(request));
-    const provider = key ? requestProviderFactory(key, observedFetch) : createAiProvider(undefined, observedFetch);
+    const provider = key ? requestProviderFactory(key, observedFetch) : createGeminiUserProvider(undefined, observedFetch,{nativeToolsOnly:true});
     const result = await provider.toolTurn("Connection test only. Reply READY. No ERP data or tools are available.",
       [{ role: "user", content: "Reply READY." }], [], { signal: AbortSignal.timeout(30_000) });
     const hasText = result.output.some((item: { type?: string; content?: Array<{ type?: string; text?: string }> }) =>

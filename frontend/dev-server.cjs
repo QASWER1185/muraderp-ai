@@ -6,11 +6,23 @@ const path = require("node:path");
 
 const root = process.argv.includes("--production") ? path.join(__dirname, "dist") : __dirname;
 const port = Number(process.env.FRONTEND_PORT || 3001);
-const apiTarget = new URL(process.env.BACKEND_URL || (process.env.BACKEND_PORT ? `http://127.0.0.1:${Number(process.env.BACKEND_PORT)}` : "https://muraderp-api-jy6eophhla-el.a.run.app"));
+const apiTarget = new URL(process.env.BACKEND_URL || `http://127.0.0.1:${Number(process.env.BACKEND_PORT || 3000)}`);
+const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+let publicKeyAllowed = Boolean(publicKey?.startsWith('sb_publishable_'));
+if (publicKey?.startsWith('eyJ')) { try { publicKeyAllowed = JSON.parse(Buffer.from(publicKey.split('.')[1], 'base64url').toString()).role === 'anon'; } catch {} }
+if (!publicUrl || !publicKeyAllowed || new URL(publicUrl).protocol !== 'https:') {
+  throw new Error('Copilot v2 local testing requires NEXT_PUBLIC_SUPABASE_URL and a public development Supabase key. Use an isolated development project; no hosted fallback is served.');
+}
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json" };
 
 http.createServer((request, response) => {
   const pathname = new URL(request.url, `http://localhost:${port}`).pathname;
+  if (pathname === '/public-config.js') {
+    response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+    response.end(`globalThis.MURADERP_PUBLIC_CONFIG = ${JSON.stringify({ url: publicUrl, key: publicKey })};\n`);
+    return;
+  }
   if (pathname === "/api" || pathname.startsWith("/api/")) {
     const transport = apiTarget.protocol === "https:" ? https : http;
     const upstream = transport.request(new URL(request.url, apiTarget), { method: request.method, headers: { ...request.headers, host: apiTarget.host } }, (result) => {
@@ -25,7 +37,7 @@ http.createServer((request, response) => {
       if (!response.headersSent) response.writeHead(502, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "ERP API could not be reached. Please retry." } }));
     });
-    upstream.setTimeout(70000, () => upstream.destroy(new Error("ERP request timed out")));
+    upstream.setTimeout(310000, () => upstream.destroy(new Error("ERP request timed out")));
     request.pipe(upstream);
     return;
   }

@@ -58,6 +58,8 @@ export const ACTION_TARGETS:Record<ErpWriteName,CopilotTarget>={
   erp_customer_return:"customer_return",
 };
 export interface OperationsDependencies {
+  /** V2 preferences come only from verified shop memory passed in tool input. */
+  verifiedPreferencesOnly?:boolean;
   erp:ErpService; search:EntitySearchService; pricing:PricingService; rateLists:RateListService;
   rates:SupabaseRateListRepository; estimates:SupabaseEstimateRepository; invoices:InvoiceBrowserRepository;
   payments:CustomerPaymentService; paymentReader:Pick<SupabaseCustomerPaymentBrowserRepository,"getPayment">;
@@ -143,10 +145,10 @@ export class DefaultErpOperations implements ErpOperations {
   }
   private async quote(input:any,scope:AgentScope,invoice=false,asOf=today(),approvedCustomer?:any) {
     const customer=approvedCustomer ? {name:approvedCustomer.name,city:approvedCustomer.city,newCustomer:approvedCustomer} : await this.customer(input,scope,!invoice);
-    const profile=customer.id ? await this.memory.recall(scope,customer.id,customer.name) :
+    const profile=customer.id&&!this.deps.verifiedPreferencesOnly ? await this.memory.recall(scope,customer.id,customer.name) :
       {history:[],preferredBrands:[],transactionCount:0,averageTransactionVolume:0,averageOrderIntervalDays:null,context:"",customerId:0};
     const warehouseId=invoice?await this.warehouse(input.warehouseId,scope):undefined;
-    const storeMemory=invoice?{rates:[],rules:[]}:await this.storeMemory.recall(scope);
+    const storeMemory=invoice||this.deps.verifiedPreferencesOnly?{rates:[],rules:[]}:await this.storeMemory.recall(scope);
     const lines:any[]=[];
     const listNames=new Map<number,Promise<string>>();
     for(let offset=0;offset<input.items.length;offset+=8) {
@@ -165,7 +167,7 @@ export class DefaultErpOperations implements ErpOperations {
         const discount=original.discount??0;
         return {line_number:offset+index+1,productName:[original.name??product?.name,original.size].filter(Boolean).join(' '),...(product?{product_id:product.id}:{}),size:original.size,brandName:original.brand??input.brand,quantity:original.qty,unit:original.unit??product?.unit??'pcs',unit_price:original.rate,discountPercent:discount,discount_amount:amount(original.qty*original.rate*discount/100),...(hardware?{hardware:true}:{}),pricing_source:'OWNER_QUOTED',ownerRate:original.rate};
       }
-      if(input.mode===DEMAND_SLIP_ESTIMATE&&original.specificationPending)throw new ApiError(422,'ESTIMATE_PRODUCT_PENDING','اس سطر کا درست سائز واضح کریں؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔');
+      if((input.mode===DEMAND_SLIP_ESTIMATE||this.deps.verifiedPreferencesOnly)&&original.specificationPending)throw new ApiError(422,'ESTIMATE_PRODUCT_PENDING','اس سطر کا درست سائز واضح کریں؛ مختلف سائز کا نرخ شامل نہیں کیا گیا۔');
       if(hardware){
         const manual=input.hardwareRates?.find((entry:any)=>entry.kind===hardware);
         if(manual)return {line_number:offset+index+1,productName:hardwareLabel(original.name),...(original.size?{size:original.size}:{}),quantity:original.qty,unit:original.unit??'pcs',unit_price:manual.rate,discountPercent:original.discount??0,discount_amount:amount(original.qty*manual.rate*(original.discount??0)/100),hardware:true,pricing_source:'OWNER_QUOTED',ownerRate:manual.rate};
@@ -266,10 +268,10 @@ export class DefaultErpOperations implements ErpOperations {
       }
       if(item.rate!==undefined&&item.rate!==rate.unit_price)requireChoice("Requested rate differs from the active catalog for "+product.name+". Update the product price with its reason first.");
       if(rate.currency_code!=="PKR")requireChoice("براہِ کرم اس تخمینے کے لیے PKR کی فعال ریٹ لسٹ منتخب کریں۔");
-      const baseline=duraCatalogBaseline(product.name,brand);
+      const baseline=this.deps.verifiedPreferencesOnly?undefined:duraCatalogBaseline(product.name,brand);
       if(input.mode!==DEMAND_SLIP_ESTIMATE&&baseline&&rate.unit_price!==baseline.listPrice)requireChoice(product.name+" کا فعال نرخ "+rate.unit_price+" ہے جبکہ فراہم کردہ کیٹلاگ نرخ "+baseline.listPrice+" ہے۔ پہلے درستگی کا پری ویو منظور کریں؛ مختلف قسم یا نرخ خود سے شامل نہیں کیا گیا۔");
       const categoryItem=applyHybridRules<any>({...item,name:product.name,category:product.category},input.pricingRules??[]);
-      const discount=hardware?0:categoryItem.discount??input.discountScheme?.percent??input.discount??rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0);
+      const discount=hardware?0:categoryItem.discount??input.discountScheme?.percent??input.discount??(this.deps.verifiedPreferencesOnly?0:rememberedDiscount(profile,product,product.unit,rate.currency_code,baseline?50:0));
       const cost=invoice?await this.inventory(product.id,warehouseId!,scope,item.unitCost):undefined;
       const merchantCost=!invoice && this.deps.intelligence?await this.deps.intelligence.purchaseFloor(scope,product.id,rate.unit_price,product.unit,rate.currency_code):null;
       const discountAmount=Math.min(item.qty*rate.unit_price,amount(item.qty*rate.unit_price*discount/100));
@@ -284,7 +286,7 @@ export class DefaultErpOperations implements ErpOperations {
       }catch(error){
         if(invoice || !(error instanceof ApiError) || !["ESTIMATE_PRODUCT_PENDING","ESTIMATE_RATE_PENDING"].includes(error.code))throw error;
         const name=[original.name,original.size].filter(Boolean).join(' '),unit=original.unit??'pcs';
-        const remembered=this.storeMemory.findRate(storeMemory,name,original.size,unit)??await this.storeMemory.historicalRate(scope,name,unit);
+        const remembered=this.deps.verifiedPreferencesOnly?undefined:this.storeMemory.findRate(storeMemory,name,original.size,unit)??await this.storeMemory.historicalRate(scope,name,unit);
         if(remembered&&!original.specificationPending){
           return {line_number:offset+index+1,productName:name,quantity:original.qty,unit,unit_price:remembered.rate,discountPercent:original.discount??0,
             discount_amount:amount(original.qty*remembered.rate*(original.discount??0)/100),pricing_source:'STORE_MEMORY',rememberedAt:remembered.learnedAt,

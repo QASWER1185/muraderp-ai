@@ -60,5 +60,10 @@
       ],
       "source": "/styles.css"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "copilot-v2": false
+    }
+  }
 }

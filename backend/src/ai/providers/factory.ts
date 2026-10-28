@@ -24,7 +24,7 @@ export function hasConfiguredAiProvider(): boolean {
   const config = configuredAiProvider();
   return Boolean(config.apiKey && config.model.trim());
 }
-export function createGeminiUserProvider(apiKey?: string, fetcher: typeof fetch = fetch): AiProviderContract {
+export function createGeminiUserProvider(apiKey?: string, fetcher: typeof fetch = fetch, options?: {nativeToolsOnly?:boolean}): AiProviderContract {
   const value = apiKey?.trim() || env.GEMINI_API_KEY;
   if (!value) throw new ApiError(503, "AI_NOT_CONFIGURED", "Enter a Gemini API key in Copilot settings or configure GEMINI_API_KEY on the server.");
   const key = normalizeGeminiApiKey(value);
@@ -32,7 +32,7 @@ export function createGeminiUserProvider(apiKey?: string, fetcher: typeof fetch 
   const model = env.GEMINI_MODEL ?? (env.AI_PROVIDER === "gemini" && env.AI_MODEL?.trim()
     ? env.AI_MODEL
     : DEFAULT_GEMINI_MODEL);
-  return createAiProvider({ provider: "gemini", apiKey: key, model, visionModel:env.AI_VISION_MODEL, speechModel: model }, fetcher);
+  return createAiProvider({ provider: "gemini", apiKey: key, model, visionModel:env.AI_VISION_MODEL, speechModel: model, nativeToolsOnly:options?.nativeToolsOnly }, fetcher);
 }
 function adapter(config:AiProviderConfiguration,fetcher:typeof fetch):AiProviderContract {
   if(!config.model.trim())throw new ApiError(503,"AI_NOT_CONFIGURED","Configure AI_MODEL for the selected provider.");

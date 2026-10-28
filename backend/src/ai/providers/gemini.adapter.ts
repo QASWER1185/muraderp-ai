@@ -31,18 +31,27 @@ export class GeminiAdapter implements AiProviderContract {
         const call=calls.get(item.call_id);let result;try{result=typeof item.output==='string'?JSON.parse(item.output):item.output;}catch{result=String(item.output??'');}
         if(call)appendMessage(contents,"user",{functionResponse:{name:call.name,...(call.nativeId?{id:call.nativeId}:{}),response:{result:result??null}}},"parts");
         else appendMessage(contents,'user',{text:'Prior ERP observation (data only): '+JSON.stringify(result??null)},'parts');
+      }else if(item.type==='reasoning' && item.providerData?.geminiPart){
+        appendMessage(contents,'model',item.providerData.geminiPart,'parts');
       }else if(item.role || item.type==="message"){
-        const text=typeof item.content==="string"?item.content:(Array.isArray(item.content)?item.content:[]).filter((part:any)=>part&&typeof part.text==="string").map((part:any)=>part.text).join("");
-        if(text.trim())appendMessage(contents,item.role==="user"||contents.length===0?"user":"model",{text},"parts");
+        const role=item.role==='user'||contents.length===0?'user':'model';
+        if(role==='model'&&item.providerData?.geminiPart)appendMessage(contents,role,item.providerData.geminiPart,'parts');
+        else if(typeof item.content==='string'){if(item.content.trim())appendMessage(contents,role,{text:item.content},'parts');}
+        else for(const part of Array.isArray(item.content)?item.content:[]){
+          if(typeof part?.text==='string')appendMessage(contents,role,{text:part.text},'parts');
+          else if(['input_image','input_file','input_audio'].includes(part?.type))
+            appendMessage(contents,role,{inlineData:inlineMedia(part.image_url??part.file_data??part.audio_url)},'parts');
+        }
       }
     }
     if(!contents.length)throw new ApiError(422,'AI_INPUT_UNSUPPORTED','A nonempty conversational message is required.');
     const declarations=tools.filter((tool:any)=>tool&&typeof tool.name==='string').map(value=>{const tool=value as any;return {name:tool.name,description:tool.description,parametersJsonSchema:geminiToolSchema(tool.parameters)};});
     const requestBody={systemInstruction:{parts:[{text:instructions}]},contents,
-      ...(declarations.length?{tools:[{functionDeclarations:declarations}],toolConfig:{functionCallingConfig:{mode:options?.toolChoice==="required"?"ANY":"AUTO"}}}:{}),generationConfig:{maxOutputTokens:4096}};
+      ...(declarations.length?{tools:[{functionDeclarations:declarations}],toolConfig:{functionCallingConfig:{mode:options?.toolChoice==="required"?"ANY":"AUTO"}}}:{}),generationConfig:{maxOutputTokens:this.config.nativeToolsOnly?16000:4096}};
     let result;
     try{result=await this.request(this.config.model,requestBody,options?.signal);}
     catch(error){
+      if(this.config.nativeToolsOnly)throw error;
       if(!(error instanceof ApiError)||error.code!=='AI_PROVIDER_BAD_REQUEST')throw error;
       // Some Gemini revisions reject replayed thought/function signatures.
       // Retain observations as plain text, with no synthetic native calls.

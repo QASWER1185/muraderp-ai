@@ -1,3 +1,4 @@
+import { copilotHistoryKey, loadCopilotHistory, saveCopilotHistory } from './copilot-history.js';
 import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js";
 import { clearCopilotApiKey, getCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 import { queueJsonRequest } from "./offline-sync.js";
@@ -95,7 +96,7 @@ export function createCopilotConversation(now = Date.now, storage = conversation
   let scope = null;
   let expiresAt = 0;
   let conversationId = null;
-  const storageKey="muraderp-copilot-conversation-v1";
+  const storageKey="muraderp-copilot-conversation-v2";
   const forget=()=>{try{storage?.removeItem(storageKey);}catch{}};
   try {
     const saved=JSON.parse(storage?.getItem(storageKey)??"null");
@@ -257,6 +258,29 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let retryAction = null;
   let operationVersion=0, recordingVersion=0, recordingTimer=null, recordingBytes=0;
   const conversation = createCopilotConversation();
+  let historyKey = null;
+  let restoredConversationId = null;
+  const browserHistoryStorage = () => { try { return globalThis.localStorage; } catch { return null; } };
+  function currentHistoryKey() { return copilotHistoryKey(getAuthenticatedUserId(), getWorkspaceContext()); }
+  function persistHistory() {
+    if (!historyKey || historyKey !== currentHistoryKey()) return;
+    const context = getWorkspaceContext();
+    const id = conversation.idFor(getAuthenticatedUserId(), context.organizationId, context.branchId) ?? restoredConversationId;
+    saveCopilotHistory(browserHistoryStorage(), historyKey, { conversationId: id,
+      messages: [...thread.querySelectorAll('.chat-message')].slice(-200).map(row => ({ role: row.classList.contains('user') ? 'user' : 'assistant', text: row.querySelector('.message-body')?.textContent ?? '' })) });
+  }
+  function restoreHistory() {
+    const key = currentHistoryKey();
+    if (key === historyKey) return;
+    historyKey = null; restoredConversationId = null;
+    const saved = loadCopilotHistory(browserHistoryStorage(), key);
+    if (saved?.messages.length) {
+      thread.innerHTML = '';
+      for (const row of saved.messages) appendMessage(row.role, `<p>${escapeHtml(row.text).replaceAll('\n','<br>')}</p>`);
+      restoredConversationId = saved.conversationId;
+    } else welcome();
+    historyKey = key;
+  }
   const quoteVersions = new Map();
   const demandDraftScopes=new Map();
 
@@ -272,7 +296,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const message = document.createElement("div");
     message.className = `chat-message ${role} ${className}`.trim();
     message.innerHTML = role === "assistant" ? `<span class="assistant-mark">${icon("sparkles")}</span><div class="message-body" dir="auto">${body}</div>` : `<div class="message-body" dir="auto">${body}</div>`;
-    thread.append(message); scrollThread(); return message;
+    thread.append(message); persistHistory(); scrollThread(); return message;
   }
   function welcome() {
     thread.innerHTML = "";
@@ -352,7 +376,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         ? `A Gemini key is saved in this browser and will be used${serverConfigured ? "; it overrides the server-side key." : "."}`
         : serverConfigured
           ? "A server-side AI key is configured. No browser key is needed."
-          : "Basic stock inquiries work without an AI key. Enter your Gemini API key to activate conversational workflows.";
+          : "Enter your Gemini API key to activate Copilot v2.";
       return serverConfigured;
     } catch {
       keyStatus.textContent = hasLocalKey
@@ -445,6 +469,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   async function analyze(selection, submission) {
     if (operationBusy) return;
     const context = contextOrThrow();
+    restoreHistory();
     const text = submission?.text??input.value.trim();
     const files=submission?.files??attachments, audio=submission?.audio??voiceAudio, audioName=submission?.audioName??voiceAudioName;
     const camera=submission?.camera??attachmentFromCamera;
@@ -474,7 +499,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
-        const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
+        const conversationId = conversation.idFor(userId, context.organizationId, context.branchId) ?? restoredConversationId;
         activeDraft = null; preparedConversation = null; customerPreparationScope = null;
         thread.querySelectorAll("[data-customer-preparation], [data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
         const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,...mediaInput,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
@@ -490,6 +515,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         acceptedForConversation=!needsMedia;
         if(!needsMedia){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
+        restoredConversationId = response.data.conversationId;
+        persistHistory();
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant",formatCopilotAnswer(response.data.answer));
         if(retryable && response.data.status!=="rate_limited"){
@@ -679,7 +706,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function run(action) { try { retryAction = null; await action(); } catch (error) { setBusy(false); showError(error, action); } }
-  function reset() { operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; customerPreparationScope = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
+  function reset() { if(historyKey&&historyKey===currentHistoryKey()){try{browserHistoryStorage()?.removeItem(historyKey);}catch{}}historyKey=null;restoredConversationId=null; operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; customerPreparationScope = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
 
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 150)}px`; });
   input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(analyze); } });
@@ -772,7 +799,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       keyResult.hidden = false;
     }
   });
-  function openCopilot() { if (!dialog.open) dialog.showModal(); input.focus(); void checkKeyOnCopilotOpen(); }
+  function openCopilot() { restoreHistory(); if (!dialog.open) dialog.showModal(); input.focus(); void checkKeyOnCopilotOpen(); }
   document.querySelector("#copilot-button").addEventListener("click", openCopilot);
   welcome();
   return { open: openCopilot, reset };
