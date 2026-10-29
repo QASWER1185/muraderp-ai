@@ -28,13 +28,14 @@ const customerCenterRangeSchema = z.object({
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 }).refine((value) => !value.from || !value.to || value.from <= value.to, { message: "The start date must be on or before the end date" });
 const shortText = z.string().trim().min(1).max(200);
-const customerSchema = z.strictObject({
+const customerFields = {
   name: shortText,
   phone: z.string().trim().min(1).max(50),
   city: z.string().trim().min(1).max(120),
-  opening_balance: z.number().finite().min(-999999999999).max(999999999999).default(0),
-});
-const customerPatchSchema = customerSchema
+  opening_balance: z.number().finite().min(-999999999999).max(999999999999),
+};
+const customerSchema = z.strictObject({ ...customerFields, opening_balance: customerFields.opening_balance.default(0) });
+const customerPatchSchema = z.strictObject(customerFields)
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: "At least one field is required" });
 

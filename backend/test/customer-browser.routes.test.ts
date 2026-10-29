@@ -41,7 +41,8 @@ function testApp(service: ErpService, tenantAuthorizer: Pick<TenantAccessService
   const app = express();
   app.use(pinoHttp({ enabled: false }));
   app.use(express.json());
-  app.use("/customers", createCustomerRouter({ service, tenantAuthorizer, authenticate: browserAuth() }));
+  const centerRepository = { listMetrics: vi.fn(async () => new Map()), getCenter: vi.fn() };
+  app.use("/customers", createCustomerRouter({ service, tenantAuthorizer, authenticate: browserAuth(), centerRepository: centerRepository as any }));
   app.use(errorHandler);
   return app;
 }
@@ -55,13 +56,13 @@ describe("browser-safe customer gateway", () => {
       .set(HEADERS);
 
     expect(response.status).toBe(200);
-    expect(response.body.data).toEqual([customer]);
+    expect(response.body.data).toEqual([expect.objectContaining({ ...customer, balance: 0, estimates_count: 0 })]);
     expect(tenantAuthorizer.assertAuthorized).toHaveBeenCalledWith(
       { userId: USER_ID, organizationId: ORGANIZATION_ID },
       "customers.read",
       { kind: "branch", branchId: BRANCH_ID },
     );
-    expect(listCustomers).toHaveBeenCalledWith({ limit: 20 }, ORGANIZATION_ID);
+    expect(listCustomers).toHaveBeenCalledWith({ cursor: undefined, limit: 20 }, ORGANIZATION_ID);
   });
 
   it("creates and updates through the existing organization-scoped customer service", async () => {
@@ -75,13 +76,21 @@ describe("browser-safe customer gateway", () => {
 
     expect(created.status).toBe(201);
     expect(updated.status).toBe(200);
-    expect(createCustomer).toHaveBeenCalledWith({ name: customer.name, phone: customer.phone, city: customer.city }, ORGANIZATION_ID);
+    expect(createCustomer).toHaveBeenCalledWith({ name: customer.name, phone: customer.phone, city: customer.city, opening_balance: 0 }, ORGANIZATION_ID);
     expect(updateCustomer).toHaveBeenCalledWith(7, { city: "Islamabad" }, ORGANIZATION_ID);
     expect(tenantAuthorizer.assertAuthorized).toHaveBeenCalledWith(
       { userId: USER_ID, organizationId: ORGANIZATION_ID },
       "customers.write",
       { kind: "branch", branchId: BRANCH_ID },
     );
+  });
+
+  it.each([0, 1250, -250])("updates opening balance only when explicitly provided: %s", async (opening_balance) => {
+    const updateCustomer = vi.fn().mockResolvedValue({ ...customer, opening_balance });
+    const app = testApp(serviceStub({ updateCustomer }), authorizer());
+    const response = await request(app).patch("/customers/7").set(HEADERS).send({ opening_balance });
+    expect(response.status).toBe(200);
+    expect(updateCustomer).toHaveBeenCalledWith(7, { opening_balance }, ORGANIZATION_ID);
   });
 
   it("fails closed when the session actor and requested actor do not match", async () => {
