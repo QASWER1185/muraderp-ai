@@ -1,36 +1,24 @@
 import { Router } from "express";
 import { createCopilotV2Router } from './copilot-v2.routes.js';
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
-import { CopilotAgent, createCopilotAgent } from "../ai-copilot/copilot-agent.js";
-import { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
+import type { CopilotAgent } from "../ai-copilot/copilot-agent.js";
+import type { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
 import { ErpToolRegistry } from "../ai-copilot/agent/erp-tools.js";
 import { createConversationalTools } from "../ai-copilot/agent/factory.js";
 import { readBusinessState } from "../ai-copilot/agent/business-state.js";
 import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { mediaSchema } from "../ai-input/document-extraction.js";
-import { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
-import { writeBusinessState } from "../ai-copilot/agent/business-state.js";
+import type { MultimodalAgentInput } from "../ai-copilot/agent/multimodal-input.js";
 import { createGeminiUserProvider } from "../ai/providers/factory.js";
 import { env } from '../config/env.js';
 import type { AiProviderContract } from "../ai/providers/contracts.js";
-import { ProviderBusinessInput } from "../ai-input/business-input.provider.js";
 import { normalizeGeminiApiKey } from "../ai/providers/http.js";
-import { confirmConversationAction, isAffirmation } from "../ai-copilot/tools/confirmation.js";
-import { AutonomousChainingLoop } from "../ai-copilot/autonomousChainingLoop.js";
-import { munshiErrorMessage } from "../ai-copilot/conversationalMunshi.js";
 import { isAnalyticsTool } from "../ai-copilot/analytics.js";
-import { copilotMultipart } from "../ai-copilot/agent/multipart-input.js";
 
 const idSchema = z.coerce.number().int().positive();
-const agentRequestSchema = z.strictObject({ message: z.string().trim().min(1).max(4000), conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),selection:z.strictObject({kind:z.enum(["product","customer","vendor"]),id:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).optional() });
-const chatSchema = z.strictObject({
-  organizationId: z.string().uuid(), userId: z.string().uuid().optional(),
-  message: z.string().trim().min(1).max(20_000),
-  conversationToken: z.string().max(9000).optional(), conversationId: z.string().uuid().optional(),
-});
 const draftLineSchema = z.strictObject({ productName: z.string().trim().min(1).max(200), productId: z.union([z.number(), z.string()]).optional(), quantity: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(), unitRate: z.number().finite().nonnegative().optional(), rateListId: idSchema.optional(), sourceItemId: idSchema.optional(), brandHint: z.string().trim().min(1).max(100).optional() });
 const draftSchema = z.strictObject({ organizationId: z.string().uuid(), userId: z.string().uuid().optional(), intent: z.enum(["estimate", "invoice", "customer_return", "supplier_bill", "inventory_adjustment"]), source: z.enum(["text", "image", "camera", "voice"]), customerId: z.string().optional(), vendorId: z.string().optional(), documentNumber: z.string().trim().min(1).max(100).optional(), documentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), currencyCode: z.string().trim().min(3).max(10).optional(), warehouseId: idSchema.optional(), rateListId: idSchema.optional(), reason: z.string().trim().min(1).max(2_000).optional(), lines: z.array(draftLineSchema).min(1).max(500), confidence: z.number().finite().min(0).max(1).default(1) });
 const reviewSchema = z.strictObject({
@@ -122,15 +110,16 @@ export function createAiCopilotRouter(
   internalApiToken?: string,
   runtime?: CopilotRuntime,
   servicePrincipalId?: string,
-  agent?: CopilotAgent,
-  readOnlyAgent?: ReadOnlyCopilotAgent,
+  _agent?: CopilotAgent,
+  _readOnlyAgent?: ReadOnlyCopilotAgent,
   conversationalTools?: ErpToolRegistry,
-  multimodalInput?: MultimodalAgentInput,
+  _multimodalInput?: MultimodalAgentInput,
   requestProviderFactory: (apiKey: string, fetcher?: typeof fetch) => AiProviderContract = createGeminiUserProvider,
-  requestAgentFactory: (provider: AiProviderContract) => ReadOnlyCopilotAgent = (provider): ReadOnlyCopilotAgent => createCopilotAgent(provider).core,
+  _requestAgentFactory?: (provider: AiProviderContract) => ReadOnlyCopilotAgent,
 ) {
   const router = Router();
-  router.use(createCopilotV2Router({internalApiToken,servicePrincipalId,legacyAliases:!agent&&!readOnlyAgent&&!conversationalTools&&!multimodalInput}));
+  // Chat aliases always terminate in v2, before any legacy route registration.
+  router.use(createCopilotV2Router({internalApiToken,servicePrincipalId,legacyAliases:true}));
   const payloadKeys = new WeakMap<object, unknown>();
   // Keep optional transport credentials out of strict ERP schemas, model input,
   // signed conversation state, and any later request-body logging.
@@ -149,27 +138,12 @@ export function createAiCopilotRouter(
     const provider = providerFor(request);
     return provider ? new CopilotRuntime(undefined, undefined, provider) : getRuntime();
   };
-  let activeAgent = agent;
-  const getAgent = () => { activeAgent ??= createCopilotAgent(); return activeAgent; };
-  let activeReadOnlyAgent = readOnlyAgent;
-  const getReadOnlyAgent = () => { activeReadOnlyAgent ??= getAgent().core; return activeReadOnlyAgent; };
   const providerFor = (request: Parameters<typeof userApiKey>[0]) => {
     const apiKey = userApiKey(request, payloadKeys.get(request));
     return apiKey === undefined ? undefined : requestProviderFactory(apiKey);
   };
-  const readOnlyAgentFor = (request: Parameters<typeof userApiKey>[0], provider = providerFor(request)) =>
-    provider ? requestAgentFactory(provider) : getReadOnlyAgent();
   let activeTools = conversationalTools;
   const getConversationalTools = () => { activeTools ??= createConversationalTools(); return activeTools; };
-  const confirmConversation = async (message:string,scope:{userId:string;organizationId:string;branchId:string},token?:string,conversationId?:string) => {
-    if(!isAffirmation(message)||(!token&&conversationId))return null;
-    await getConversationalTools().assertScope(scope);
-    const state=readBusinessState(token,scope,conversationId);
-    if(state.workingActionMode==='DEMAND_SLIP_ESTIMATE')return null;
-    return confirmConversationAction(state,scope,(pending,context)=>getRuntime().confirmAndExecute(
-      pending.draftId,context.organizationId,context.userId,pending.idempotencyKey,context.branchId));
-  };
-
   router.get("/settings", authorize, (request, response) => {
     if (!request.browserPrincipal?.userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot settings.");
     response.setHeader("Cache-Control", "no-store");
@@ -208,111 +182,7 @@ export function createAiCopilotRouter(
     response.json({ data: { connected: true, ...(upstreamStatus === undefined ? {} : { httpStatus: upstreamStatus }) } });
   });
 
-  router.post(["/agent/input","/chat"], authorize, ...copilotMultipart, async (request, response, next) => {
-    if(request.path==="/chat" && !request.body?.attachments && !request.body?.media){next();return;}
-    const userId = request.browserPrincipal?.userId;
-    if (!userId) throw new ApiError(401,"UNAUTHORIZED","A browser user session is required.");
-    const organizationId = z.string().uuid().parse(headerValue(request,"X-Organization-Id"));
-    const branchId = z.string().uuid().parse(headerValue(request,"X-Branch-Id"));
-    const input = z.strictObject({ source:z.enum(["image","camera","voice"]), media:mediaSchema.optional(),
-      attachments:z.array(z.strictObject({media:mediaSchema,fileName:z.string().trim().max(255).optional()})).min(1).max(11).optional(),
-      message:z.string().trim().max(4000).optional(),fileName:z.string().trim().max(255).optional(),task:z.enum(["auto","estimate","rate_list_update"]).default("auto"),
-      conversationToken:z.string().max(9000).optional(),conversationId:z.string().uuid().optional() }).parse(request.body);
-    const scope = {userId,organizationId,branchId};
-    await getConversationalTools().assertScope(scope);
-    const state = readBusinessState(input.conversationToken,scope,input.conversationId);
-    state.inputSource=input.source;
-    // Any new request invalidates transient preparation, even if OCR needs review.
-    delete state.paymentPreparation;
-    if (state.draft) delete state.draft.preparedRevision;
-    const provider = providerFor(request);
-    const inputPipeline = provider ? new MultimodalAgentInput(new ProviderBusinessInput(provider)) : (multimodalInput ??= new MultimodalAgentInput());
-    const normalized = await inputPipeline.normalize(input,scope);
-    response.setHeader("Cache-Control","no-store");
-    // A voice transcript is the user's current instruction. Extracted document
-    // text is never eligible to approve another action. Typed amendments also
-    // prevent an affirmative transcript from approving an unchanged preview.
-    if(input.source==="voice" && typeof normalized.extraction.transcript==="string" &&
-      (!input.message || isAffirmation(input.message))) {
-      const confirmed=await confirmConversation(normalized.extraction.transcript,scope,input.conversationToken,input.conversationId);
-      if(confirmed) {response.json({data:{...confirmed,extraction:normalized.extraction},requiresConfirmation:false});return;}
-    }
-    delete state.pendingAction;
-    if (normalized.catalog) {
-      const idempotencyKey = "copilot-catalog-" + randomUUID();
-      const action = await getRuntime().createCatalogDraft({ ...scope, source: input.source, catalog: normalized.catalog }, idempotencyKey);
-      state.pendingAction={draftId:action.id,idempotencyKey,summary:normalized.message.slice(0,1000),expires:Math.min(state.expires,Date.now()+10*60_000),
-        catalog:{name:normalized.catalog.name,itemCount:normalized.catalog.items.length}};
-      response.json({ data: { answer: normalized.message, status: "catalog_review", requiresConfirmation: true,
-        conversationToken: writeBusinessState(state), conversationId: state.conversationId,
-        catalogReview: { draftId: action.id, idempotencyKey, name: normalized.catalog.name, itemCount: normalized.catalog.items.length },
-        extraction: normalized.extraction, toolNames: ["extract_rate_list_catalog", "prepare_rate_list_import"] } });
-      return;
-    }
-    if (normalized.reviewRequired && (!normalized.estimateRequest || !(normalized.estimateRequest.items as any[])?.length || (normalized.estimateRequest.items as any[]).some(item=>!item.qty))) {
-      response.json({data:{answer:"جناب، پرچی کے چند الفاظ یا مقدار واضح نہیں۔ نیچے تفصیل درست کر دیں تاکہ مکمل ایسٹیمیٹ تیار کر دوں۔",
-        status:"clarification",conversationToken:writeBusinessState(state),conversationId:state.conversationId,
-        extraction:normalized.extraction,reviewText:normalized.message,requiresConfirmation:false,toolNames:[]}});
-      return;
-    }
-    if("estimateRequest" in normalized && normalized.estimateRequest &&
-      getConversationalTools().definitions().some(tool=>tool.name==="erp_create_estimate")) {
-      try {
-        const choices={...normalized.estimateRequest};
-        if(!choices.brand && state.brandHint && (choices.items as Array<{brand?:string}>).every(item=>!item.brand))choices.brand=state.brandHint;
-        if(!choices.customerName && !choices.customerId && state.customer && !state.customerAmbiguous)choices.customerId=state.customer.id;
-        if(!choices.customerName && !choices.customerId && state.estimateCustomerChoice){
-          choices.customerName=state.estimateCustomerChoice.name;
-          if(state.estimateCustomerChoice.address)choices.customerAddress=state.estimateCustomerChoice.address;
-        }
-        const prepared=await new AutonomousChainingLoop(getConversationalTools()).prepareEstimate(choices,scope,state,normalized.userInstruction??input.message);
-        response.json({data:{...prepared,status:"review",extraction:normalized.extraction,
-          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:prepared.requiresConfirmation,toolNames:["erp_create_estimate"]}});
-      } catch(error) {
-        if(error instanceof ApiError && [401,403].includes(error.status))throw error;
-        const known=error instanceof ApiError && ["ERP_ACTION_CLARIFICATION","PURCHASE_BASELINE_REQUIRED","DISCOUNT_BELOW_COST"].includes(error.code);
-        request.log?.warn({errorCode:error instanceof ApiError?error.code:"SLIP_ESTIMATE_PREPARATION_FAILED"},"Slip extracted; ERP preview needs correction");
-        const answer=known?munshiErrorMessage(error.code,error.message):`جناب، پرچیوں کی ${normalized.extraction.document?.lines.length??0} لائنیں پڑھ لی ہیں، مگر ERP نرخ یا گاہک کی تصدیق مکمل نہیں ہوئی۔ نیچے پڑھی گئی تفصیل موجود ہے؛ درست کر کے دوبارہ پری ویو تیار کریں۔`;
-        response.json({data:{answer,status:"clarification",extraction:normalized.extraction,reviewText:normalized.message,
-          conversationToken:writeBusinessState(state),conversationId:state.conversationId,requiresConfirmation:false,toolNames:[]}});
-      }
-      return;
-    }
-    const result = await readOnlyAgentFor(request, provider).run({message:normalized.message,conversationToken:writeBusinessState(state),conversationId:state.conversationId},scope,request.log);
-    response.json({data:{...result,extraction:normalized.extraction},requiresConfirmation:result.requiresConfirmation});
-  });
-
-  router.post(["/agent", "/"], authorize, async (request, response) => {
-    const userId = request.browserPrincipal?.userId;
-    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "A browser user session is required for Copilot questions");
-    const organizationId = z.string().uuid().parse(headerValue(request, "X-Organization-Id"));
-    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
-    const parsed = agentRequestSchema.parse(request.body);
-    const confirmed=!parsed.selection ? await confirmConversation(parsed.message,{userId,organizationId,branchId},parsed.conversationToken,parsed.conversationId) : null;
-    if(confirmed) {response.setHeader("Cache-Control","no-store");response.json({data:confirmed,requiresConfirmation:false});return;}
-    const result = await readOnlyAgentFor(request).run(parsed, { userId, organizationId, branchId }, request.log);
-    response.setHeader("Cache-Control", "no-store");
-    response.status(200).json({ data: result, requiresConfirmation: result.requiresConfirmation });
-  });
-
-  router.post("/chat", authorize, async (request, response) => {
-    const parsed = chatSchema.parse(request.body);
-    const branchId = z.string().uuid().parse(headerValue(request, "X-Branch-Id"));
-    const authenticatedUserId = request.browserPrincipal?.userId;
-    const userId = authenticatedUserId ?? parsed.userId;
-    if (!userId) throw new ApiError(401, "UNAUTHORIZED", "Authenticated user context is required");
-    if (authenticatedUserId && parsed.userId && parsed.userId !== authenticatedUserId) throw new ApiError(403, "FORBIDDEN", "Request user does not match authenticated session");
-    const context = { userId, organizationId: parsed.organizationId, branchId };
-    const confirmed=await confirmConversation(parsed.message,context,parsed.conversationToken,parsed.conversationId);
-    if(confirmed) {response.setHeader("Cache-Control","no-store");response.json({data:{...confirmed,message:confirmed.answer},requiresConfirmation:false});return;}
-    const provider = providerFor(request);
-    const conversationalAgent = provider ? createCopilotAgent(provider) : getAgent();
-    const result = parsed.conversationToken || parsed.conversationId
-      ? await conversationalAgent.respond(parsed.message, context, parsed.conversationToken, parsed.conversationId)
-      : await conversationalAgent.respond(parsed.message, context);
-    response.setHeader("Cache-Control", "no-store");
-    response.status(200).json({ data: result, requiresConfirmation: Boolean(result.review || result.requiresConfirmation) });
-  });
+  // Conversational endpoints are implemented exclusively by the v2 router above.
 
   router.post('/demand-drafts/:id/save',authorize,async(request,response)=>{
     const userId=request.browserPrincipal?.userId;

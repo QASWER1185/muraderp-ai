@@ -351,3 +351,5 @@ export class BusinessIntelligenceTools {
     }
   }
 }
+
+export const BUSINESS_READ_SCHEMAS = schemas;

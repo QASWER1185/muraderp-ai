@@ -19,6 +19,7 @@
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
     "@napi-rs/canvas": "1.0.10",
     "@supabase/supabase-js": "2.112.2",
     "express": "5.2.1",

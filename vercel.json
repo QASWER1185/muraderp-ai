@@ -7,7 +7,35 @@
   "rewrites": [
     {
       "source": "/api/copilot",
-      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot"
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/copilot/chat",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/copilot/agent",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/copilot/agent/input",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/v1/ai/copilot",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/v1/ai/copilot/chat",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/v1/ai/copilot/agent",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
+    },
+    {
+      "source": "/api/v1/ai/copilot/agent/input",
+      "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/v1/ai/copilot/v2/chat"
     },
     {
       "source": "/api/copilot/:path*",
@@ -63,6 +91,33 @@
         }
       ],
       "source": "/styles.css"
+    },
+    {
+      "source": "/copilot-api.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/public-config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/app.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0, must-revalidate"
+        }
+      ]
     }
   ],
   "git": {

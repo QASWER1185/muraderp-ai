@@ -496,7 +496,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       const combinedAttachments=[...encodedAttachments,...(encodedVoice?[encodedVoice]:[])];
       const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(encodedAttachments[0] ? { media: encodedAttachments[0].media } : encodedVoice?.media ? {media:encodedVoice.media}: {}) };
       const mediaInput=combinedAttachments.length>1 ? {attachments:combinedAttachments} : {media:combinedAttachments[0]?.media??payload.media,fileName:combinedAttachments[0]?.fileName??sentAttachment?.name};
-      if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
+      // All conversational submissions use v2, regardless of the selected task.
+      if (["text", "image", "camera", "voice"].includes(source)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
         const conversationId = conversation.idFor(userId, context.organizationId, context.branchId) ?? restoredConversationId;
@@ -519,7 +520,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         persistHistory();
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant",formatCopilotAnswer(response.data.answer));
-        if(retryable && response.data.status!=="rate_limited"){
+        if(retryable && response.data.status!=="rate_limited" && response.data.documentAction===true && response.data.pendingPreview){
           retryAction=()=>analyze(selection,snapshot);
           appendMessage("assistant",'<div class="review-card copilot-recovery"><p>گفتگو اور منتخب فائلیں اسی قدم کی دوبارہ پڑتال کے لیے موجود ہیں۔</p><button class="button secondary compact" type="button" data-copilot-retry>اسی قدم کی دوبارہ پڑتال</button></div>');
         }

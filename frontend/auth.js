@@ -1,4 +1,4 @@
-import { supabaseConfiguration } from "./supabase-config.js";
+import { supabaseConfiguration, localDevAuthEnabled } from "./supabase-config.js";
 import { boundedFetch } from "./request.js";
 
 async function supabaseRequest(path, options = {}) {
@@ -13,6 +13,12 @@ async function supabaseRequest(path, options = {}) {
 }
 
 export async function signIn(email, password) {
+  if (localDevAuthEnabled()) {
+    const response = await boundedFetch('/api/v1/auth/session', {method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email})});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error?.message ?? 'Local demo sign-in failed');
+    return body;
+  }
   const session = await supabaseRequest("/auth/v1/token?grant_type=password", { method: "POST", body: JSON.stringify({ email, password }) });
   await boundedFetch("/api/v1/auth/session", { method: "POST", credentials: "include", headers: { Authorization: `Bearer ${session.access_token}` } }).then(async (response) => {
     if (!response.ok) throw new Error((await response.json()).error?.message ?? "Unable to establish ERP session");

@@ -7,6 +7,7 @@ const path = require("node:path");
 const localEnvPath = path.join(__dirname, '.env.local');
 if (fs.existsSync(localEnvPath)) process.loadEnvFile(localEnvPath);
 
+const localAuth = require('./dev-auth.cjs');
 const root = process.argv.includes("--production") ? path.join(__dirname, "dist") : __dirname;
 const port = Number(process.env.FRONTEND_PORT || 3001);
 const apiTarget = new URL(process.env.BACKEND_URL || `http://127.0.0.1:${Number(process.env.BACKEND_PORT || 3000)}`);
@@ -23,11 +24,14 @@ const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; ch
 
 http.createServer((request, response) => {
   const pathname = new URL(request.url, `http://localhost:${port}`).pathname;
+  response.setHeader('X-MuradERP-Frontend', 'copilot-v2-local');
+  if (pathname.startsWith('/api/')) console.log('[FRONTEND-HIT]', request.method, pathname);
   if (pathname === '/public-config.js') {
     response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
-    response.end(`globalThis.MURADERP_PUBLIC_CONFIG = ${JSON.stringify({ url: publicUrl, key: publicKey })};\n`);
+    response.end(`globalThis.MURADERP_PUBLIC_CONFIG = ${JSON.stringify({ url: publicUrl, key: publicKey, localDevAuth: localHttpAllowed })};\n`);
     return;
   }
+  if (localHttpAllowed && localAuth(request, response, pathname, apiTarget, process.env.LOCAL_DEV_BRIDGE_TOKEN)) return;
   if (pathname === "/api" || pathname.startsWith("/api/")) {
     const transport = apiTarget.protocol === "https:" ? https : http;
     const upstream = transport.request(new URL(request.url, apiTarget), { method: request.method, headers: { ...request.headers, host: apiTarget.host } }, (result) => {

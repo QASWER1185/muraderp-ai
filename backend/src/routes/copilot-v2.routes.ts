@@ -1,15 +1,16 @@
-import { Router, type RequestHandler } from 'express';
+import { Router, type RequestHandler, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { createCopilotAuth } from '../middleware/copilot-auth.js';
 import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { ApiError } from '../errors/api-error.js';
-import { createGeminiUserProvider } from '../ai/providers/factory.js';
+import { createLiveGeminiProvider } from '../ai-copilot/v2/live-provider.js';
 import { decodeMedia, mediaSchema, MEDIA_LIMIT } from '../ai-input/document-extraction.js';
 import { copilotMultipart } from '../ai-copilot/agent/multipart-input.js';
 import { createV2Agent } from '../ai-copilot/v2/factory.js';
 import type { AutonomousV2Agent } from '../ai-copilot/v2/agent.js';
 import type { AiProviderContract } from '../ai/providers/contracts.js';
 import { requireAuthoritativeTransactionIdentity } from './authoritative-transaction-context.js';
+import { v2ErrorMessage } from '../ai-copilot/v2/errors.js';
 
 const requestSchema=z.strictObject({message:z.string().trim().max(20_000).default(''),conversationId:z.string().uuid().optional(),
   conversationToken:z.string().max(9000).optional(),source:z.enum(['text','image','camera','voice']).default('text'),task:z.string().max(50).optional(),
@@ -18,7 +19,9 @@ const requestSchema=z.strictObject({message:z.string().trim().max(20_000).defaul
   attachments:z.array(z.strictObject({media:mediaSchema,fileName:z.string().max(255).optional()})).max(11).optional()});
 export function createCopilotV2Router(options:{internalApiToken?:string|undefined;servicePrincipalId?:string|undefined;authenticate?:RequestHandler;agent?:Pick<AutonomousV2Agent,'run'>;provider?:AiProviderContract;legacyAliases?:boolean}={}) {
   const router=Router();
-  router.post(options.legacyAliases===false?['/v2/chat']:['/v2/chat','/chat','/agent','/agent/input','/'],options.authenticate??createCopilotAuth(options.internalApiToken,options.servicePrincipalId),...copilotMultipart,async(req,res)=>{
+  router.post(options.legacyAliases===false?['/v2/chat']:['/v2/chat','/chat','/agent','/agent/input','/'],(_req,res,next)=>{
+    res.setHeader('X-Copilot-Pipeline','v2');next();
+  },options.authenticate??createCopilotAuth(options.internalApiToken,options.servicePrincipalId),...copilotMultipart,async(req,res)=>{
     assertBrowserSameOrigin(req);
     const serviceIdentity=req.browserPrincipal?undefined:requireAuthoritativeTransactionIdentity(req);
     const scope={userId:req.browserPrincipal?.userId??serviceIdentity!.actorUserId,
@@ -27,7 +30,7 @@ export function createCopilotV2Router(options:{internalApiToken?:string|undefine
     const media=[...(p.media?[p.media]:[]),...(p.attachments??[]).map(a=>a.media)].map(decodeMedia);
     if(!p.message&&!media.length)throw new ApiError(422,'VALIDATION_ERROR','پیغام، پرچی یا صوتی ہدایت بھیج دیں۔');
     if(media.reduce((sum,m)=>sum+m.bytes.length,0)>MEDIA_LIMIT)throw new ApiError(413,'MEDIA_TOO_LARGE','تمام فائلیں ملا کر 8 MB تک رکھیں۔');
-    const provider=options.provider??(options.agent?undefined:createGeminiUserProvider(req.header('X-Api-Key'),fetch,{nativeToolsOnly:true}));
+    const provider=options.provider??(options.agent?undefined:createLiveGeminiProvider(req.header('X-Api-Key')));
     let message=p.message;
     const images=[];
     for(const item of media) {
@@ -43,6 +46,12 @@ export function createCopilotV2Router(options:{internalApiToken?:string|undefine
     const content=images.length?[{type:'input_text',text:message||'اس پرچی کے تمام آئٹمز پڑھیں؛ غیر واضح باتیں ایک ساتھ پوچھیں۔'},...images]:undefined;
     const result=await (options.agent??createV2Agent(provider)).run({message,conversationId:p.conversationId,content},scope);
     res.setHeader('Cache-Control','no-store');res.json({data:result,requiresConfirmation:result.requiresConfirmation});
+  });
+  router.use((error:unknown,_req:Request,res:Response,next:NextFunction)=>{
+    if(res.headersSent){next(error);return;}
+    const code=error instanceof ApiError?error.code:error instanceof z.ZodError?'VALIDATION_ERROR':'V2_REQUEST_FAILED';
+    res.status(error instanceof ApiError?error.status:error instanceof z.ZodError?422:500)
+      .json({error:{code,message:v2ErrorMessage(code)}});
   });
   return router;
 }

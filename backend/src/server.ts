@@ -1,3 +1,4 @@
+import { localDemoHttp } from './ai-copilot/v2/local-demo-http.js';
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,7 +6,11 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 
 export function startServer() {
-  const server = createServer(createApp());
+  const app = createApp();
+  const server = createServer((req,res)=>{
+    console.log('[BROWSER-HIT]', req.method, req.url?.split('?')[0]);
+    if (!localDemoHttp(req,res)) app(req,res);
+  });
   server.listen(env.PORT, () => {
     console.log(`MuradERP API is running on http://localhost:${env.PORT}`);
   });

@@ -1,4 +1,4 @@
-const CACHE_NAME = "muraderp-ai-shell-v39";
+const CACHE_NAME = "muraderp-ai-shell-v40-copilot-v2";
 const APP_SHELL = [
   "/copilot-history.js",
   "/copilot-recovery.js",
@@ -58,7 +58,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("muraderp-ai-shell-") && key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", (event) => {

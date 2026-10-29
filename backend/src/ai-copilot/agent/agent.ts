@@ -218,6 +218,8 @@ export class UnifiedCopilotAgent {
         const step = await withinDeadline(this.model.respond(input, availableTools, controller.signal, { toolChoice: requiredToolRetry ? "required" : "auto" }), controller.signal);
         const functions = step.output.filter((item): item is FunctionCall => item.type === "function_call" && typeof item.call_id === "string" && typeof item.name === "string" && typeof item.arguments === "string");
         if (functions.length === 0) {
+          // Conversational text is a complete reply; an ERP action is optional.
+          if (step.text?.trim()) { answer=step.text.trim(); status="completed"; break; }
           if(analyticsAnswers.length){answer=analyticsAnswers.join("\n\n");status="completed";break;}
           if(estimateRequest && !draftView && !review && !estimateRecoveryUsed){
             estimateRecoveryUsed=true;requiredToolRetry=true;

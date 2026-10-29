@@ -73,10 +73,25 @@ Acceptance examples:
 - Test another user/branch: neither transcript nor actions may cross the scope.
 - In the development copy, compare EST-1067, EST-1065, EST-1064 and EST-1062 before/after using read tools. Preserve actual saved records rather than forcing task example values.
 
-## Deployment isolation
+## Production rollout (explicit, backend first)
 
-`copilot-v2` automatic deployments are disabled in both Vercel config locations using the documented [`git.deploymentEnabled` branch setting](https://vercel.com/docs/project-configuration/git-configuration). Production build workflows do not match this branch. No production deploy command was run. The owner must approve regression results before any merge or production rollout.
+All public chat aliases in both /api/v1/ai/copilot and /api/copilot terminate in the v2 router. Legacy chat handlers have been removed. V2 uses its own safe error messages, with no legacy agent fallback. The frontend sends every chat submission to /api/v1/ai/copilot/v2/chat, and Vercel also rewrites cached legacy chat URLs directly to v2. Non-chat ERP endpoints continue to use their authoritative services.
 
-The real Gemini native transport was smoke-tested with a fictitious missing SKU and an in-memory ERP connector: it called the stock tool and responded in Urdu without inventing zero stock. This is provider/schema integration validation, not a claim that production financial mutations were tested.
+The PWA cache is muraderp-ai-shell-v40-copilot-v2. Its worker skips waiting, claims clients, and removes older ERP shell caches. Installed PWAs should close and reopen online after rollout. Local development unregisters its worker and clears only ERP shell caches. The frontend production bundle excludes the local demo server, demo session handler, and .env files. The development bridge is disabled with NODE_ENV=production or a configured database.
 
-V2 disables the legacy automatic historical rate fallback, inferred customer discounts and hardcoded catalog-price baselines. Active pricing and explicitly supplied verified preferences remain authoritative; unknown items retain pending rows. If Gemini loses its connection after a successful write, the verified ERP receipt remains in the conversation and the response identifies the completed action rather than asking the owner to repeat it.
+Prerequisite: ensure the production database has the reviewed schema in supabase/migrations/20261028090000_copilot_v2_memory_conversations.sql (copilot_memories and copilot_v2_conversations, with its scope and lease columns). No production database migration was executed during preparation. Do not deploy v2 against missing conversation tables or run an unreviewed blanket database push. This migration does not change protected estimates or accounting calculations.
+
+Verified existing target: Cloud Run service muraderp-api, project muraderp-ai, region asia-south1. GEMINI_API_KEY is already bound to Secret Manager secret muraderp-gemini-api-key version 1. Keep the key server-side; local backend/.env is ignored, not uploaded, and not committed. Copying a local key to the cloud is not part of this rollout. Browser-provided keys are optional overrides. The model used successfully in local live dispatch is gemini-3.5-flash-lite.
+
+From the repository root on copilot-v2, after the schema prerequisite is satisfied:
+
+```powershell
+git push origin copilot-v2
+gcloud run deploy muraderp-api --project muraderp-ai --region asia-south1 --source . --update-env-vars NODE_ENV=production,GEMINI_MODEL=gemini-3.5-flash-lite --update-secrets GEMINI_API_KEY=muraderp-gemini-api-key:1
+npx vercel link --project muraderp-ai --yes
+npx vercel deploy --prod --yes
+```
+
+Run the frontend deployment only after the backend command succeeds. These commands preserve the existing Cloud Run database/authorization configuration. Vercel reads the root vercel.json and builds frontend/dist. Both Vercel configuration locations intentionally disable automatic deployment of copilot-v2, so git push alone does not update production. The existing GitHub cloud-build workflow builds artifacts and runs suites on its configured branches; it is not a production deployment trigger for this branch. Manual commands above build without running test suites and require the account's existing cloud/Vercel permissions. No main merge is required.
+
+Production builds completed locally using npm run build --prefix backend and npm run build --prefix frontend. No test suites or production deployments were run as part of this preparation. Local live Gemini and demo ERP checks do not prove production database compatibility or financial posting acceptance.

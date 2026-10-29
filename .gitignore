@@ -10,3 +10,4 @@ supabase/.temp/
 .supabase-cli-home/
 .vercel
 .env*
+!.env.example

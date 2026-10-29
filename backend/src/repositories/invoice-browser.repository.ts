@@ -55,6 +55,18 @@ export class SupabaseInvoiceBrowserRepository implements InvoiceBrowserRepositor
     return this.clientFactory() as unknown as UntypedClient;
   }
 
+  async listForCopilot(organizationId:string,branchId:string,query:{startDate?:string;endDate?:string;order:'oldest'|'newest';limit:number}) {
+    let request=this.client.from('invoices').select(invoiceColumns).eq('organization_id',organizationId).eq('branch_id',branchId);
+    if(query.startDate)request=request.gte('issue_date',query.startDate);
+    if(query.endDate)request=request.lte('issue_date',query.endDate);
+    const ascending=query.order==='oldest';
+    const {data,error}=await request.order('issue_date',{ascending}).order('id',{ascending}).limit(query.limit+1);
+    if(error)throw new ApiError(502,'INVOICE_READ_FAILED','Invoices could not be listed');
+    const rows=(data??[]) as InvoiceSummary[];
+    return {data:rows.slice(0,query.limit),hasMore:rows.length>query.limit,ordering:'issue_date_then_id',
+      authoritative:true,complete:rows.length<=query.limit,period:{startDate:query.startDate??null,endDate:query.endDate??null}};
+  }
+
   async getByReference(organizationId:string,branchId:string,reference:string) {
     if(/^\d+$/.test(reference))return this.getById(organizationId,branchId,Number(reference));
     const {data,error}=await this.client.from('invoices').select('id').eq('organization_id',organizationId).eq('branch_id',branchId).eq('invoice_number',reference).maybeSingle();
