@@ -259,6 +259,8 @@ export function mountDashboard(container, options = {}) {
 
   root.addEventListener("click", (event) => {
     const metric = event.target.closest("[data-dashboard-metric]")?.dataset.dashboardMetric;
+    if (metric === "sales") { globalThis.location.hash = "#/invoices"; return; }
+    if (metric === "receivables") { globalThis.location.hash = "#/customers"; return; }
     if (metric === "estimates") { globalThis.location.hash = "#/estimates/list"; return; }
     if (metric) void loadMetric(metric);
     if (event.target.closest("[data-sales-trend]")) void loadTrend();
