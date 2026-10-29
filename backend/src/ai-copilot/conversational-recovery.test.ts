@@ -83,7 +83,7 @@ describe("shared conversational recovery",()=>{
   it.each(["erp_create_estimate","erp_create_invoice","erp_customer_return","prepare_supplier_bill","query_customer_ledger","erp_record_payment","query_inventory"])("retains specific recovery for %s and rejects model-invented success",async tool=>{
     let count=0;
     const model={respond:vi.fn(async()=>count++===0?{output:[{type:"function_call",call_id:"failed",name:tool,arguments:"{}"}],text:""}:{output:[],text:""})};
-    const executor={definitions:()=>[],execute:vi.fn(async()=>{throw new ApiError(502,"ERP_READ_FAILED","SQL secret must not appear");})};
+    const executor={definitions:()=>[],execute:vi.fn(async(name:string)=>{if(name==='load_working_draft')return null;throw new ApiError(502,"ERP_READ_FAILED","SQL secret must not appear");})};
     const state=newBusinessState(scope);state.workingActionId="a3000000-0000-4000-8000-000000000009";
     const result=await new UnifiedCopilotAgent(model,executor).run({message:"تفصیل دکھائیں",conversationToken:writeBusinessState(state)},scope);
     expect(result.answer).toContain("اصل ریکارڈ");expect(result.answer).not.toContain("SQL secret");

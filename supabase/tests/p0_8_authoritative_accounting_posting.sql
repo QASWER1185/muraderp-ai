@@ -8,6 +8,7 @@ declare
   v_org uuid := gen_random_uuid();
   v_other_org uuid := gen_random_uuid();
   v_user uuid := gen_random_uuid();
+  v_branch uuid := gen_random_uuid();
   v_customer bigint;
   v_product bigint;
   v_warehouse bigint;
@@ -36,6 +37,8 @@ begin
     (v_other_org, 'P0-8 Other Org', 'p0-8-other-' || substr(v_other_org::text, 1, 8));
   insert into public.organization_memberships(organization_id, user_id, role, status)
   values (v_org, v_user, 'sales', 'active');
+  insert into public.branches(id, organization_id, code, name) values (v_branch, v_org, 'MAIN', 'Main');
+  insert into public.branch_access_grants(organization_id, branch_id, user_id) values (v_org, v_branch, v_user);
 
   insert into public.customers(name, phone, city, organization_id)
   values ('P0-8 Customer', '0000000000', 'Test', v_org)
@@ -151,7 +154,7 @@ begin
   );
   select quantity into v_inventory_before from public.inventory where product_id=v_product and warehouse_id=v_warehouse;
   v_result := public.post_invoice_atomic(
-    v_org, null, v_user, 'p0-8-sql-test', 'sales.invoice.post',
+    v_org, v_branch, v_user, 'p0-8-sql-test', 'sales.invoice.post',
     'rent-zero-' || gen_random_uuid()::text, 'fp-rent-zero', v_invoice, v_lines, v_warehouse
   );
   v_invoice_id := (v_result->>'invoice_id')::bigint;
@@ -174,7 +177,7 @@ begin
     'pass_through_rent', 20
   );
   v_result := public.post_invoice_atomic(
-    v_org, null, v_user, 'p0-8-sql-test', 'sales.invoice.post',
+    v_org, v_branch, v_user, 'p0-8-sql-test', 'sales.invoice.post',
     'rent-positive-key', 'fp-rent-positive', v_rent_invoice, v_lines, v_warehouse
   );
   v_invoice_id := (v_result->>'invoice_id')::bigint;
@@ -200,7 +203,7 @@ begin
   -- Idempotent replay returns the original invoice/journal and makes no second stock movement.
   select quantity into v_inventory_before from public.inventory where product_id=v_product and warehouse_id=v_warehouse;
   v_replay := public.post_invoice_atomic(
-    v_org, null, v_user, 'p0-8-sql-test', 'sales.invoice.post',
+    v_org, v_branch, v_user, 'p0-8-sql-test', 'sales.invoice.post',
     'rent-positive-key', 'fp-rent-positive', v_rent_invoice, v_lines, v_warehouse
   );
   if (v_replay->>'invoice_id')::bigint <> v_invoice_id
@@ -214,7 +217,7 @@ begin
   -- Same scoped key with a different fingerprint is rejected.
   begin
     perform public.post_invoice_atomic(
-      v_org, null, v_user, 'p0-8-sql-test', 'sales.invoice.post',
+      v_org, v_branch, v_user, 'p0-8-sql-test', 'sales.invoice.post',
       'rent-positive-key', 'different-fingerprint', v_rent_invoice, v_lines, v_warehouse
     );
     raise exception 'different-fingerprint duplicate request was accepted';
@@ -248,7 +251,7 @@ begin
   select count(*) into v_count_before from public.invoices;
   begin
     perform public.post_invoice_atomic(
-      v_org, null, v_user, 'p0-8-sql-test', 'sales.invoice.post',
+      v_org, v_branch, v_user, 'p0-8-sql-test', 'sales.invoice.post',
       'insufficient-key', 'fp-insufficient', v_insufficient_invoice,
       jsonb_build_array(jsonb_build_object(
         'line_number', 1, 'product_id', v_product, 'quantity', 999,
@@ -286,7 +289,7 @@ begin
   select count(*) into v_count_before from public.invoices;
   begin
     perform public.post_invoice_atomic(
-      v_org, null, v_user, 'p0-8-sql-test', 'sales.invoice.post',
+      v_org, v_branch, v_user, 'p0-8-sql-test', 'sales.invoice.post',
       'accounting-failure-key', 'fp-accounting-failure', v_failure_invoice, v_lines, v_warehouse
     );
     raise exception 'injected accounting failure was not raised';

@@ -8,7 +8,7 @@ export function hardwareKind(name:string):typeof hardwareKinds[number]|undefined
   if(/دھاگ|دکھار|\bdha+ga\b|thread\s*(?:ball|roll)|\bthread\b(?!ed)/iu.test(name))return 'thread';
   if(/ٹیفلون|ٹیفلن|teflon|ptfe|t[ae]fl[ou]n/iu.test(name))return 'teflon';
   if(/کنکشن|کنیکشن|connection\s*pipe/iu.test(name))return 'connection_pipe';
-  if(/brass\s*nipple|b(?:i?v?al|ixal)[ -]?nipple|براس\s*نپل/iu.test(name))return 'brass_nipple';
+  if(/brass\s*nipple|b(?:i?v?al|ixal|xal)[ -]?nipple|براس\s*نپل/iu.test(name))return 'brass_nipple';
   if(/hand(?:all|le|el)?[ -]*(?:cock[ -]*)?(?:valve|wall)|ہینڈل\s*والو/iu.test(name))return 'handle_valve';
   if(/آری|آر[یے]|hacksaw|saw.?blade|(?:ari|axi).?blade|blade.?\b(?:ari|axi)\b/iu.test(name))return 'saw_blade';
   if(/بلیڈ|blade/iu.test(name))return 'blade';
@@ -44,7 +44,7 @@ export function hardwareInstructions(message:string){
       const tail=clause.slice(name.index!+name[0].length,names[index+1]?.index??clause.length)
         .replace(/\bline\s+\d+\b/giu,' ')
         .replace(/^\s*(?:\d+(?:\/\d+|\.\d+)?\s*(?:inch(?:es)?\b|ft\b|feet\b|["″]|انچ)|\d+\/\d+\s*(?:inch\b|["″]|انچ)?)\s*/iu,'')
-        .replace(/[,:;()]/gu,' ')
+        .replace(/[,:;()،]/gu,' ')
         .replace(/^\s*(?:pkr|rs\.?|روپے?)\s*/iu,'');
       const spoken=kind==='cloth'?tail.match(/(?:ایک|1)\s*گز\s*کا\s*ریٹ\s*(\d+(?:\.\d+)?)\s*روپے?/u):null;
       const match=spoken??tail.match(/^\s*(?:کا|کی|کو|پر|at|@|[:=])?\s*(\d+(?:\.\d+)?)\s*(?:(?:روپے?|روپیہ|rs\.?|pkr)\s*)?(?:(?:fi|per|فی)\s*(?:gaz|yard|گز|pcs?|piece|عدد|rolls?|balls?|gola|گولے?|رول)\s*|(?:each|per\s+unit)\s*)?(?:(?:لگانا\s*ہے|لگا\s*(?:دو|دیں)|ہے|ہیں|apply|please|use)\s*)?[۔.;!\s]*$/iu);

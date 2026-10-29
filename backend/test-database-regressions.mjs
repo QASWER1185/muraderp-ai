@@ -24,8 +24,27 @@ try {
   const migrations = (await readdir(new URL('supabase/migrations/', root)))
     .filter(name => name.endsWith('.sql')).sort();
   for (const name of migrations) {
+    if (name === '20261026140000_duraflow_rate_list_storewide.sql') {
+      // This data migration refers to a real imported list. Supply a scoped
+      // synthetic predecessor in the disposable database before replaying it.
+      await db.exec(`
+        insert into organizations(id, name, slug)
+          values ('f0000000-0000-4000-8000-000000000001', 'Fixture Store', 'fixture-duraflow');
+        insert into customers(id, organization_id, name, phone, city) overriding system value
+          values (23, 'f0000000-0000-4000-8000-000000000001', 'Fixture Customer', 'test', 'test');
+        insert into rate_lists(organization_id, name, code, price_type, scope_type, customer_id)
+          values ('f0000000-0000-4000-8000-000000000001', 'Fixture Dura Flow', 'DURAFLOW-C23-ERP-20261025', 'SALE', 'CUSTOMER', 23);
+      `);
+    }
     try { await db.exec(await read(`supabase/migrations/${name}`)); }
     catch (error) { throw new Error(`Migration ${name}: ${error.message}`, { cause: error }); }
+    if (name === '20261026140000_duraflow_rate_list_storewide.sql') {
+      const { rows } = await db.query(`select scope_type, customer_id from rate_lists where code = 'DURAFLOW-C23-ERP-20261025'`);
+      if (rows.length !== 1 || rows[0].scope_type !== 'GLOBAL' || rows[0].customer_id !== null) throw new Error('Dura Flow fixture was not made store-wide');
+      await db.exec(`delete from rate_lists where code = 'DURAFLOW-C23-ERP-20261025';
+        delete from customers where id = 23 and organization_id = 'f0000000-0000-4000-8000-000000000001';
+        delete from organizations where id = 'f0000000-0000-4000-8000-000000000001';`);
+    }
   }
   console.log(`Applied ${migrations.length} migrations.`, (await db.query('show server_version')).rows);
   let passed = 0;

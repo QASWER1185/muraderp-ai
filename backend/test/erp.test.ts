@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import type { ErpService, PurchaseDetail } from "../src/services/erp.service.js";
 
+vi.mock("../src/repositories/customer-center.repository.js", () => ({
+  SupabaseCustomerCenterRepository: class { async listMetrics() { return new Map(); } },
+}));
+
 const internalToken = "test_internal_token_1234567890abcdef";
 const principalId = "test-principal";
 const transactionHeaders = {

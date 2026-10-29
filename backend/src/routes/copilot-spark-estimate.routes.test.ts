@@ -40,7 +40,9 @@ function setup(makeDocument=document){
     ...products.slice().reverse().map(product=>({...product,brand_name:"Dura Max",confidence:.99,match_kind:"exact_name"}))],error:null}));
   const search=new SupabaseEntitySearchService(()=>({rpc}) as any);
   const noStock=vi.fn(async()=>{throw new Error("Quotation must never read stock");});
-  const deps:any={principal:"test-api-service",database:()=>({rpc:vi.fn(async()=>({data:{id:77},error:null}))}),
+  const emptyQuery:any={};for(const method of ['select','eq','in','order','range','limit'])emptyQuery[method]=()=>emptyQuery;
+  emptyQuery.then=(resolve:any)=>Promise.resolve({data:[],error:null}).then(resolve);
+  const deps:any={principal:"test-api-service",database:()=>({from:()=>emptyQuery,rpc:vi.fn(async()=>({data:{id:77},error:null}))}),
     erp:{getCustomer:vi.fn(async()=>null),getProduct:vi.fn(async(id:number)=>products.find(product=>product.id===id)),listInventory:noStock,listWarehouses:noStock},
     search:{searchCustomers:vi.fn(async()=>resolveCandidates([],5)),searchProducts:search.searchProducts.bind(search),getProductBrand:vi.fn(async()=>"Dura Max")},
     pricing:{resolvePrice:vi.fn(async(input:any)=>({product_id:input.product_id,unit_price:input.product_id===11?100:200,unit:"pcs",currency_code:"PKR",rate_list_id:4,rate_list_version_id:8}))},

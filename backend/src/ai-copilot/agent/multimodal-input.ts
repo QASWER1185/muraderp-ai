@@ -9,12 +9,15 @@ import { canonicalSlipWords } from "../conversationalMunshi.js";
 import {DEMAND_SLIP_ESTIMATE,demandRequested,demandDiscounts,hardwareKind,hardwareLabel} from '../demand-slip.js';
 import {normalizeVoiceChoices,cleanCustomerName} from '../voice-choices.js';
 
-/** Only explicitly labeled fields are read here. Natural-language customer
- * metadata is extracted by the structured Gemini tool call. */
+/** Recover explicit owner metadata for the retained legacy transport. */
 export function estimateCaptionChoices(message:string):{customerName?:string;customerAddress?:string;customerPhone?:string;percent?:number}{
   const text=normalizeVoiceChoices(message);
-  const name=text.match(/(?:customer(?:\s+name)?|گاہک(?:\s*کا\s*نام)?|کسٹمر(?:\s*کا\s*نام)?)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim();
-  const address=text.match(/(?:address|پتہ|ایڈریس)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim();
+  const labeled=text.match(/(?:customer(?:\s+name)?|گاہک(?:\s*کا\s*نام)?|کسٹمر(?:\s*کا\s*نام)?)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu);
+  const declared=text.match(/(?:کسٹمر|گاہک)\s*کا\s*نام\s+(.+?)\s+ہے(?:\s|[،,۔]|$)/u);
+  const beneficiary=text.match(/^(.+?)\s+کے\s+لیے\s/u);
+  const heading=text.match(/^([^,،\n]{2,80})[,،]\s*([^,،\n]+)[,،]/u);
+  const name=(labeled?.[1]??declared?.[1]??beneficiary?.[1]??heading?.[1])?.trim();
+  const address=text.match(/(?:address|پتہ|ایڈریس)\s*[:：]\s*([^,،\n]+)(?:[,،\n]|$)/iu)?.[1]?.trim()??heading?.[2]?.trim();
   const phone=text.match(/(?:فون|موبائل|phone|mobile)\s*[:：]?\s*(0\d{2,3}[- ]?\d{6,8})(?!\d)/iu)?.[1];
   const percentages=[...text.matchAll(/(\d+(?:\.\d+)?)\s*(?:%|فیصد|پرسنٹ|percent\b)/giu)].map(match=>Number(match[1]));
   const percent=percentages.length===1&&percentages[0]!<=100&&brandsInText(text).length<=1?percentages[0]:undefined;

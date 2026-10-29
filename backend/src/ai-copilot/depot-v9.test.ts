@@ -17,8 +17,10 @@ const document=(index:number)=>({customerName:"Waseem Mazhar Bhai",customerAddre
   observedLineCount:1,ignoredLineCount:0,discountPercent:50,subtotal:null,total:null,confidence:.99,warnings:[]});
 function operations(){
   const product={id:11,name:"Dura Max PPR-C Elbow 25mm",unit:"pcs",brand_id:5,category:"Fittings"};
+  const query:any={};for(const method of ["select","eq","in","order","range","limit"])query[method]=()=>query;
+  query.then=(resolve:any)=>Promise.resolve({data:[],error:null}).then(resolve);
   const deps:any={
-    principal:"test",database:()=>({rpc:vi.fn(async()=>({data:{estimate:{id:101,customer_id:77,status:"DRAFT"}},error:null}))}),
+    principal:"test",database:()=>({from:()=>query,rpc:vi.fn(async()=>({data:{estimate:{id:101,customer_id:77,status:"DRAFT"}},error:null}))}),
     erp:{getCustomer:vi.fn(async()=>null),getProduct:vi.fn(async()=>product),listInventory:vi.fn(async()=>{throw Error("Estimate must never read inventory");}),listWarehouses:vi.fn()},
     search:{searchCustomers:vi.fn(async()=>resolveCandidates([],5)),searchProducts:vi.fn(async()=>resolveCandidates([{...product,brandName:"Dura Max",confidence:1,match_kind:"exact_name"}],5)),getProductBrand:vi.fn(async()=>"Dura Max")},
     pricing:{resolvePrice:vi.fn(async()=>({product_id:11,unit_price:100,unit:"pcs",currency_code:"PKR",rate_list_id:4,rate_list_version_id:8}))},

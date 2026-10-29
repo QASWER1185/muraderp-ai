@@ -24,7 +24,7 @@ describe("Phase 1 agent route on the production backend baseline", () => {
     const providerFactory = vi.fn(() => provider);
     const agentFactory = vi.fn(() => ({run}) as unknown as ReadOnlyCopilotAgent);
     const app = express(); app.use(express.json());
-    app.use("/copilot",createAiCopilotRouter(undefined,undefined,undefined,undefined,undefined,undefined,undefined,providerFactory,agentFactory));
+    app.use("/copilot",createAiCopilotRouter(undefined,undefined,undefined,undefined,{run} as unknown as ReadOnlyCopilotAgent,undefined,undefined,providerFactory,agentFactory));
     app.use(errorHandler);
     let send = request(app).post("/copilot/agent").set("X-Organization-Id","22222222-2222-4222-8222-222222222222").set("X-Branch-Id","33333333-3333-4333-8333-333333333333");
     if (source !== "payload") send = send.set("X-Api-Key",`  ${key}  `);
@@ -109,7 +109,7 @@ describe("Phase 1 agent route on the production backend baseline", () => {
     const requestAgentFactory = vi.fn(() => requestAgent as unknown as ReadOnlyCopilotAgent);
     const app = express();
     app.use(express.json());
-    app.use("/api/v1/ai/copilot", createAiCopilotRouter(undefined, undefined, undefined, undefined, undefined, undefined, undefined, providerFactory, requestAgentFactory));
+    app.use("/api/v1/ai/copilot", createAiCopilotRouter(undefined, undefined, undefined, undefined, requestAgent as unknown as ReadOnlyCopilotAgent, undefined, undefined, providerFactory, requestAgentFactory));
     app.use(errorHandler);
 
     const response = await request(app).post("/api/v1/ai/copilot/agent")

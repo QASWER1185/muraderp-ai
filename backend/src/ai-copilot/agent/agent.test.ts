@@ -83,7 +83,8 @@ describe("read-only ERP agent", () => {
     expect(registry.definitions().every((tool) => tool.type === "function" && tool.parameters.type === "object")).toBe(true);
     expect(ERP_TOOLS.every((tool) => tool.classification === "read" && tool.authentication === "required")).toBe(true);
     expect(await registry.execute("search_products", { query: "Popular 25mm", limit: 10 }, scope)).toMatchObject({ items: [expect.objectContaining({ id: 7 })] });
-    await expect(registry.execute("lookup_product", { product_id: "7" }, scope)).rejects.toMatchObject({ code: "INVALID_COPILOT_TOOL_INPUT" });
+    expect(await registry.execute("lookup_product", { product_id: "7" }, scope)).toMatchObject({ id: 7 });
+    await expect(registry.execute("lookup_product", { product_id: "not-an-id" }, scope)).rejects.toMatchObject({ code: "INVALID_COPILOT_TOOL_INPUT" });
     await expect(registry.execute("unknown", {}, scope)).rejects.toMatchObject({ code: "UNKNOWN_COPILOT_TOOL" });
   });
 

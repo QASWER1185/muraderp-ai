@@ -5,9 +5,11 @@ const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000
 function fixture(){
   const products=[{id:11,name:"PPR-C Pipe 25mm",category:"Pipes"},{id:12,name:"PPR-C Elbow 25mm",category:"Fittings"},{id:13,name:"PPR-C Socket 25mm",category:"Fittings"}].map(p=>({...p,unit:"pcs",brand_id:5}));
   let saved:any;
-  const query:any={};for(const method of ["select","eq","order","range"])query[method]=()=>query;
+  const query:any={};for(const method of ["select","eq","in","order","range","limit"])query[method]=()=>query;
   query.then=(resolve:any)=>Promise.resolve({data:saved?[saved]:[],error:null}).then(resolve);
-  const deps:any={principal:"test",database:()=>({from:()=>query}),
+  const history:any={};for(const method of ["select","eq","in","order","range","limit"])history[method]=()=>history;
+  history.then=(resolve:any)=>Promise.resolve({data:[],error:null}).then(resolve);
+  const deps:any={principal:"test",database:()=>({from:(table:string)=>table==="estimate_items"?history:query}),
     erp:{getCustomer:vi.fn(async()=>null),getProduct:vi.fn(async(id:number)=>products.find(p=>p.id===id)),listInventory:vi.fn(()=>{throw Error("Estimate read stock");})},
     search:{searchCustomers:vi.fn(async()=>resolveCandidates([],5)),getProductBrand:vi.fn(async()=>"Dura Max")},
     pricing:{resolvePrice:vi.fn(async(input:any)=>({product_id:input.product_id,unit_price:(input.product_id-10)*100,unit:"pcs",currency_code:"PKR",rate_list_id:4,rate_list_version_id:8}))},

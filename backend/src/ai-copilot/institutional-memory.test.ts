@@ -11,7 +11,7 @@ import { ApiError } from "../errors/api-error.js";
 const scope={userId:"a3000000-0000-4000-8000-000000000001",organizationId:"a3000000-0000-4000-8000-000000000002",branchId:"a3000000-0000-4000-8000-000000000003"};
 const sale:CommercialHistoryLine={customer_id:7,product_id:11,product_name:"Dura Max Medium Pipe",brand_id:5,brand_name:"Dura Max",category:"Pipes",unit:"pcs",quantity:10,unit_price:100,discount_percent:50,net_unit_price:50,invoice_date:"2026-10-18",document_id:1060,document_number:"INV-1060",document_type:"invoice",source_item_id:91,currency_code:"PKR"};
 function dbFixture(rows:unknown[]=[]) {
-  const query:any={};for(const method of ["select","eq","order","range","limit"])query[method]=vi.fn(()=>query);
+  const query:any={};for(const method of ["select","eq","in","order","range","limit"])query[method]=vi.fn(()=>query);
   query.then=(resolve:any)=>Promise.resolve({data:rows,error:null}).then(resolve);
   const db={from:vi.fn(()=>query),rpc:vi.fn(async()=>({data:50,error:null}))};return {db,query};
 }
@@ -21,7 +21,7 @@ function operations(memory:CustomerMemory) {
   const product={id:11,name:sale.product_name,brand_id:5,category:"Pipes",unit:"pcs"};
   const deps={database:()=>f.db,principal:"copilot-test",memory,
     erp:{getCustomer:vi.fn(async()=>({id:7,name:"Faisal Butt"})),getProduct:vi.fn(async()=>product),getWarehouse:vi.fn(async()=>({id:1})),listWarehouses:vi.fn(async()=>({data:[{id:1}],next_cursor:null}))},
-    pricing:{resolvePrice:vi.fn(async()=>({unit_price:120,unit:"pcs",currency_code:"PKR",rate_list_id:1,rate_list_version_id:1}))},search:{searchProducts:vi.fn()},
+    pricing:{resolvePrice:vi.fn(async()=>({unit_price:120,unit:"pcs",currency_code:"PKR",rate_list_id:1,rate_list_version_id:1}))},search:{searchProducts:vi.fn(),getProductBrand:vi.fn(async()=>"Dura Max")},
     returns:{recordSalesReturn:vi.fn(async()=>({credit_note:{id:31}}))},
   } as unknown as OperationsDependencies;
   return {ops:new DefaultErpOperations(deps),deps,f};

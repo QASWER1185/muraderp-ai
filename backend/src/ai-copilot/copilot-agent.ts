@@ -39,7 +39,7 @@ export interface AgentDependencies {
   erp: Pick<ErpService, "listProducts" | "getProduct" | "getCustomer" | "getVendor">;
   pricing: Pick<PricingService, "resolvePrice">;
   rateLists: Pick<SupabaseRateListRepository, "listRateLists" | "getRateList">;
-  runtime: Pick<CopilotRuntime, "prepareReview">;
+  runtime: Pick<CopilotRuntime, "prepareReview"> & Partial<Pick<CopilotRuntime, "loadWorkingDraft" | "rememberWorkingDraft">>;
 }
 
 const integer = { type: "integer", minimum: 1 };
@@ -86,7 +86,26 @@ export class CopilotAgent {
       }, {
         definitions: () => [...COPILOT_TOOLS],
         assertScope: context => input.access.assertBranchAccess(context, context.branchId),
-        execute: async (name, args, context, _state, originalMessage) => {
+        execute: async (name, args, context, state, originalMessage) => {
+          // The unified loop uses these internally; they are not model tools.
+          // Older integrations have no durable draft service, so a read returns
+          // no saved draft rather than manufacturing one.
+          if (name === "load_working_draft") {
+            if (!state || !input.runtime.loadWorkingDraft) return null;
+            const saved = await input.runtime.loadWorkingDraft(state.conversationId, context);
+            if (saved?.state && (saved.state.userId !== context.userId ||
+              saved.state.organizationId !== context.organizationId || saved.state.branchId !== context.branchId ||
+              saved.state.conversationId !== state.conversationId)) {
+              throw new ApiError(403, "FORBIDDEN", "The saved draft is outside this conversation or workspace.");
+            }
+            return saved;
+          }
+          if (name === "remember_working_draft") {
+            if (!state?.workingActionId) return null;
+            if (!input.runtime.rememberWorkingDraft) throw new ApiError(503, "DRAFT_SESSION_UNAVAILABLE", "The working draft cannot be saved in this session.");
+            await input.runtime.rememberWorkingDraft(state, context);
+            return null;
+          }
           const result = await this.call(name, JSON.stringify(args), context, originalMessage ?? "");
           if (result.review) return result;
           if (name === "search_products") {

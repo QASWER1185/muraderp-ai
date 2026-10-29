@@ -5,6 +5,7 @@ declare
   v_org uuid := gen_random_uuid();
   v_other_org uuid := gen_random_uuid();
   v_actor uuid := gen_random_uuid();
+  v_branch uuid := gen_random_uuid();
   v_customer bigint;
   v_product bigint;
   v_warehouse bigint;
@@ -22,6 +23,8 @@ begin
     (v_other_org, 'Other Accounting Tenant', 'accounting-other-' || v_other_org::text);
   insert into public.organization_memberships(organization_id, user_id, role, status)
   values (v_org, v_actor, 'sales', 'active');
+  insert into public.branches(id, organization_id, code, name) values (v_branch, v_org, 'MAIN', 'Main');
+  insert into public.branch_access_grants(organization_id, branch_id, user_id) values (v_org, v_branch, v_actor);
   insert into public.customers(name, phone, city, organization_id)
   values ('Accounting Customer', '000', 'Test', v_org) returning id into v_customer;
   insert into public.products(name, sku, category, unit, purchase_price, sale_price, organization_id)
@@ -45,7 +48,7 @@ begin
   -- Run with service_role privileges so the regression cannot bypass its grants.
   set local role service_role;
   v_result := public.post_invoice_atomic(
-    v_org, null, v_actor, 'accounting-regression', 'sales.invoice.post',
+    v_org, v_branch, v_actor, 'accounting-regression', 'sales.invoice.post',
     'accounting-smoke', repeat('a', 64), v_invoice, v_lines, v_warehouse);
   v_entry := (v_result->>'journal_entry_id')::uuid;
   if v_entry is null or not exists (
@@ -63,7 +66,7 @@ begin
   ) then raise exception 'tenant trial balance projection missing posted debit'; end if;
 
   v_replay := public.post_invoice_atomic(
-    v_org, null, v_actor, 'accounting-regression', 'sales.invoice.post',
+    v_org, v_branch, v_actor, 'accounting-regression', 'sales.invoice.post',
     'accounting-smoke', repeat('a', 64), v_invoice, v_lines, v_warehouse);
   if (v_replay->>'journal_entry_id')::uuid is distinct from v_entry
      or (v_replay->>'replayed')::boolean is distinct from true

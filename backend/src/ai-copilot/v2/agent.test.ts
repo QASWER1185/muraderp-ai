@@ -28,6 +28,17 @@ function fixture(){
   return {store,deps,tools,provider,agent:new AutonomousV2Agent(provider,tools,store),review};
 }
 describe('Copilot v2 native reasoning and scoped ERP connector',()=>{
+  it('passes a natural Urdu customer request and attached image to Gemini, then forwards its structured estimate request',async()=>{
+    const f=fixture();
+    const message='ان پرچیوں سے آپ ارسلان شاہنواز صاحب اتحاد ٹاؤن لاہور کے گاہک کا ایسٹیمیٹ بنا دیں';
+    const content=[{type:'input_text',text:message},{type:'input_image',image_url:'data:image/png;base64,dGVzdA=='}];
+    f.deps.runtime.createUnifiedDraft.mockResolvedValue({...f.review,tool:'erp_create_estimate'});
+    f.provider.toolTurn.mockResolvedValueOnce(call('manage_estimate',{action:'create',data:{customerName:'ارسلان شاہنواز',customerAddress:'اتحاد ٹاؤن لاہور',items:[{name:'Unknown hardware',qty:1}]}})).mockResolvedValueOnce(say('جناب، نرخ بتا دیں۔'));
+    await f.agent.run({message,content},scope);
+    expect(JSON.stringify(f.provider.toolTurn.mock.calls[0])).toContain(message);
+    expect(JSON.stringify(f.provider.toolTurn.mock.calls[0])).toContain('data:image/png;base64,dGVzdA==');
+    expect(f.deps.runtime.createUnifiedDraft).toHaveBeenCalledWith('erp_create_estimate',expect.objectContaining({customerName:'ارسلان شاہنواز',customerAddress:'اتحاد ٹاؤن لاہور'}),scope);
+  });
   it('always lets Gemini interpret greetings and incidental record references',async()=>{
     const f=fixture();f.provider.toolTurn.mockResolvedValue(say('وعلیکم السلام جناب، فرمائیے۔'));
     const r=await f.agent.run({message:'سلام، EST-1067 کی بات بعد میں کریں گے'},scope);

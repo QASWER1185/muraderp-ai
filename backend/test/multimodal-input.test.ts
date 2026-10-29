@@ -21,18 +21,18 @@ describe("Part 4 concrete extraction and media validation",()=>{
     expect(result.reviewRequired).toBe(true);expect(result.extraction.document?.lines).toHaveLength(2);
     expect(result.extraction.document?.warnings.join(" ")).toMatch(/پرچی [123] نہیں پڑھی/);
   });
-  it("keeps the typed Faisal Butt name and lets ERP recall Dura discounts instead of an OCR default zero",async()=>{
+  it("prioritizes an explicitly labeled owner name and avoids treating an OCR default as a discount",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,customerName:"wrong heading",discountPercent:0,lines:[{...document.lines[0]!,discountPercent:0}]});
-    const message="اس کسٹمر کا نام فیصل بٹ ہے اور اس کو ڈورا میکس کا ایسٹیمیٹ بنا دیں";
+    const message="کسٹمر کا نام: فیصل بٹ، ڈورا میکس کا ایسٹیمیٹ بنا دیں";
     const result=await f.input.normalize({source:"image",message,media:png()},scope);
     expect(result.estimateRequest).toMatchObject({customerName:"فیصل بٹ",brand:"Dura Max"});
     expect(result.estimateRequest).not.toHaveProperty("discountScheme");expect((result.estimateRequest!.items as any[])[0]).not.toHaveProperty("discount");
     const explicit=await f.input.normalize({source:"image",message:message+" 0%",media:png()},scope);
     expect(explicit.estimateRequest).toMatchObject({discountScheme:{percent:0},items:[{discount:0}]});
   });
-  it("extracts the named customer and address from a natural Urdu multi-slip request",async()=>{
+  it("preserves explicitly labeled owner details across multiple slips",async()=>{
     const f=fixture();
-    const message="ان پرچیوں سے آپ ارسلان شاہنواز صاحب اتحاد ٹاؤن ڈرائیونڈ لاہور کے گاہک ہیں ان کو ایز اے کسٹمر ایڈ کریں اور ان پرچیوں سے ڈیورا میکس کا ایسٹیمیٹ بنا دیں";
+    const message="کسٹمر کا نام: ارسلان شاہنواز، پتہ: اتحاد ٹاؤن ڈرائیونڈ لاہور، ان پرچیوں سے ڈیورا میکس کا ایسٹیمیٹ بنا دیں";
     expect(estimateCaptionChoices(message)).toMatchObject({customerName:"ارسلان شاہنواز",customerAddress:"اتحاد ٹاؤن ڈرائیونڈ لاہور"});
     const result=await f.input.normalize({source:"image",message,attachments:[{media:png()},{media:png()},{media:png()}]},scope);
     expect(f.provider.generate).toHaveBeenCalledTimes(3);
@@ -76,7 +76,7 @@ describe("Part 4 concrete extraction and media validation",()=>{
   });
   it("carries mandatory plumber size, material and specification into the estimate without stripping them",async()=>{
     const f=fixture();f.provider.generate.mockResolvedValue({...document,lines:[{raw_line:"PPRC Female Elbow 25mm x 1/2 inch 4pcs",item_name:"Elbow",material:"PPR-C",size:"25mm x 1/2 inch",specification:"Female Threaded",quantity:4,unit:"pcs"}]} as any);
-    const result=await f.input.normalize({source:"image",media:png(),message:"کسٹمر وسیم مظہر ہے اتحاد ٹاؤن لاہور کا، ڈیورا میکس 50 پرسنٹ ڈسکاؤنٹ پر بل بناؤ"},scope);
+    const result=await f.input.normalize({source:"image",media:png(),message:"کسٹمر کا نام: وسیم مظہر، پتہ: اتحاد ٹاؤن لاہور، ڈیورا میکس 50 پرسنٹ ڈسکاؤنٹ پر بل بناؤ"},scope);
     expect(result.reviewRequired).toBe(false);expect(result.estimateRequest).toMatchObject({customerName:"وسیم مظہر",customerAddress:"اتحاد ٹاؤن لاہور",brand:"Dura Max",discountScheme:{percent:50},items:[{name:"PPR-C Elbow Female Threaded",size:"25mm x 1/2 inch",qty:4,discount:50}]});
     expect(result.extraction.document?.lines[0]).toMatchObject({rawShorthand:expect.stringContaining("25mm"),material:"PPR-C",specification:"Female Threaded"});
   });

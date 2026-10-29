@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
 import type { ErpService } from "../services/erp.service.js";
 
+vi.mock("../repositories/customer-center.repository.js", () => ({
+  SupabaseCustomerCenterRepository: class { async listMetrics() { return new Map(); } },
+}));
+
 const TOKEN = "phase5-test-token-012345678901234567890123456789";
 const PRINCIPAL = "muraderp-api-test-01";
 const TENANT_HEADERS = {
