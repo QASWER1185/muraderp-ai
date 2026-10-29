@@ -361,8 +361,15 @@ export class ErpToolRegistry {
         const observed=estimateCaptionChoices(_originalMessage);
         // Gemini extracts natural-language metadata from the full dialogue.
         // Literal field labels can fill omissions, never overwrite that result.
-        choices.customerName??=observed.customerName??state?.estimateCustomerChoice?.name;
-        choices.customerAddress??=observed.customerAddress??state?.estimateCustomerChoice?.address;
+        if(observed.customerName){
+          choices.customerName=observed.customerName;
+          if(observed.customerAddress)choices.customerAddress=observed.customerAddress;
+          else delete choices.customerAddress;
+        } else {
+          if(choices.customerName&&(!cleanCustomerName(choices.customerName)||(state?.estimateCustomerChoice&&/^(?:جی|ہاں|yes|ok|okay)$/iu.test(choices.customerName.trim()))))delete choices.customerName;
+          choices.customerName??=state?.estimateCustomerChoice?.name;
+          choices.customerAddress??=state?.estimateCustomerChoice?.address;
+        }
         choices.customerPhone??=observed.customerPhone;
       }
       if(name==="erp_create_estimate" && !choices.customerId && !choices.customerName){

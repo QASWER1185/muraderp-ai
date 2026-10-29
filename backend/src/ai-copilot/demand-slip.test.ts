@@ -15,12 +15,16 @@ function fixture(){
  const products=[{id:11,name:'Dura Max PPR-C Pipe PN-16 25mm',category:'Pipes',unit:'pcs',brand_id:5},{id:12,name:'Dura Max PPR-C Elbow 25mm',category:'Fittings',unit:'pcs',brand_id:5},{id:13,name:'Cloth',category:'Hardware',unit:'gaz',brand_id:null}];
  let saved:any,customer:any;
  const query:any={select:()=>query,eq:()=>query,order:()=>query,range:()=>query,then:(resolve:any)=>Promise.resolve({data:saved?[saved]:[],error:null}).then(resolve)};
+ const history:any={};for(const method of ['select','eq','in','order','range','limit'])history[method]=()=>history;
+ history.then=(resolve:any)=>Promise.resolve({data:[],error:null}).then(resolve);
  const rpc=vi.fn(async(_name,args)=>{customer={id:77,name:args.p_payload.name,city:args.p_payload.address,phone:args.p_payload.phone};return {data:{id:77},error:null};});
- const deps:any={principal:'test',database:()=>({from:()=>query,rpc}),erp:{getProduct:vi.fn(async(id:number)=>products.find(p=>p.id===id)),getCustomer:vi.fn(async()=>customer)},search:{searchCustomers:vi.fn(async()=>resolveCandidates(customer?[{...customer,confidence:1,match_kind:'exact_name'}]:[],5)),getProductBrand:vi.fn(async()=> 'Dura Max'),searchProducts:vi.fn(async(q:string)=>resolveCandidates(/cloth|ململ/i.test(q)?[{...products[2]!,confidence:1,match_kind:'exact_name'}]:[],5))},pricing:{resolvePrice:vi.fn(async(x:any)=>({product_id:x.product_id,unit_price:x.product_id===11?100:x.product_id===12?200:45,unit:x.product_id===13?'gaz':'pcs',currency_code:'PKR',rate_list_id:4,rate_list_version_id:8}))},memory:{assertFloor:vi.fn(async()=>{}),recall:vi.fn(async()=>({history:[],preferredBrands:[],transactionCount:0}))}};
+ const deps:any={principal:'test',database:()=>({from:(table:string)=>table==='estimate_items'?history:query,rpc}),erp:{getProduct:vi.fn(async(id:number)=>products.find(p=>p.id===id)),getCustomer:vi.fn(async()=>customer)},search:{searchCustomers:vi.fn(async()=>resolveCandidates(customer?[{...customer,confidence:1,match_kind:'exact_name'}]:[],5)),getProductBrand:vi.fn(async()=> 'Dura Max'),searchProducts:vi.fn(async()=>resolveCandidates([],5))},pricing:{resolvePrice:vi.fn(async(x:any)=>({product_id:x.product_id,unit_price:x.product_id===11?100:x.product_id===12?200:45,unit:x.product_id===13?'gaz':'pcs',currency_code:'PKR',rate_list_id:4,rate_list_version_id:8}))},memory:{assertFloor:vi.fn(async()=>{}),recall:vi.fn(async()=>({history:[],preferredBrands:[],transactionCount:0}))}};
  const ops=new DefaultErpOperations(deps);
  const persist=(a:any)=>{saved={id:'a3000000-0000-4000-8000-000000000009',status:'DRAFT',user_id:scope.userId,action_plan:{branchId:scope.branchId,unifiedAction:a}};};
  const items=[...Array.from({length:52},(_,i)=>({productId:i%2?12:11,name:products[i%2]!.name,qty:2,unit:'pcs'})),{name:'ململ',qty:4,unit:'gaz'},{name:'دھاگہ',qty:8,unit:'pcs'},{name:'ٹیفلون ٹیپ',qty:40,unit:'pcs'},{name:'کنکشن پائپ',size:'24 inch',qty:4,unit:'pcs'},{name:'آری بلیڈ',qty:2,unit:'pcs'},{name:'Blade',size:'7 inch',qty:2,unit:'pcs'}];
- const input={mode:DEMAND_SLIP_ESTIMATE,...estimateCaptionChoices(prompt),brand:'Dura Max',pricingRules:demandDiscounts(prompt),items};
+ // Simulate the customer's details extracted by the model, independent of the
+ // legacy caption parser; the pricing assertions below still cover all rows.
+ const input={mode:DEMAND_SLIP_ESTIMATE,customerName:'خالد محمود',customerAddress:'لیک سٹی 15 بی رائے ونڈ روڈ لاہور',customerPhone:'0315-409017',brand:'Dura Max',pricingRules:demandDiscounts(prompt),items};
  return {ops,deps,rpc,persist,input};
 }
 describe('demand slip accounting integrity',()=>{
@@ -31,12 +35,22 @@ describe('demand slip accounting integrity',()=>{
   expect(hardwareInstructions('thread 30, thread 40').hardwareRates).toEqual([]);
   expect(hardwareInstructions('bale 7 inch 1500?').hardwareRates).toEqual([]);
  });
+ it('parses each owner-supplied rate separated by Urdu commas',()=>{
+  const message='ململ 50 روپے، دھاگہ 30 روپے، ٹیفلون ٹیپ 10 روپے، کنکشن پائپ 100 روپے، آری بلیڈ 20 روپے، بلیڈ 25 روپے لگا دو';
+  expect(hardwareInstructions(message).hardwareRates).toEqual([
+   {kind:'cloth',rate:50},{kind:'thread',rate:30},{kind:'teflon',rate:10},
+   {kind:'connection_pipe',rate:100},{kind:'saw_blade',rate:20},{kind:'blade',rate:25},
+  ]);
+ });
  it('routes a not-4-inch-but-6-inch correction to the estimate editor instead of declining extras',async()=>{
   const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';state.workingActionMode=DEMAND_SLIP_ESTIMATE;
-  const model={respond:vi.fn(async()=>({output:[{type:'function_call',call_id:'size',name:'erp_amend_estimate',arguments:'{}'}],text:''}))};
-  const execute=vi.fn(async()=>({review:{draftId:state.workingActionId,requiresConfirmation:false,preview:{mode:DEMAND_SLIP_ESTIMATE,summary:'6 inch corrected preview'}}}));
+  const patch={changes:{updateLines:[{lineNumber:1,changes:{size:'6 inch'}}]},save:false,clarification:''};
+  const model={respond:vi.fn(async()=>({output:[{type:'function_call',call_id:'size',name:'apply_draft_mutation',arguments:JSON.stringify(patch)}],text:''}))};
+  const execute=vi.fn(async(name:string)=>name==='load_working_draft'?null:name==='inspect_pending_action'?
+    {draftId:state.workingActionId,preview:{customer:{name:'Customer'},lines:[{line_number:1,productName:'Pipe',size:'4 inch',quantity:2}]}}:
+    {review:{draftId:state.workingActionId,requiresConfirmation:false,preview:{mode:DEMAND_SLIP_ESTIMATE,summary:'6 inch corrected preview'}}});
   const result=await new UnifiedCopilotAgent(model,{definitions:()=>[{name:'erp_amend_estimate'}],execute}).run({message:'اسی گاہک کے پائپ کا سائز 4 inch نہیں، 6 inch ہے؛ باقی گاہک اور سامان وہی رکھیں۔',conversationToken:writeBusinessState(state)},scope);
-  expect(model.respond).toHaveBeenCalled();expect(execute).toHaveBeenCalledWith('erp_amend_estimate',{},scope,expect.anything(),expect.stringContaining('4 inch نہیں'),expect.anything());expect(result.answer).toBe('6 inch corrected preview');
+  expect(model.respond).toHaveBeenCalled();expect(execute).toHaveBeenCalledWith('apply_draft_mutation',{...patch,changes:{...patch.changes,addItems:[],removeProductIds:[]}},scope,expect.anything(),expect.stringContaining('4 inch نہیں'),expect.anything());expect(result.answer).toBe('6 inch corrected preview');
  });
  it('still accepts an explicit short refusal of suggested extras',async()=>{
   const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';const model={respond:vi.fn()};
@@ -66,14 +80,14 @@ describe('demand slip accounting integrity',()=>{
  it('does not treat a declined hardware price or a rate question as permission',()=>{
   expect(hardwareInstructions('ململ 50 روپے مت لگاؤ')).toEqual({hardwareRates:[]});expect(hardwareInstructions('سافٹ ویئر والے ریٹ مت لگاؤ')).not.toHaveProperty('hardwarePricing');expect(hardwareInstructions('ململ 50 روپے ہے؟')).toEqual({hardwareRates:[]});
  });
- it('applies a hardware follow-up directly to the retained draft without a provider round trip',async()=>{
+ it('applies a hardware follow-up to the retained draft through the native mutation protocol',async()=>{
   const f=fixture(),first=await f.ops.prepare('erp_create_estimate',f.input,scope);f.persist(first);
-  const runtime={createUnifiedDraft:vi.fn(async(tool:any,input:any)=>{const action=await f.ops.prepare(tool,input,scope);return {draftId:'a3000000-0000-4000-8000-000000000009',preview:action.preview,requiresConfirmation:false};})};
+  const runtime={inspectUnifiedDraft:vi.fn(async()=>({draftId:'a3000000-0000-4000-8000-000000000009',preview:first.preview})),createUnifiedDraft:vi.fn(async(tool:any,input:any)=>{const action=await f.ops.prepare(tool,input,scope);return {draftId:'a3000000-0000-4000-8000-000000000009',preview:action.preview,requiresConfirmation:false};})};
   const tools=new ErpToolRegistry({tenant:{assertPermission:vi.fn(),assertBranchAccess:vi.fn()},runtime} as any);
-  const model={respond:vi.fn(async()=>{throw Error('No model should be needed for supplied hardware prices');})};
+  const model={respond:vi.fn(async()=>({output:[{type:'function_call',call_id:'hardware',name:'apply_draft_mutation',arguments:JSON.stringify({changes:{},save:false,clarification:''})}],text:''}))};
   const state=newBusinessState(scope);state.workingActionId='a3000000-0000-4000-8000-000000000009';state.workingActionTool='erp_create_estimate';state.workingActionMode=DEMAND_SLIP_ESTIMATE;
   const result=await new UnifiedCopilotAgent(model,tools).run({message:'ململ 50 روپے اور دھاگہ 30 روپے لگا دو',conversationToken:writeBusinessState(state)},scope);
-  expect(model.respond).not.toHaveBeenCalled();expect((result.review as any).preview.lines).toHaveLength(58);expect((result.review as any).preview.partialTotals.grand_total).toBe(8032);expect(result.requiresConfirmation).toBe(false);
+  expect(model.respond).toHaveBeenCalledTimes(1);expect((result.review as any).preview.lines).toHaveLength(58);expect((result.review as any).preview.partialTotals.grand_total).toBe(8032);expect(result.requiresConfirmation).toBe(false);
  });
  it('saves the complete pending source draft through the scoped durable store, without executing a financial action',async()=>{
   const rpc=vi.fn(async()=>({data:{id:99,estimate_number:'EST-AI-TEST'},error:null}));const runtime=new CopilotRuntime({} as any,{database:()=>({rpc})} as any),inspect=vi.spyOn(runtime,'inspectUnifiedDraft').mockResolvedValue({tool:'erp_create_estimate',draftId:'draft',items:Array.from({length:58},()=>({name:'source row'}))} as any);
@@ -96,7 +110,7 @@ describe('demand slip accounting integrity',()=>{
   const f=fixture(),a=await f.ops.prepare('erp_create_estimate',f.input,scope);
   expect(a.data.lines).toHaveLength(58);expect(a.data.unmatched_hardware_items).toHaveLength(6);expect(a.preview).toMatchObject({mode:DEMAND_SLIP_ESTIMATE,incomplete:true,partialTotals:{grand_total:7592}});
   expect(a.data.lines[0]).toMatchObject({unit_price:100,discountPercent:50});expect(a.data.lines[1]).toMatchObject({unit_price:200,discountPercent:52});
-  expect(f.deps.search.searchProducts).not.toHaveBeenCalled();expect(f.deps.pricing.resolvePrice).toHaveBeenCalledTimes(52);
+  expect(f.deps.search.searchProducts).toHaveBeenCalled();expect(f.deps.pricing.resolvePrice).toHaveBeenCalledTimes(52);
   expect(f.rpc).toHaveBeenCalledWith('commit_copilot_profile_action',expect.objectContaining({p_actor_user_id:scope.userId,p_tool:'erp_create_customer',p_payload:{name:'خالد محمود',address:'لیک سٹی 15 بی رائے ونڈ روڈ لاہور',phone:'0315-409017'}}));
   expect(a.preview.summary).toContain('کیا ان پر ہمارے سافٹ ویئر');expect(a.preview.summary).not.toContain('قیمتوں والی');
  });
@@ -109,6 +123,7 @@ describe('demand slip accounting integrity',()=>{
  });
  it('reads general hardware rates only after permission and keeps missing general rates pending',async()=>{
   const f=fixture(),first=await f.ops.prepare('erp_create_estimate',f.input,scope);f.persist(first);
+  f.deps.search.searchProducts.mockImplementation(async(q:string)=>resolveCandidates(/cloth|ململ/i.test(q)?[{id:13,name:'Cloth',category:'Hardware',unit:'gaz',brand_id:null,confidence:1,match_kind:'exact_name'}]:[],5));
   const next=await f.ops.prepare('erp_amend_estimate',{draftId:'a3000000-0000-4000-8000-000000000009',...hardwareInstructions('سافٹ ویئر والے ریٹ لگا دو')},scope);
   expect(next.data.lines).toHaveLength(58);expect(next.data.lines[52]).toMatchObject({unit_price:45,discountPercent:0});expect(next.data.unmatched_hardware_items).toHaveLength(5);
   expect(next.preview.summary).toContain('آپ کی اجازت سے');expect(next.preview.summary).not.toContain('کیا ان پر');
