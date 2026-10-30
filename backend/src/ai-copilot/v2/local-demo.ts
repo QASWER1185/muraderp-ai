@@ -66,11 +66,12 @@ export class LocalDemoTools {
       const p=z.strictObject({tool:z.string(),data:z.record(z.string(),z.unknown())}).parse(raw);
       if(!readNames.has(p.tool)||!readSchemas[p.tool])return result({supported:false});
       readSchemas[p.tool]!.parse(p.data);
-      return result({tool:p.tool,items:[],rows:[],candidates:[],bestCandidate:null,resolved:false,total:0,record:null});
+      return result({tool:p.tool,ok:false,supported:false,authoritative:false,message:'The real ERP database is disconnected locally. This lookup was not performed; do not claim no customer, product, transaction or stock exists.'});
     }
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema)return result({supported:false});
     const p:any=schema.parse(raw);
+    if(['list_customers','search_customers','search_products','get_stock'].includes(name))return result({ok:false,supported:false,authoritative:false,message:'Real ERP database is not connected locally. Customer/product/stock search was NOT performed. Do not report no match or zero stock. Open the signed-in production ERP for real records.'});
     if(name==='manage_shop_memory') {
       if(p.action==='retrieve')return result({data:(await localDemoStore.memories(scope)).filter(m=>m.category===p.category&&m.key===p.key.normalize('NFKC').trim().toLocaleLowerCase('en'))});
       if(!p.confirmedByUser||!p.evidence||!userMessage.includes(p.evidence))return result({supported:false,requiresClarification:true});

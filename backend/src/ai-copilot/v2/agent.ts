@@ -10,6 +10,7 @@ import { V2ToolConnector } from './tools.js';
 import type { V2Store } from './store.js';
 
 export interface V2Request { message: string; conversationId?: string | undefined; content?: unknown[] | undefined }
+const diagnostic=(value:unknown)=>String(value??'').replace(/AIza[\w-]+|sb_secret_[\w-]+|eyJ[\w-]+\.[\w-]+\.[\w-]+/g,'[REDACTED]').replace(/("(?:password|apiKey|token|secret)"\s*:\s*")[^"]*"/gi,'$1[REDACTED]"').slice(0,3000);
 function isStructuredDump(text: string): boolean {
   if (/```(?:json|javascript)\b/i.test(text)) return true;
   if (/\{\s*"[^"\n]+"\s*:/.test(text)) return true;
@@ -85,12 +86,15 @@ export class AutonomousV2Agent {
             const raw=JSON.parse(call.arguments), key=call.name+':'+JSON.stringify(raw);
             const summary=c.pending?.preview?.summary??'';
             result=seen.has(key)?seen.get(key):await this.tools.execute(call.name,raw,scope,c,userMessage,userEvidence,eligiblePreview);
+            const rows=Array.isArray(result)?result:Array.isArray((result as any)?.items)?(result as any).items:Array.isArray((result as any)?.data)?(result as any).data:null;
+            console.log('[TOOL-EXEC]',call.name,'args:',diagnostic(JSON.stringify(raw)),'resultCount:',rows?rows.length:result==null?0:1);
             if(!seen.has(key)&&(result as any)?.executed===true&&(result as any)?.verified===true){
               verifiedReceipts.push({summary,result});
               c.executions=[...(c.executions??[]),{at:new Date().toISOString(),summary,result}];
             }
             seen.set(key,result);
           } catch(error) {
+            console.error('[TOOL-ERROR]',call.name,'args:',diagnostic(call.arguments),'stack:',diagnostic(error instanceof Error?error.stack??error.message:error));
             if(error instanceof ApiError && [401,403].includes(error.status))throw error;
             result=error instanceof z.ZodError?{ok:false,message:'چند ضروری تفصیلات درست یا مکمل کر دیں۔',fields:error.issues.map(i=>i.path.join('.'))}
               : {ok:false,message:v2ErrorMessage(error instanceof ApiError?error.code:'ERP_READ_FAILED')};

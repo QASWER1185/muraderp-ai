@@ -12,6 +12,7 @@ import { ERP_ACTION_SCHEMAS as actions } from '../tools/registry.js';
 import { vendorPaymentSchema } from '../agent/payment-state.js';
 import type { Conversation, V2Store } from './store.js';
 import type { SupabaseInvoiceBrowserRepository } from '../../repositories/invoice-browser.repository.js';
+import type { CopilotDirectoryRepository } from '../../repositories/copilot-directory.repository.js';
 
 const id = z.number().int().positive(), text = z.string().trim().min(1).max(200);
 const ref = z.strictObject({ reference: text });
@@ -50,6 +51,10 @@ const party = z.union([
   z.strictObject({ type: z.enum(['customer','vendor']), action: z.literal('get_ledger'), data: z.strictObject({ id: id.optional(), query: text.optional(), limit: z.number().int().min(1).max(20).default(20) }) }),
 ]);
 export const V2_SCHEMAS = {
+  list_customers:z.strictObject({limit:z.number().int().min(1).max(50).default(20),cursor:id.optional()}),
+  search_customers:z.strictObject({query:text,limit:z.number().int().min(1).max(20).default(10)}),
+  search_products:z.strictObject({query:text,brand:text.optional(),limit:z.number().int().min(1).max(20).default(10)}),
+  get_stock:z.strictObject({query:text.optional(),product_id:id.optional(),warehouse_id:id.optional(),limit:z.number().int().min(1).max(10).default(5)}),
   manage_estimate: z.union([branch('create', estimateCreate), branch('update', revision), branch('delete', ref), branch('get', ref)]),
   manage_invoice: z.union([branch('create', invoiceCreate), branch('update', invoiceRevision), branch('delete', ref), branch('get', ref),
     branch('list',z.strictObject({startDate:z.iso.date().optional(),endDate:z.iso.date().optional(),order:z.enum(['oldest','newest']).default('newest'),limit:z.number().int().min(1).max(50).default(10)}))]),
@@ -67,6 +72,10 @@ export const V2_SCHEMAS = {
   execute_prepared_action: z.strictObject({ previewId: z.string().uuid(), approvalEvidence: z.string().trim().min(1).max(4000),directInstruction:z.boolean().default(false) }),
 };
 const descriptions: Record<keyof typeof V2_SCHEMAS, string> = {
+  list_customers:'List actual customers without requiring a search phrase. Paginated by ID: follow nextCursor when hasMore; one page is not the full customer count.',
+  search_customers:'Search actual customers by partial English/Urdu name, phone or city, including common Roman Urdu spellings. Inspect items; do not confuse ambiguous candidates with not found. Never guess an ID.',
+  search_products:'Browse catalog matches by partial product name, category, SKU and brand. Supports PPRC/PPR-C and 25mm/25 mm variants. Returns candidates, not an automatically selected product. Use get_stock for on-hand quantity and active sale rates.',
+  get_stock:'Search multiple matching products and read each actual organization/warehouse stock and active sale rate. Missing balance or rate is unknown, never zero. Branch on-hand is unsupported. Product unit and quantity scope are explicit.',
   manage_estimate: 'Read by saved estimate reference; prepare a new estimate or revise current preview by draftId. To edit a saved estimate use reference + changes with ALL desired native lines (including retained lines). Delete prepares native cancellation, not hard deletion. Native line list_price is pre-discount. Missing rates require clarification. No stock required.',
   manage_invoice: 'Inspect invoice documents using action=list with startDate/endDate (issue dates), order=oldest/newest and limit. For first invoice use oldest and limit=1; for any bills today list today. Do not substitute sales summaries. action=get reads a known invoice reference. Prepare sales invoice, estimate conversion or historical sales return using data.operation. Update revises an unconfirmed preview by draftId. Posted invoice update/delete is unavailable; use a return/credit. Always preview before posting.',
   record_financial_transaction: 'Prepare customer receipt, vendor payment, salary or expense through authoritative accounting. Show allocations and totals. Bank-transfer engine is not implemented: return a capability limit. Never create an unbalanced journal or guess accounts.',
@@ -87,6 +96,7 @@ export interface V2ToolDependencies {
   access: Pick<TenantAccessService,'assertBranchAccess'|'assertPermission'>;
   estimates: EstimateBrowserRepository;
   invoices?: Pick<SupabaseInvoiceBrowserRepository,'listForCopilot'>;
+  directory?: CopilotDirectoryRepository;
   pricing: Pick<PricingService,'resolvePrice'>;
   erp: Pick<ErpService,'getVendor'|'updateVendor'|'listProducts'|'createProduct'>;
   store: V2Store;
@@ -118,12 +128,32 @@ export class V2ToolConnector {
     await this.authorize(scope);
     if (name === 'read_erp') {
       const p=z.strictObject({tool:z.string(),data:z.record(z.string(),z.unknown())}).parse(raw);
+      if(['list_customers','search_customers','lookup_customers','search_products','get_stock'].includes(p.tool))
+        return this.execute(p.tool==='lookup_customers'?'search_customers':p.tool,p.data,scope,c,userMessage,userEvidence,eligiblePreview);
       if (!readNames.has(p.tool)) return unavailable('یہ صرف اصل ERP ریکارڈ پڑھنے کا راستہ ہے؛ اس سے تبدیلی نہیں کی جا سکتی۔');
       return this.deps.reads.execute(p.tool,p.data,scope,c.state,userMessage);
     }
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema) return unavailable('یہ کاروباری سہولت ابھی اس ERP میں موجود نہیں۔');
     const p:any=schema.parse(raw);
+    if(['list_customers','search_customers','search_products','get_stock'].includes(name)) {
+      await this.authorize(scope,name==='list_customers'||name==='search_customers'?'customers.read':'products.read');
+      const directory=this.deps.directory;
+      if(!directory)return unavailable('کاروباری فہرست پڑھنے کی سہولت دستیاب نہیں؛ یہ خالی ریکارڈ کی تصدیق نہیں۔');
+      if(name==='list_customers')return directory.listCustomers(scope.organizationId,p);
+      if(name==='search_customers')return directory.searchCustomers(scope.organizationId,p);
+      const matches=await directory.searchProducts(scope.organizationId,{...p,...(p.brand?{query:p.brand+' '+p.query}:{})});
+      if(name==='search_products')return matches;
+      await this.authorize(scope,'inventory.read');await this.authorize(scope,'sales.read');
+      const items=await Promise.all(matches.items.map(async product=>{
+        const [stock,rate]=await Promise.all([
+          this.deps.reads.execute('query_inventory',{product_id:product.id,limit:20,...(p.warehouse_id?{warehouse_id:p.warehouse_id}:{})},scope,c.state,userMessage),
+          this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:'SALE',product_id:product.id,quantity:1,as_of:new Date().toISOString()}),
+        ]);
+        return {...product,stock,activeSaleRate:rate??null,rateStatus:rate?'available':'unavailable'};
+      }));
+      return {...matches,items,balanceScope:'ORGANIZATION_WAREHOUSE',branchOnHandSupported:false};
+    }
     if (name === 'execute_prepared_action') {
       const pending=c.pending;
       const approvedPrior=pending&&eligiblePreview===pending.id&&pending.turn<c.version;
@@ -231,6 +261,7 @@ export class V2ToolConnector {
       return this.prepare('erp_log_expense',{...p.data,kind:p.type},scope,c);
     }
     if(name==='manage_inventory_and_rates') {
+      if(p.action==='check_stock'&&(p.data.query||p.data.product_id))return this.execute('get_stock',{...p.data,limit:Math.min(p.data.limit??5,10)},scope,c,userMessage,userEvidence,eligiblePreview);
       if(p.action==='search_rates')return this.deps.reads.execute('erp_get_product_sale_rate',p.data,scope,c.state,userMessage);
       if(p.action==='check_stock')return this.deps.reads.execute(p.data.query||p.data.product_id?'query_inventory':'erp_get_inventory_summary',p.data.query||p.data.product_id?p.data:{},scope,c.state,userMessage);
       if(p.action==='adjust_stock')return unavailable('اس ERP میں costed، accounting-safe stock adjustment engine ابھی دستیاب نہیں؛ اسٹاک تبدیل نہیں کیا گیا۔');
