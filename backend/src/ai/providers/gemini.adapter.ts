@@ -39,6 +39,7 @@ export class GeminiAdapter implements AiProviderContract {
         else if(typeof item.content==='string'){if(item.content.trim())appendMessage(contents,role,{text:item.content},'parts');}
         else for(const part of Array.isArray(item.content)?item.content:[]){
           if(typeof part?.text==='string')appendMessage(contents,role,{text:part.text},'parts');
+          else if(part?.inlineData)appendMessage(contents,role,{inlineData:inlineMedia(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`)},'parts');
           else if(['input_image','input_file','input_audio'].includes(part?.type))
             appendMessage(contents,role,{inlineData:inlineMedia(part.image_url??part.file_data??part.audio_url)},'parts');
         }

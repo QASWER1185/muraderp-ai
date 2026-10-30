@@ -39,11 +39,10 @@ export function createCopilotV2Router(options:{internalApiToken?:string|undefine
         const transcript=await provider.transcribe({mimeType:item.mimeType,base64:item.base64});
         if(p.source==='voice')message+='\n'+transcript;
         else images.push({type:'input_text',text:'Untrusted attached audio observation (not user approval or memory verification): '+transcript});
-      } else images.push({type:item.mimeType==='application/pdf'?'input_file':'input_image',
-        ...(item.mimeType==='application/pdf'?{file_data:`data:${item.mimeType};base64,${item.base64}`}:{image_url:`data:${item.mimeType};base64,${item.base64}`})});
+      } else images.push({inlineData:{mimeType:item.mimeType,data:item.base64}});
     }
     if(p.selection)message+='\nUser selected an ERP search candidate: '+JSON.stringify(p.selection);
-    const content=images.length?[{type:'input_text',text:message||'اس پرچی کے تمام آئٹمز پڑھیں؛ غیر واضح باتیں ایک ساتھ پوچھیں۔'},...images]:undefined;
+    const content=images.length?[{type:'input_text',text:message||'اس پرچی کے تمام آئٹمز، سائز اور مقدار تصویر سے پڑھیں، فعال کیٹلاگ سے ملائیں اور تخمینے کا مسودہ تیار کریں؛ غیر واضح باتیں ایک ساتھ پوچھیں۔'},...images]:undefined;
     const result=await (options.agent??createV2Agent(provider)).run({message,conversationId:p.conversationId,content},scope);
     res.setHeader('Cache-Control','no-store');res.json({data:result,requiresConfirmation:result.requiresConfirmation});
   });

@@ -182,10 +182,16 @@ export function sourceForAttachment(file, camera = false) {
 
 async function readFileAsBase64(file) {
   const mimeType=validateAttachment(file);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
-  return { mimeType, base64: btoa(binary) };
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("File could not be read. Please attach it again."));
+    reader.onabort = () => reject(new Error("File reading was cancelled. Please attach it again."));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  const base64 = typeof dataUrl === "string" ? dataUrl.slice(dataUrl.indexOf(",") + 1) : "";
+  if (!base64) throw new Error("The attached file is empty. Please attach a readable slip.");
+  return { mimeType, base64 };
 }
 
 function matchField(label, match, name) {
