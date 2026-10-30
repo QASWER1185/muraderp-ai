@@ -74,7 +74,8 @@ export function dashboardMarkup() {
     ["inventory", "View Stock", "boxes"],
     ["reports", "Sales Report", "chart"],
   ];
-  return `<div class="dashboard-page"><section class="dashboard-store-card" aria-label="Store Identification">
+  return `<div class="dashboard-page"><header class="dashboard-header-stack">
+  <section class="dashboard-store-card" aria-label="Store Identification">
     <div class="dashboard-store-heading">
       <div class="dashboard-store-monogram" aria-hidden="true"><span>M</span></div>
       <div class="dashboard-store-identity"><h1>${escapeHtml(STORE.name)}</h1><p>${escapeHtml(STORE.categories)}</p></div>
@@ -82,6 +83,7 @@ export function dashboardMarkup() {
     <div class="dashboard-store-contact"><span class="dashboard-store-address">${icon("location", 15)}<span>${escapeHtml(STORE.address)}</span></span><a href="tel:03086235608">${icon("phone", 15)} <span>0308-6235608</span></a></div>
   </section>
   <div class="mobile-dashboard-date"><span>${icon("calendar", 16)}</span><time datetime="${todayIso}">${escapeHtml(today)}</time></div>
+  </header>
 
   <section class="dashboard-section mobile-dashboard-metrics-section" aria-label="Live business metrics"><div class="mobile-dashboard-metrics">
     <button class="mobile-dashboard-metric" type="button" data-dashboard-metric="sales"><span class="mobile-metric-icon">${icon("chart", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Total Sales</span><strong data-mobile-metric-value="sales">Loading</strong><small data-mobile-metric-note="sales">Posted sales this month</small></span></button>

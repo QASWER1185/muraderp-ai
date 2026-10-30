@@ -14,7 +14,7 @@ required.push("copilot-history.js", "copilot-key.js", "copilot-recovery.js", "su
 for (const file of required.filter(file => file.endsWith(".js"))) {
   const source = readFileSync(resolve(root, file), "utf8");
   for (const match of source.matchAll(/(?:from\s*|import\s*)["']\.\/([^"']+)["']/g)) {
-    if (!required.includes(match[1])) throw new Error(`${file} imports an unstaged production asset: ${match[1]}`);
+    if (!required.includes(match[1].split(/[?#]/)[0])) throw new Error(`${file} imports an unstaged production asset: ${match[1]}`);
   }
 }
 const html = readFileSync(resolve(root, "index.html"), "utf8");

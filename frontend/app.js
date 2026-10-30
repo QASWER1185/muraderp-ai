@@ -14,7 +14,7 @@ import { mountVendorPayments } from "./vendor-payments.js";
 import { mountRateLists } from "./rate-lists.js";
 import { mountAccounting } from "./accounting.js";
 import { mountReports } from "./reports.js";
-import { dashboardMarkup, mountDashboard } from "./dashboard.js";
+import { dashboardMarkup, mountDashboard } from "./dashboard.js?v=20261030_banner43";
 import { icon } from "./icons.js";
 import { authorizedWorkspace, clearWorkspaceContext, connectPreferredWorkspace, getWorkspaceContext, preferredWorkspace, setWorkspaceContext } from "./workspace-context.js";
 import { flushOfflineQueue, getOfflineState, subscribeOfflineState } from "./offline-sync.js";

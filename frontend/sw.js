@@ -1,12 +1,12 @@
-const CACHE_NAME = "muraderp-ai-shell-v40-copilot-v2";
+const CACHE_NAME = "muraderp-ai-shell-v43-banner";
 const APP_SHELL = [
   "/copilot-history.js",
   "/copilot-recovery.js",
   "/",
   "/index.html",
-  "/styles.css",
-  "/app.js",
-  "/dashboard.js",
+  "/styles.css?v=20261030_banner43",
+  "/app.js?v=20261030_banner43",
+  "/dashboard.js?v=20261030_banner43",
   "/dashboard-api.js",
   "/icons.js",
   "/icons/icon.svg",
@@ -32,7 +32,7 @@ const APP_SHELL = [
   "/warehouse-api.js",
   "/warehouses.js",
   "/auth.js",
-  "/public-config.js",
+  "/public-config.js?v=20261030_banner43",
   "/supabase-config.js",
   "/request.js",
   "/ai-experience.js",
