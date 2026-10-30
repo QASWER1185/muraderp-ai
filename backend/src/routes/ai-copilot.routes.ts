@@ -4,8 +4,6 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../errors/api-error.js";
 import { CopilotRuntime } from "../ai-copilot/copilot.runtime.js";
-import type { CopilotAgent } from "../ai-copilot/copilot-agent.js";
-import type { ReadOnlyCopilotAgent } from "../ai-copilot/agent/agent.js";
 import { ErpToolRegistry } from "../ai-copilot/agent/erp-tools.js";
 import { createConversationalTools } from "../ai-copilot/agent/factory.js";
 import { readBusinessState } from "../ai-copilot/agent/business-state.js";
@@ -110,12 +108,12 @@ export function createAiCopilotRouter(
   internalApiToken?: string,
   runtime?: CopilotRuntime,
   servicePrincipalId?: string,
-  _agent?: CopilotAgent,
-  _readOnlyAgent?: ReadOnlyCopilotAgent,
+  _agent?: unknown,
+  _readOnlyAgent?: unknown,
   conversationalTools?: ErpToolRegistry,
   _multimodalInput?: MultimodalAgentInput,
   requestProviderFactory: (apiKey: string, fetcher?: typeof fetch) => AiProviderContract = createGeminiUserProvider,
-  _requestAgentFactory?: (provider: AiProviderContract) => ReadOnlyCopilotAgent,
+  _requestAgentFactory?: unknown,
 ) {
   const router = Router();
   // Chat aliases always terminate in v2, before any legacy route registration.

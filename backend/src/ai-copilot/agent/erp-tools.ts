@@ -28,7 +28,7 @@ import { isEnglishRequest } from "./language.js";
 import { normalizeProductSearchQuery } from "../../services/entity-search.service.js";
 import {brandRates} from "./brand-rates.js";
 import {estimateCaptionChoices} from "./multimodal-input.js";
-import {canonicalSlipWords} from "../conversationalMunshi.js";
+import { canonicalSlipWords } from "../shared/catalog-normalization.js";
 import {categoryDiscountChoices} from "../hybridQuotationEngine.js";
 import {hardwareInstructions,demandDiscounts,DEMAND_SLIP_ESTIMATE} from '../demand-slip.js';
 import { SupabaseEstimateBrowserRepository } from '../../repositories/estimate-browser.repository.js';

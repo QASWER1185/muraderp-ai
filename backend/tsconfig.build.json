@@ -4,6 +4,21 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "archive",
+    "src/**/archive/**",
+    "src/**/*.test.ts",
+    "src/**/*.test-fixtures.ts",
+    "src/ai-copilot/agent/agent.ts",
+    "src/ai-copilot/copilot-agent.ts",
+    "src/ai-copilot/agent/basic-inventory-model.ts",
+    "src/ai-copilot/agent/model.ts",
+    "src/ai-copilot/conversationalMunshi.ts"
+  ]
 }

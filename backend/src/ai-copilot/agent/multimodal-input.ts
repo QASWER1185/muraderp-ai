@@ -5,7 +5,7 @@ import { ProviderBusinessInput, businessDocumentSchema, mergeBusinessDocuments, 
 import type { AgentScope } from "./erp-tools.js";
 import { RateListCatalogSchema, isRateListRequest, mergeCatalogPages, type RateListCatalog } from "../rate-list-catalog.js";
 import { brandsInText, explicitBrand,matchesProductSpecification } from "../productResolver.js";
-import { canonicalSlipWords } from "../conversationalMunshi.js";
+import { canonicalSlipWords } from "../shared/catalog-normalization.js";
 import {DEMAND_SLIP_ESTIMATE,demandRequested,demandDiscounts,hardwareKind,hardwareLabel} from '../demand-slip.js';
 import {normalizeVoiceChoices,cleanCustomerName} from '../voice-choices.js';
 

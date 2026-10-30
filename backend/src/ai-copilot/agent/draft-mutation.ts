@@ -1,7 +1,7 @@
 import { normalizeToolInput } from '../tool-input.js';
 import { z } from 'zod';
 import { DEPOT_ACTION_SCHEMAS } from '../tools/registry.js';
-import type { AgentModel } from './model.js';
+import type { AgentModel } from './model-contracts.js';
 import { ownerRatePresent } from '../owner-rate.js';
 
 export const draftMutationPatchSchema = z.strictObject({

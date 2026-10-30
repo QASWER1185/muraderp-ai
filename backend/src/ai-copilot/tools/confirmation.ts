@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { ApiError } from "../../errors/api-error.js";
 import { writeBusinessState, type BusinessState } from "../agent/business-state.js";
 import type { AgentScope } from "../agent/erp-tools.js";
-import type { AgentResult } from "../agent/agent.js";
-import { munshiErrorMessage } from "../conversationalMunshi.js";
+import type { AgentResult } from "../agent/contracts.js";
+import { munshiErrorMessage } from "../shared/response-errors.js";
 
 /** Whole-turn approval grammar. Negations, questions, quoted text and changed
  * prices/discounts are not permission to execute the saved preview. */

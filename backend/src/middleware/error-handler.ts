@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler, RequestHandler } from "express";
 import { ZodError } from "zod";
 import { ApiError } from "../errors/api-error.js";
-import { munshiErrorMessage } from "../ai-copilot/conversationalMunshi.js";
+import { munshiErrorMessage } from "../ai-copilot/shared/response-errors.js";
 
 export const notFoundHandler: RequestHandler = (request, response) => {
   const requestId = request.id;

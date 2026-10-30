@@ -3,7 +3,7 @@ import type { Database } from "../types/database.types.js";
 import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { ApiError } from "../errors/api-error.js";
 import { canonicalBrand, explicitBrand, sameBrand, matchesProductSpecification, canonicalCatalogQuery } from "../ai-copilot/productResolver.js";
-import { canonicalSlipWords } from "../ai-copilot/conversationalMunshi.js";
+import { canonicalSlipWords } from "../ai-copilot/shared/catalog-normalization.js";
 import {customerPhoneticQuery} from '../ai-copilot/voice-choices.js';
 
 export type SearchScope = { userId: string; organizationId: string; branchId: string };

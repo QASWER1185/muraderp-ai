@@ -23,7 +23,8 @@ import { explicitBrand, sameBrand, canonicalBrand, matchesProductSpecification }
 import { InstallationCompletenessService } from "../installationCompletenessService.js";
 import { applyHybridRules, groupQuotation, quotationCard, classifyMaterial } from "../hybridQuotationEngine.js";
 import { reconcileVendorQuote } from "../vendorQuoteAudit.js";
-import { landedCost,canonicalUnit } from "../conversationalMunshi.js";
+import { landedCost } from "../shared/document-utilities.js";
+import { canonicalUnit } from "../shared/catalog-normalization.js";
 import { SiteTransferService, DEPOT_WRITES } from "../siteTransferService.js";
 import type { CompanionLearningStore } from "../companionLearningStore.js";
 import type { DepotIntelligenceStore } from "../depotIntelligenceStore.js";

@@ -3,7 +3,7 @@ import { ApiError } from "../errors/api-error.js";
 import type { AgentScope } from "./agent/erp-tools.js";
 import type { OperationsDependencies } from "./tools/operations.js";
 import type { PreparedErpAction,ErpWriteName } from "./tools/registry.js";
-import { rateFreeChallan } from "./conversationalMunshi.js";
+import { rateFreeChallan } from "./shared/document-utilities.js";
 
 export const DEPOT_WRITES=new Set<ErpWriteName>(["erp_create_site","erp_prepare_site_return","erp_transfer_site_material","erp_deliver_site_transfer","erp_create_dispatch","erp_record_dispatch","erp_log_expense","erp_update_commodity_rates"]);
 const fail=(message:string):never=>{throw new ApiError(422,"ERP_ACTION_CLARIFICATION",message);};

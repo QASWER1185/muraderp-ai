@@ -71,6 +71,7 @@ export class LocalDemoTools {
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema)return result({supported:false});
     const p:any=schema.parse(raw);
+    if(name==='get_rate_list'||(name==='manage_inventory_and_rates'&&p.action==='inspect_rate_list'))return result({ok:false,supported:false,authoritative:false,message:'The real catalog database is disconnected locally. No brand overview or active rate list was inspected; do not invent IDs, discounts, item counts or price ranges.'});
     if(['list_customers','search_customers','search_products','get_stock'].includes(name))return result({ok:false,supported:false,authoritative:false,message:'Real ERP database is not connected locally. Customer/product/stock search was NOT performed. Do not report no match or zero stock. Open the signed-in production ERP for real records.'});
     if(name==='manage_shop_memory') {
       if(p.action==='retrieve')return result({data:(await localDemoStore.memories(scope)).filter(m=>m.category===p.category&&m.key===p.key.normalize('NFKC').trim().toLocaleLowerCase('en'))});

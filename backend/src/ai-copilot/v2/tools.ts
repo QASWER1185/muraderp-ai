@@ -13,8 +13,10 @@ import { vendorPaymentSchema } from '../agent/payment-state.js';
 import type { Conversation, V2Store } from './store.js';
 import type { SupabaseInvoiceBrowserRepository } from '../../repositories/invoice-browser.repository.js';
 import type { CopilotDirectoryRepository } from '../../repositories/copilot-directory.repository.js';
+import type { CopilotRateOverviewRepository } from '../../repositories/copilot-rate-overview.repository.js';
 
 const id = z.number().int().positive(), text = z.string().trim().min(1).max(200);
+const rateOverview=z.strictObject({query:text.optional(),rate_list_id:id.optional(),after_id:id.optional(),limit:z.number().int().min(1).max(10).default(5),sample_limit:z.number().int().min(1).max(10).default(5)});
 const ref = z.strictObject({ reference: text });
 const fields = z.strictObject({ name: text.optional(), phone: z.string().max(50).optional(), city: z.string().max(200).optional() });
 const nativeLine = z.strictObject({ id: id.optional(), product_id: id, quantity: z.number().finite().positive(), unit: text,
@@ -51,6 +53,7 @@ const party = z.union([
   z.strictObject({ type: z.enum(['customer','vendor']), action: z.literal('get_ledger'), data: z.strictObject({ id: id.optional(), query: text.optional(), limit: z.number().int().min(1).max(20).default(20) }) }),
 ]);
 export const V2_SCHEMAS = {
+  get_rate_list:rateOverview,
   list_customers:z.strictObject({limit:z.number().int().min(1).max(50).default(20),cursor:id.optional()}),
   search_customers:z.strictObject({query:text,limit:z.number().int().min(1).max(20).default(10)}),
   search_products:z.strictObject({query:text,brand:text.optional(),limit:z.number().int().min(1).max(20).default(10)}),
@@ -60,6 +63,7 @@ export const V2_SCHEMAS = {
     branch('list',z.strictObject({startDate:z.iso.date().optional(),endDate:z.iso.date().optional(),order:z.enum(['oldest','newest']).default('newest'),limit:z.number().int().min(1).max(50).default(10)}))]),
   record_financial_transaction: financial,
   manage_inventory_and_rates: z.union([
+    branch('inspect_rate_list',rateOverview),
     branch('search_rates', z.strictObject({ query: text, brand: text.optional(), quantity: z.number().positive().default(1) })),
     branch('check_stock', z.strictObject({ query: text.optional(), product_id: id.optional(), warehouse_id: id.optional(), limit: z.number().int().min(1).max(20).default(20) })),
     branch('adjust_stock', z.strictObject({ product_id: id, warehouse_id: id, quantity: z.number().finite(), reason: text })),
@@ -72,6 +76,7 @@ export const V2_SCHEMAS = {
   execute_prepared_action: z.strictObject({ previewId: z.string().uuid(), approvalEvidence: z.string().trim().min(1).max(4000),directInstruction:z.boolean().default(false) }),
 };
 const descriptions: Record<keyof typeof V2_SCHEMAS, string> = {
+  get_rate_list:'Proactively inspect a whole brand/catalog without a product ID. query accepts partial/fuzzy English/Urdu brand or list name/code (Popular, پاپولر, Dura); rate_list_id selects a known ID. No query lists active store-wide catalogs. Returns active version, effective dates, discount, complete distinct-product and rate-row counts, pipe/fitting/other grouping, categories, catalog price range with actual currency/units, and samples. Follow nextCursor as after_id for more matching lists. No guessed prices, no currency conversion, no sales ranking.',
   list_customers:'List actual customers without requiring a search phrase. Paginated by ID: follow nextCursor when hasMore; one page is not the full customer count.',
   search_customers:'Search actual customers by partial English/Urdu name, phone or city, including common Roman Urdu spellings. Inspect items; do not confuse ambiguous candidates with not found. Never guess an ID.',
   search_products:'Browse catalog matches by partial product name, category, SKU and brand. Supports PPRC/PPR-C and 25mm/25 mm variants. Returns candidates, not an automatically selected product. Use get_stock for on-hand quantity and active sale rates.',
@@ -97,6 +102,7 @@ export interface V2ToolDependencies {
   estimates: EstimateBrowserRepository;
   invoices?: Pick<SupabaseInvoiceBrowserRepository,'listForCopilot'>;
   directory?: CopilotDirectoryRepository;
+  rateOverview?: CopilotRateOverviewRepository;
   pricing: Pick<PricingService,'resolvePrice'>;
   erp: Pick<ErpService,'getVendor'|'updateVendor'|'listProducts'|'createProduct'>;
   store: V2Store;
@@ -128,6 +134,7 @@ export class V2ToolConnector {
     await this.authorize(scope);
     if (name === 'read_erp') {
       const p=z.strictObject({tool:z.string(),data:z.record(z.string(),z.unknown())}).parse(raw);
+      if(p.tool==='search_rate_lists')return this.execute('get_rate_list',{...p.data,limit:Math.min(Number(p.data.limit??5),10)},scope,c,userMessage,userEvidence,eligiblePreview);
       if(['list_customers','search_customers','lookup_customers','search_products','get_stock'].includes(p.tool))
         return this.execute(p.tool==='lookup_customers'?'search_customers':p.tool,p.data,scope,c,userMessage,userEvidence,eligiblePreview);
       if (!readNames.has(p.tool)) return unavailable('یہ صرف اصل ERP ریکارڈ پڑھنے کا راستہ ہے؛ اس سے تبدیلی نہیں کی جا سکتی۔');
@@ -136,6 +143,11 @@ export class V2ToolConnector {
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema) return unavailable('یہ کاروباری سہولت ابھی اس ERP میں موجود نہیں۔');
     const p:any=schema.parse(raw);
+    if(name==='get_rate_list'||(name==='manage_inventory_and_rates'&&p.action==='inspect_rate_list')){
+      await this.authorize(scope,'sales.read');
+      if(!this.deps.rateOverview)return unavailable('ریٹ لسٹ کی تفصیل پڑھنے کی سہولت ابھی دستیاب نہیں؛ اس سے کیٹلاگ خالی ہونے کی تصدیق نہیں ہوئی۔');
+      return this.deps.rateOverview.inspect(scope.organizationId,name==='get_rate_list'?p:p.data);
+    }
     if(['list_customers','search_customers','search_products','get_stock'].includes(name)) {
       await this.authorize(scope,name==='list_customers'||name==='search_customers'?'customers.read':'products.read');
       const directory=this.deps.directory;
