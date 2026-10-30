@@ -11,6 +11,10 @@ export function startServer() {
     console.log('[BROWSER-HIT]', req.method, req.url?.split('?')[0]);
     if (!localDemoHttp(req,res)) app(req,res);
   });
+  server.setTimeout(180000);
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 70000;
+  server.requestTimeout = 300000;
   server.listen(env.PORT, () => {
     console.log(`MuradERP API is running on http://localhost:${env.PORT}`);
   });

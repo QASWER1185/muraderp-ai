@@ -7,7 +7,7 @@ import { AnthropicAdapter } from "./anthropic.adapter.js";
 import { normalizeGeminiApiKey } from "./http.js";
 
 // Current stable native model; GEMINI_MODEL remains an explicit deployment override.
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
 function providerKey(name:AiProviderName){return name==="openai"?env.OPENAI_API_KEY:name==="groq"?env.GROQ_API_KEY:name==="gemini"?env.GEMINI_API_KEY:name==="anthropic"?env.ANTHROPIC_API_KEY:undefined;}
 function speechModel(name:AiProviderName,model:string){return name==="groq"?"whisper-large-v3-turbo":name==="gemini"||name==="anthropic"?model:"gpt-transcribe";}

@@ -155,7 +155,7 @@ describe("provider configuration and speech capabilities",()=>{
     try {
       expect(parseEnv({AI_PROVIDER:"gemini",GEMINI_API_KEY:serverKey}).success).toBe(true);
       expect(hasConfiguredAiProvider()).toBe(true);
-      expect(configuredAiProvider()).toMatchObject({provider:"gemini",apiKey:serverKey,model:"gemini-3.5-flash-lite"});
+      expect(configuredAiProvider()).toMatchObject({provider:"gemini",apiKey:serverKey,model:"gemini-2.5-flash"});
       const fetcher = fetchResult(native("gemini", [text("gemini", "READY")]));
       await createGeminiUserProvider(undefined,fetcher).toolTurn("ping",[{role:"user",content:"ping"}],[]);
       await createGeminiUserProvider(`  ${browserKey}\n`,fetcher).toolTurn("ping",[{role:"user",content:"ping"}],[]);
@@ -211,7 +211,7 @@ describe("provider configuration and speech capabilities",()=>{
     const provider=createGeminiUserProvider(userKey,fetcher);
     const result=await provider.toolTurn("safe",[{role:"user",content:"hello"}],[]);
     expect(result.output[0]).toMatchObject({type:"message",content:[{type:"output_text",text:"verified"}]});
-    expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-3.5-flash-lite:generateContent");
+    expect(String(fetcher.mock.calls[0]![0])).toContain("models/gemini-2.5-flash:generateContent");
     expect(fetcher.mock.calls[0]![1]!.headers).toMatchObject({"x-goog-api-key":userKey});
     expect(createAiProvider(config("gemini")).name).toBe("gemini");
   });

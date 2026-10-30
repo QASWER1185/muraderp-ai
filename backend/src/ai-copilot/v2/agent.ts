@@ -77,14 +77,15 @@ export class AutonomousV2Agent {
         }
       };
       const seen=new Map<string,unknown>();
-      for(let turn=0;turn<16;turn++) {
+      // Large slips may need many catalog lookups. Let the model choose its
+      // connectors within the request deadline, without a fixed line/call cap.
+      while(!signal.aborted) {
         const {output}=await this.provider.toolTurn(V2_INSTRUCTIONS,input,this.tools.definitions(),{toolChoice:'auto',signal});
         const parts=Array.isArray(output)?output:[];
         input.push(...parts);
         const calls=parts.filter((o:any)=>o?.type==='function_call');
         const prose=modelText(parts);
         if(!calls.length){answer=prose||await synthesize();break;}
-        if(toolNames.length+calls.length>32)break;
         for(const call of calls) {
           signal.throwIfAborted();
           let result:unknown;
