@@ -7,7 +7,9 @@ import { newBusinessState, type BusinessState } from '../agent/business-state.js
 export type MemoryCategory = 'shorthand' | 'brand_rule' | 'customer_pref';
 export type Memory = { category: MemoryCategory; key: string; value: string; evidence: string; verified_by: string };
 export type Pending = { id: string; kind: string; input: any; preview: any; financial: boolean; turn: number; expires: number };
-export type Conversation = { id: string; version: number; messages: Array<{ role: 'user' | 'assistant'; content: string }>; state: BusinessState; pending?: Pending | undefined; executions?: unknown[] };
+export type VisualPart = { inlineData: { mimeType: string; data: string } };
+export type ConversationMessage = { role: 'user' | 'assistant'; content: string; visualParts?: VisualPart[] };
+export type Conversation = { id: string; version: number; messages: ConversationMessage[]; state: BusinessState; pending?: Pending | undefined; executions?: unknown[] };
 export interface V2Store {
   open(scope: AgentScope, id?: string): Promise<Conversation>;
   claim(scope: AgentScope, conversation: Conversation): Promise<string>;
@@ -16,7 +18,8 @@ export interface V2Store {
   writeMemory(scope: AgentScope, entry: Memory, remove: boolean): Promise<void>;
 }
 
-/** Server-only tables. No tokens, attachments or provider keys are persisted. */
+/** Server-only, user/organization/branch-scoped chat, including uploaded visual parts.
+ * Provider keys and auth tokens are never stored in conversation messages. */
 export class SupabaseV2Store implements V2Store {
   constructor(private readonly database: () => any = getSupabaseAdminClient) {}
   private scoped(table: string, scope: AgentScope) {

@@ -4,7 +4,7 @@ import { createCopilotAuth } from '../middleware/copilot-auth.js';
 import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 import { ApiError } from '../errors/api-error.js';
 import { createLiveGeminiProvider } from '../ai-copilot/v2/live-provider.js';
-import { decodeMedia, mediaSchema, MEDIA_LIMIT } from '../ai-input/document-extraction.js';
+import { decodeMedia, mediaSchema } from '../ai-input/document-extraction.js';
 import { copilotMultipart } from '../ai-copilot/agent/multipart-input.js';
 import { createV2Agent } from '../ai-copilot/v2/factory.js';
 import type { AutonomousV2Agent } from '../ai-copilot/v2/agent.js';
@@ -29,7 +29,7 @@ export function createCopilotV2Router(options:{internalApiToken?:string|undefine
     const p=requestSchema.parse(req.body);
     const media=[...(p.media?[p.media]:[]),...(p.attachments??[]).map(a=>a.media)].map(decodeMedia);
     if(!p.message&&!media.length)throw new ApiError(422,'VALIDATION_ERROR','پیغام، پرچی یا صوتی ہدایت بھیج دیں۔');
-    if(media.reduce((sum,m)=>sum+m.bytes.length,0)>MEDIA_LIMIT)throw new ApiError(413,'MEDIA_TOO_LARGE','تمام فائلیں ملا کر 8 MB تک رکھیں۔');
+    if(media.reduce((sum,m)=>sum+m.bytes.length,0)>18*1024*1024)throw new ApiError(413,'MEDIA_TOO_LARGE','تمام compressed فائلیں ملا کر 18 MB تک رکھیں۔');
     const provider=options.provider??(options.agent?undefined:createLiveGeminiProvider(req.header('X-Api-Key')));
     let message=p.message;
     const images=[];

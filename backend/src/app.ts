@@ -63,9 +63,10 @@ export function createApp(options: AppOptions = {}) {
   const internalApiPrincipalId = options.internalApiPrincipalId ?? env.INTERNAL_API_PRINCIPAL_ID;
   const erpService = options.erpService ?? new SupabaseErpService();
 
-  // AI media is capped and signature-validated at 8 MB; only this route accepts the larger base64 JSON envelope.
+  // Copilot accepts a larger envelope for batches of compressed slips; individual
+  // files still undergo MIME/signature validation and scoped conversation storage.
   // Both URL namespaces use the same v2-only chat router; errors never fall through to v1.
-  app.use(["/api/v1/ai/copilot", "/api/copilot"], express.json({ limit: "12mb" }), createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
+  app.use(["/api/v1/ai/copilot", "/api/copilot"], express.json({ limit: "50mb" }), createAiCopilotRouter(internalApiToken, undefined, internalApiPrincipalId));
   app.use(express.json({ limit: "1mb" }));
   app.get("/", (_request, response) => response.status(200).send("MuradERP-AI Backend"));
   app.get("/api/test", (_request, response) => response.status(200).json({ success: true, message: "API Test Working" }));

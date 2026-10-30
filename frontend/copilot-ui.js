@@ -8,6 +8,7 @@ import { copilotRecoveryMessage } from "./copilot-recovery.js";
 import {saveDemandEstimateDraft} from './copilot-api.js';
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+const MAX_BATCH_BYTES = 18 * 1024 * 1024;
 const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
 const MEDIA_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","audio/webm","audio/mp4","audio/mpeg","audio/wav","audio/ogg"]);
 export function erpActionReviewMarkup(review) {
@@ -67,12 +68,12 @@ export function customerDraftReviewMarkup(review) {
 export function customerPreparationMarkup() {
   return '<article class="review-card" data-customer-preparation><span class="status-pill review">Details required</span><h3>Prepare new customer</h3><div class="review-fields"><label>Name<input name="name" type="text" maxlength="200" required /></label><label>Phone<input name="phone" type="tel" maxlength="50" required /></label><label>City/address<input name="city" type="text" maxlength="120" required /></label></div><p>Customer creation requires a separate explicit confirmation.</p><button class="button primary" type="button" data-prepare-customer>Prepare customer review</button></article>';
 }
-export function validateAttachment(file) {
+export function validateAttachment(file, sourceImage = false) {
   const suppliedMime=String(file.type).split(";")[0].trim().toLowerCase();
   const mimeType=suppliedMime==="image/jpg"?"image/jpeg":suppliedMime;
   if(!MEDIA_TYPES.has(mimeType)) throw new Error("Use a JPEG, PNG, WebP, PDF, or supported audio file.");
   if(!file.size) throw new Error("The attachment is empty.");
-  if(file.size>MAX_MEDIA_BYTES) throw new Error("Attachments must be 8 MB or smaller.");
+  if(file.size>(sourceImage && mimeType.startsWith('image/') ? 32*1024*1024 : MAX_MEDIA_BYTES)) throw new Error("Use photos up to 32 MB before compression, or other attachments up to 8 MB.");
   return mimeType;
 }
 export function ambiguityMarkup(clarification) {
@@ -180,6 +181,34 @@ export function sourceForAttachment(file, camera = false) {
   return camera ? "camera" : "image";
 }
 
+async function compressSlipPhoto(file) {
+  const mimeType = validateAttachment(file, true);
+  if (!mimeType.startsWith('image/')) return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('تصویر کھل نہیں سکی؛ دوبارہ منتخب کریں۔'));
+      element.src = url;
+    });
+    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    if (scale === 1 && file.size <= 512 * 1024) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('تصویر تیار نہیں ہو سکی؛ دوبارہ کوشش کریں۔');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.80));
+    if (!blob) throw new Error('تصویر compress نہیں ہو سکی؛ دوبارہ کوشش کریں۔');
+    const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', {type:'image/jpeg', lastModified:file.lastModified});
+    validateAttachment(compressed);
+    return compressed;
+  } finally { URL.revokeObjectURL(url); }
+}
+
 async function readFileAsBase64(file) {
   const mimeType=validateAttachment(file);
   const dataUrl = await new Promise((resolve, reject) => {
@@ -249,6 +278,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const micButton = document.querySelector("#copilot-mic");
   let attachment = null;
   let attachments = [];
+  let attachmentPreparation = Promise.resolve(), preparingAttachments = 0, attachmentGeneration = 0;
   let voiceAudio = null;
   let voiceAudioName = "";
   let attachmentFromCamera = false;
@@ -316,6 +346,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     status.hidden = !busy; status.innerHTML = busy ? `<span class="spinner"></span>${escapeHtml(message)}` : "";
   }
   function clearAttachment() {
+    attachmentGeneration++;
     attachmentUrls.forEach(url=>URL.revokeObjectURL(url));
     attachmentUrls = []; attachments=[]; attachment = null; voiceAudio = null; voiceAudioName = ""; attachmentFromCamera = false; fileInput.value = ""; cameraInput.value = ""; attachmentRoot.hidden = true; attachmentRoot.innerHTML = "";
   }
@@ -332,18 +363,29 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     attachment=attachments[0]??(voiceAudio?{type:voiceAudio.type,size:voiceAudio.size,name:voiceAudioName}:null);
   }
   function addAttachments(files,fromCamera=false) {
+    const generation = attachmentGeneration;
+    preparingAttachments++;
+    attachmentPreparation = attachmentPreparation.then(async () => {
     try {
-      const incoming=files.map(file=>({file,mimeType:validateAttachment(file)}));
+      const incoming=[];
+      for (const original of files) {
+        const file = await compressSlipPhoto(original);
+        incoming.push({file,mimeType:validateAttachment(file)});
+      }
+      if (generation !== attachmentGeneration) return;
       const incomingVoice=incoming.filter(item=>item.mimeType.startsWith("audio/"));
       const incomingSlips=incoming.filter(item=>!item.mimeType.startsWith("audio/"));
       if(incomingVoice.length>1||(incomingVoice.length&&voiceAudio))throw new Error("ایک پیغام کے ساتھ صرف ایک صوتی نوٹ شامل کریں۔");
       if(attachments.length+incomingSlips.length>10)throw new Error("ایک ساتھ زیادہ سے زیادہ 10 پرچیاں منتخب کریں۔");
-      if([...attachments,...incomingSlips.map(item=>item.file)].reduce((sum,file)=>sum+file.size,0)+(voiceAudio?.size??0)+incomingVoice.reduce((sum,item)=>sum+item.file.size,0)>MAX_MEDIA_BYTES)throw new Error("تمام فائلوں کا مجموعی حجم 8 MB تک رکھیں۔");
+      if([...attachments,...incomingSlips.map(item=>item.file)].reduce((sum,file)=>sum+file.size,0)+(voiceAudio?.size??0)+incomingVoice.reduce((sum,item)=>sum+item.file.size,0)>MAX_BATCH_BYTES)throw new Error("تمام compressed فائلوں کا مجموعی حجم 18 MB تک رکھیں۔");
       attachments=[...attachments,...incomingSlips.map(item=>item.file)];
       if(incomingVoice.length){voiceAudio=incomingVoice[0].file;voiceAudioName=voiceAudio.name||"صوتی پیغام";}
       if(fromCamera)attachmentFromCamera=true;
-    }catch(error){showError(error);return;}
-    renderAttachments();
+      renderAttachments();
+    }catch(error){if(generation===attachmentGeneration)showError(error);}
+    finally { preparingAttachments--; }
+    });
+    return attachmentPreparation;
   }
   function showError(error, action = null) {
     const original=error?.message??"";
@@ -474,6 +516,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
 
   async function analyze(selection, submission) {
     if (operationBusy) return;
+    if (preparingAttachments) { await attachmentPreparation; if (operationBusy) return; }
     const context = contextOrThrow();
     restoreHistory();
     const text = submission?.text??input.value.trim();

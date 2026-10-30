@@ -2,7 +2,7 @@ import express, {type RequestHandler} from "express";
 import {ApiError} from "../../errors/api-error.js";
 
 /** Bounded native multipart decoding; media validation still checks bytes/MIME. */
-export const copilotMultipart:RequestHandler[]=[express.raw({type:"multipart/form-data",limit:"9mb"}),async(req,_res,next)=>{
+export const copilotMultipart:RequestHandler[]=[express.raw({type:"multipart/form-data",limit:"50mb"}),async(req,_res,next)=>{
   if(!req.is("multipart/form-data")){next();return;}
   try{
     const form=await new Response(new Uint8Array(req.body),{headers:{"Content-Type":req.get("Content-Type")!}}).formData();
