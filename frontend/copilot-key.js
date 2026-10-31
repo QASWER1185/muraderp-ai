@@ -4,7 +4,8 @@ const validKey = (key) => key.length >= 20 && key.length <= 512 && !/[^\x21-\x7e
 export function getCopilotApiKey(storage) {
   try {
     const key = (storage ?? globalThis.localStorage)?.getItem(STORAGE_KEY)?.trim();
-    return key && validKey(key) ? key : null;
+    if (!key || !validKey(key)) { clearCopilotApiKey(storage); return null; }
+    return key;
   } catch {
     return null;
   }
@@ -12,6 +13,7 @@ export function getCopilotApiKey(storage) {
 
 export function saveCopilotApiKey(value, storage) {
   const key = String(value ?? "").trim();
+  if (!key) { clearCopilotApiKey(storage); return; }
   if (!validKey(key)) {
     throw new Error("Enter a valid Gemini API key (20–512 characters, without spaces or control characters).");
   }
@@ -21,5 +23,5 @@ export function saveCopilotApiKey(value, storage) {
 }
 
 export function clearCopilotApiKey(storage) {
-  try { (storage ?? globalThis.localStorage)?.removeItem(STORAGE_KEY); } catch {}
+  try { const target = storage ?? globalThis.localStorage; target?.removeItem(STORAGE_KEY); target?.removeItem("copilot_api_key"); } catch {}
 }

@@ -1,11 +1,11 @@
 import { copilotHistoryKey, loadCopilotHistory, saveCopilotHistory } from './copilot-history.js';
-import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js?v=20261030_flash46";
+import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js?v=20261031_chat47";
 import { clearCopilotApiKey, getCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
 import { copilotRecoveryMessage } from "./copilot-recovery.js";
-import {saveDemandEstimateDraft} from './copilot-api.js?v=20261030_flash46';
+import {saveDemandEstimateDraft} from './copilot-api.js?v=20261031_chat47';
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 const MAX_BATCH_BYTES = 18 * 1024 * 1024;
@@ -520,7 +520,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const context = contextOrThrow();
     restoreHistory();
     const text = submission?.text??input.value.trim();
-    const files=submission?.files??attachments, audio=submission?.audio??voiceAudio, audioName=submission?.audioName??voiceAudioName;
+    const files=[...(submission?.files??attachments)], audio=submission?.audio??voiceAudio, audioName=submission?.audioName??voiceAudioName;
     const camera=submission?.camera??attachmentFromCamera;
     if(submission&&(submission.userId!==getAuthenticatedUserId()||submission.organizationId!==context.organizationId||submission.branchId!==context.branchId))throw new Error("Workspace changed. Please resend in the active workspace.");
     if (!text && !files.length && !audio) throw new Error("Write a message or add an attachment first.");
@@ -542,6 +542,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     try {
       const encodedAttachments=await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})));
       const encodedVoice=sentVoiceAudio?{fileName:sentVoiceAudioName||"voice-note.webm",media:await readFileAsBase64(new File([sentVoiceAudio],sentVoiceAudioName||"voice-note.webm",{type:sentVoiceAudio.type}))}:null;
+      if(version!==operationVersion) return;
       const combinedAttachments=[...encodedAttachments,...(encodedVoice?[encodedVoice]:[])];
       const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(encodedAttachments[0] ? { media: encodedAttachments[0].media } : encodedVoice?.media ? {media:encodedVoice.media}: {}) };
       const mediaInput=combinedAttachments.length>1 ? {attachments:combinedAttachments} : {media:combinedAttachments[0]?.media??payload.media,fileName:combinedAttachments[0]?.fileName??sentAttachment?.name};
@@ -563,6 +564,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         const needsMedia=retryable || (response.data.status==="clarification" && !response.data.review && !response.data.draft);
         if(needsMedia)restoreSubmission();
         acceptedForConversation=!needsMedia;
+        if(acceptedForConversation){snapshot.files=[];snapshot.audio=null;retryAction=null;}
         if(!needsMedia){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
         restoredConversationId = response.data.conversationId;
@@ -814,6 +816,18 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     }
   });
   document.querySelector("#copilot-close").addEventListener("click", () => {const wasRecording=recorder?.state==="recording";recordingVersion++;clearTimeout(recordingTimer);if(wasRecording) recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null;micButton.classList.remove("recording");micButton.innerHTML=icon("mic");if(wasRecording) setBusy(false);dialog.close();});
+  document.querySelector("#copilot-new-chat").addEventListener("click", () => {
+    reset();
+    for (const storage of [browserHistoryStorage(), conversationStorage()]) {
+      try {
+        const keys = Array.from({length: storage?.length ?? 0}, (_, i) => storage.key(i));
+        for (const key of keys) if (key && (key.startsWith("muraderp.copilot.v2.history:") || key === "muraderp-copilot-conversation-v2" || key === "copilot_chat_history")) storage.removeItem(key);
+      } catch {}
+    }
+    quoteVersions.clear(); demandDraftScopes.clear(); recordingChunks=[];
+    micButton.classList.remove("recording"); micButton.innerHTML=icon("mic");
+    input.style.height="auto"; input.focus();
+  });
   document.querySelector("#copilot-settings").addEventListener("click", () => void openKeySettings());
   document.querySelector("#copilot-key-close").addEventListener("click", () => keyDialog.close());
   document.querySelector("#copilot-key-cancel").addEventListener("click", () => keyDialog.close());
