@@ -174,3 +174,12 @@ describe('Copilot v2 native reasoning and scoped ERP connector',()=>{
     expect(Object.keys(V2_SCHEMAS)).toEqual(expect.arrayContaining(['manage_estimate','manage_invoice','record_financial_transaction','manage_inventory_and_rates','manage_party','manage_shop_memory']));
   });
 });
+
+describe('targeted saved edits',()=>{
+ it('preserves 27 untouched rows, validates net against net and performs no catalog lookup',async()=>{
+ const f=fixture(),c=await f.store.open(scope);const lines=Array.from({length:28},(_,i)=>({id:i+1,line_number:i+1,product_id:i+1,description:'Item '+(i+1),quantity:8,unit:'pcs',list_price:100,unit_price:60,stored_unit_price:100,discount_percent:40,discount_amount:320}));
+ f.deps.estimates.get.mockResolvedValue({id:28,status:'DRAFT',updated_at:'now',grand_total:13440,lines});
+ const r=await f.tools.execute('manage_estimate',{action:'update',data:{reference:'28',changes:{updateLines:[{lineId:1,changes:{quantity:9,list_price:100,unit_price:60,discount_percent:40}}]}}},scope,c,'quantity9','quantity9');
+ expect(c.pending!.input.changes.lines).toHaveLength(28);expect(c.pending!.input.changes.lines[0]).toMatchObject({id:1,quantity:9,list_price:100});expect(c.pending!.input.changes.lines[1]).toMatchObject({id:2,quantity:8,list_price:100});expect(r.preview.after.grand_total).toBe(13500);expect(f.deps.pricing.resolvePrice).not.toHaveBeenCalled();
+ });
+});

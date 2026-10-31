@@ -25,7 +25,8 @@ const nativeLine = z.strictObject({ id: id.optional(), product_id: id.nullable()
   termsEvidence:z.string().max(4000).optional(),rateListId:id.optional() });
 const edit = z.strictObject({ notes: z.string().max(2000).nullable().optional(), issue_date: z.iso.date().optional(), customer_id: id.optional(),
   document_template: z.enum(['sanitary_electric','building_material']).optional(), pass_through_rent: z.number().finite().nonnegative().optional(),
-  status: z.enum(['DRAFT','READY','CANCELLED']).optional(), lines: z.array(nativeLine).min(1).max(500).optional() });
+  status: z.enum(['DRAFT','READY','CANCELLED']).optional(), lines: z.array(nativeLine).min(1).max(500).optional(),
+  updateLines:z.array(z.strictObject({lineId:id.optional(),lineNumber:id.optional(),itemName:text.optional(),changes:nativeLine.partial()})).min(1).max(500).optional() });
 const estimateCreate = actions.erp_create_estimate.omit({ mode: true, storeRules: true, hardwareRates: true });
 const amend = actions.erp_amend_estimate.omit({ mode: true, storeRules: true, hardwareRates: true }).partial();
 const revision = z.strictObject({ draftId: z.string().uuid().optional(), reference: text.optional(), changes: z.union([edit, amend]) });
@@ -82,7 +83,7 @@ const descriptions: Record<keyof typeof V2_SCHEMAS, string> = {
   search_customers:'Search actual customers by partial English/Urdu name, phone or city, including common Roman Urdu spellings. Inspect items; do not confuse ambiguous candidates with not found. Never guess an ID.',
   search_products:'Browse catalog matches by partial product name, category, SKU and brand. Supports PPRC/PPR-C and 25mm/25 mm variants. Returns candidates, not an automatically selected product. Use get_stock for on-hand quantity and active sale rates.',
   get_stock:'Search multiple matching products and read each actual organization/warehouse stock and active sale rate. Missing balance or rate is unknown, never zero. Branch on-hand is unsupported. Product unit and quantity scope are explicit.',
-  manage_estimate: 'Read by saved estimate reference; prepare a new estimate or revise current preview by draftId. To edit a saved estimate use reference + changes with ALL desired native lines (including retained lines). Delete prepares native cancellation, not hard deletion. Native line list_price is pre-discount. Missing rates require clarification. No stock required.',
+  manage_estimate: 'Read by saved estimate reference; create or revise a draft. Saved edits: reference + changes.updateLines:[{lineId OR lineNumber OR exact itemName,changes:{quantity:9}}]. Send ONLY changed fields and rows; server preserves all untouched lines, prices and IDs. No need to read/reproduce/reprice every line. list_price is GROSS before discount; discount_percent is percent; unit_price and price are NET after discount. Never put net unit_price into list_price. Full changes.lines is replacement only. Delete prepares cancellation. Missing rates stay pending. No stock required.',
   manage_invoice: 'Inspect invoice documents using action=list with startDate/endDate (issue dates), order=oldest/newest and limit. For first invoice use oldest and limit=1; for any bills today list today. Do not substitute sales summaries. action=get reads a known invoice reference. Prepare sales invoice, estimate conversion or historical sales return using data.operation. Update revises an unconfirmed preview by draftId. Posted invoice update/delete is unavailable; use a return/credit. Always preview before posting.',
   record_financial_transaction: 'Prepare customer receipt, vendor payment, salary or expense through authoritative accounting. Show allocations and totals. Bank-transfer engine is not implemented: return a capability limit. Never create an unbalanced journal or guess accounts.',
   manage_inventory_and_rates: 'Read active catalog rates or stock; prepare a catalog product with zero placeholder base prices (not an active rate), or update_rates for a verified rate-list import. Costed stock adjustments are not implemented by the native accounting engine: report this limitation.',
@@ -144,7 +145,7 @@ export class V2ToolConnector {
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema) return unavailable('یہ کاروباری سہولت ابھی اس ERP میں موجود نہیں۔');
     const p:any=schema.parse(raw);
-    if(name==='manage_estimate'){if(p.action==='create')p.data=normalizeEstimateInput(p.data);if(p.action==='update'&&p.data.changes)p.data.changes=normalizeEstimateInput(p.data.changes);}
+    if(name==='manage_estimate'){if(p.action==='create')p.data=normalizeEstimateInput(p.data);if(p.action==='update'&&p.data.changes&&!p.data.reference)p.data.changes=normalizeEstimateInput(p.data.changes);}
     if(name==='get_rate_list'||(name==='manage_inventory_and_rates'&&p.action==='inspect_rate_list')){
       await this.authorize(scope,'sales.read');
       if(!this.deps.rateOverview)return unavailable('ریٹ لسٹ کی تفصیل پڑھنے کی سہولت ابھی دستیاب نہیں؛ اس سے کیٹلاگ خالی ہونے کی تصدیق نہیں ہوئی۔');
@@ -224,11 +225,35 @@ export class V2ToolConnector {
         const before=await this.deps.estimates.get(scope.organizationId,scope.branchId,p.data.reference);
         if(!before)return unavailable('یہ ایسٹیمیٹ اس برانچ میں نہیں ملا۔');
         const changes:any=p.action==='delete'?{status:'CANCELLED'}:edit.parse(p.data.changes);
+        const deltaIds=new Set<number>();
+        if(changes.updateLines){
+          if(changes.lines)return unavailable('ایک ہی درخواست میں مکمل لائنیں اور جزوی تبدیلیاں نہ بھیجیں۔');
+          const updates=new Map<number,any>();
+          for(const delta of changes.updateLines){
+            const matches=before.lines.filter((line:any)=>delta.lineId?line.id===delta.lineId:delta.lineNumber?line.line_number===delta.lineNumber:delta.itemName&&[line.description,line.product_name].some((n:any)=>n?.trim().toLocaleLowerCase()===delta.itemName.trim().toLocaleLowerCase()));
+            if(matches.length!==1||updates.has(matches[0].id))return unavailable('تبدیل ہونے والی سطر کا منفرد نمبر یا مکمل نام بتا دیں۔');
+            updates.set(matches[0].id,delta.changes);
+            deltaIds.add(matches[0].id);
+          }
+          changes.lines=before.lines.map((line:any)=>{
+            const base={id:line.id,product_id:line.product_id??null,quantity:line.quantity,unit:line.unit,list_price:line.list_price,discount_percent:line.discount_percent??0,description:line.description??line.product_name,is_pending:line.is_pending??false,is_unlisted:line.is_unlisted??line.product_id==null};
+            const delta=updates.get(line.id);if(!delta)return base;
+            // A net-only rate update replaces the old gross value; quantity-only
+            // edits retain the exact saved gross rate without catalog lookups.
+            if(delta.list_price==null&&(delta.unit_price!=null||delta.price!=null))delete (base as any).list_price;
+            return {...base,...delta,id:line.id};
+          });
+          delete changes.updateLines;
+        }
         if(!Object.keys(changes).length)return unavailable('ایسٹیمیٹ میں مطلوبہ تبدیلی بتا دیں۔');
         for(const row of changes.lines??[]) {
           const prior=before.lines.find((l:any)=>row.id?l.id===row.id:row.product_id!=null&&l.product_id===row.product_id);
-          const prices=[row.list_price,row.unit_price,row.price].filter((n:any)=>n!=null);
-          if(prices.some((n:any)=>n!==prices[0]))return unavailable('ایک سطر کے لیے مختلف فی یونٹ نرخ دیے گئے ہیں؛ ایک درست نرخ بتا دیں۔');
+          const discount=row.discount_percent??prior?.discount_percent??0;
+          const net=row.unit_price??row.price;
+          if(row.unit_price!=null&&row.price!=null&&Math.abs(row.unit_price-row.price)>.005)return unavailable('خالص نرخ آپس میں مختلف ہیں۔');
+          const gross=row.list_price??(net!=null?(discount===100?0:net/(1-discount/100)):undefined);
+          if(net!=null&&gross!=null&&Math.abs(gross*(1-discount/100)-net)>.005)return unavailable('خالص نرخ، اصل نرخ اور رعایت سے مطابقت نہیں رکھتا۔');
+          const prices=gross==null?[]:[gross];
           const specified=['list_price','unit_price','price'].some(k=>Object.hasOwn(row,k));
           if(specified&&prices[0]>0)row.is_pending=false;
           row.is_pending??=specified?(prices[0]==null||(prices[0]===0&&!row.termsEvidence)):(prior?.is_pending??true);
@@ -250,8 +275,11 @@ export class V2ToolConnector {
         if(changes.lines)changes.lines=changes.lines.map(({termsEvidence: _e,rateListId: _r,...line}:any)=>line);
         const lines=changes.lines?.map((l:any)=>({...l,unit_price:l.list_price,discount_amount:l.quantity*l.list_price*l.discount_percent/100}));
         const after=estimateView({...before,...changes},lines??before.lines.map((line:any)=>({...line,unit_price:line.stored_unit_price??line.unit_price})));
-        return this.preview(c,'estimate_patch',{id:before.id,changes:{...changes,expected_updated_at:before.updated_at}},
+        const response=this.preview(c,'estimate_patch',{id:before.id,changes:{...changes,expected_updated_at:before.updated_at}},
           {title:'Estimate update',before:{total:before.grand_total,status:before.status},after,summary:p.action==='delete'?'ایسٹیمیٹ منسوخ کرنے کا پری ویو؛ hard delete نہیں ہوگا۔':'ایسٹیمیٹ کی مطلوبہ تبدیلی اور مکمل رقم کا پری ویو۔'});
+        // Keep the complete transaction snapshot server-side. The model only
+        // needs the changed rows and authoritative totals to explain the edit.
+        return deltaIds.size?{...response,preview:{...response.preview,after:{...after,lines:after.lines.filter((line:any)=>deltaIds.has(line.id))},retainedLineCount:before.lines.length-deltaIds.size}}:response;
       }
       const draftId=p.data.draftId??c.state.workingActionId;
       if(!draftId)return unavailable('تبدیل کرنے کے لیے محفوظ ایسٹیمیٹ نمبر یا اسی گفتگو کا مسودہ بتا دیں۔');
