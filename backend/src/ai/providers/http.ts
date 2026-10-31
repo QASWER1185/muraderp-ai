@@ -30,7 +30,7 @@ export async function providerJson(fetcher: typeof fetch, url: string, key: stri
   try { response=await fetcher(url,{method:"POST",redirect:"error",headers:outboundHeaders,body:JSON.stringify(body),signal:signal??AbortSignal.timeout(60_000)}); }
   catch { throw new ApiError(502,"AI_PROVIDER_UNAVAILABLE","AI provider could not be reached. Please retry."); }
   if(response.status===429) {
-    const quota=await response.clone().json().catch(()=>null);
+    const quota=await response.clone().json().catch(()=>null) as {error?:{dailyQuota?:boolean}}|null;
     if(quota?.error?.dailyQuota===true) throw new ApiError(429,"AI_PROVIDER_QUOTA_EXHAUSTED","The Gemini daily quota is exhausted. Wait for reset or update project quota/billing.");
     throw new ApiError(429,"AI_PROVIDER_RATE_LIMITED","The configured AI provider rate limit was reached. Please wait before retrying.");
   }
