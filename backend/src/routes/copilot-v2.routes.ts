@@ -1,3 +1,4 @@
+import { resolveRequestGeminiKey } from '../ai-copilot/v2/resilience.js';
 import { Router, type RequestHandler, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { createCopilotAuth } from '../middleware/copilot-auth.js';
@@ -30,7 +31,7 @@ export function createCopilotV2Router(options:{internalApiToken?:string|undefine
     const media=[...(p.media?[p.media]:[]),...(p.attachments??[]).map(a=>a.media)].map(decodeMedia);
     if(!p.message&&!media.length)throw new ApiError(422,'VALIDATION_ERROR','پیغام، پرچی یا صوتی ہدایت بھیج دیں۔');
     if(media.reduce((sum,m)=>sum+m.bytes.length,0)>18*1024*1024)throw new ApiError(413,'MEDIA_TOO_LARGE','تمام compressed فائلیں ملا کر 18 MB تک رکھیں۔');
-    const provider=options.provider??(options.agent?undefined:createLiveGeminiProvider(req.header('X-Api-Key')));
+    const provider=options.provider??(options.agent?undefined:createLiveGeminiProvider(resolveRequestGeminiKey(req.header('X-Api-Key'))??resolveRequestGeminiKey(req.header('X-Gemini-Api-Key'))));
     let message=p.message;
     const images=[];
     for(const item of media) {

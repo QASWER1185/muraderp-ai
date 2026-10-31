@@ -29,7 +29,11 @@ export async function providerJson(fetcher: typeof fetch, url: string, key: stri
   let response: Response;
   try { response=await fetcher(url,{method:"POST",redirect:"error",headers:outboundHeaders,body:JSON.stringify(body),signal:signal??AbortSignal.timeout(60_000)}); }
   catch { throw new ApiError(502,"AI_PROVIDER_UNAVAILABLE","AI provider could not be reached. Please retry."); }
-  if(response.status===429) throw new ApiError(429,"AI_PROVIDER_RATE_LIMITED","The configured AI provider rate limit was reached. Please wait before retrying.");
+  if(response.status===429) {
+    const quota=await response.clone().json().catch(()=>null);
+    if(quota?.error?.dailyQuota===true) throw new ApiError(429,"AI_PROVIDER_QUOTA_EXHAUSTED","The Gemini daily quota is exhausted. Wait for reset or update project quota/billing.");
+    throw new ApiError(429,"AI_PROVIDER_RATE_LIMITED","The configured AI provider rate limit was reached. Please wait before retrying.");
+  }
   if(response.status===401 || response.status===403) throw new ApiError(401,"AI_API_KEY_REJECTED","The AI provider rejected its API key or model access. Check Copilot API key settings or contact your administrator.");
   if(response.status===402) throw new ApiError(402,"AI_PROVIDER_PAYMENT_REQUIRED","The AI provider requires an active billing plan or available credits.");
   if(response.status===404) throw new ApiError(503,"AI_MODEL_UNAVAILABLE","The configured AI model is unavailable. Check the provider model setting.");

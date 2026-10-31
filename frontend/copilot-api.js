@@ -52,8 +52,10 @@ export async function askCopilot(message, organizationId, branchId, conversation
 }
 
 export async function askCopilotMedia(input, organizationId, branchId) {
+  if(input.source === "text") return askCopilot(input.message ?? "",organizationId,branchId,input.conversationToken,input.conversationId,input.selection);
+  const {messages: _messages, history: _history, ...currentUpload} = input;
   return api(COPILOT_CHAT_PATH, {
-    method:"POST",headers:{"X-Organization-Id":organizationId,"X-Branch-Id":branchId},body:JSON.stringify(input),
+    method:"POST",headers:{"X-Organization-Id":organizationId,"X-Branch-Id":branchId},body:JSON.stringify(currentUpload),
   });
 }
 

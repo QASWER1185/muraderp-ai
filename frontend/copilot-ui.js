@@ -1,11 +1,11 @@
 import { copilotHistoryKey, loadCopilotHistory, saveCopilotHistory } from './copilot-history.js';
-import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js?v=20261031_chat47";
+import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js?v=20261031_quota48";
 import { clearCopilotApiKey, getCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
 import { copilotRecoveryMessage } from "./copilot-recovery.js";
-import {saveDemandEstimateDraft} from './copilot-api.js?v=20261031_chat47';
+import {saveDemandEstimateDraft} from './copilot-api.js?v=20261031_quota48';
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 const MAX_BATCH_BYTES = 18 * 1024 * 1024;
@@ -854,6 +854,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     event.preventDefault(); keyResult.hidden = true;
     try {
       saveCopilotApiKey(keyInput.value);
+      void refreshProviderStatus();
       keyInput.value = "";
       keyDialog.close();
     } catch (error) {

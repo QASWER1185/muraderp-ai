@@ -28,6 +28,14 @@ function fixture(){
   return {store,deps,tools,provider,agent:new AutonomousV2Agent(provider,tools,store),review};
 }
 describe('Copilot v2 native reasoning and scoped ERP connector',()=>{
+  it('does not replay or persist image bytes on a later text turn',async()=>{
+    const f=fixture();f.provider.toolTurn.mockResolvedValue(say('Read the slip'));
+    const first=await f.agent.run({message:'Read slip',content:[{type:'input_image',image_url:'data:image/png;base64,dGVzdA=='}]},scope);
+    expect(JSON.stringify(f.provider.toolTurn.mock.calls[0])).toContain('base64,dGVzdA==');
+    await f.agent.run({message:'Hi',conversationId:first.conversationId},scope);
+    expect(JSON.stringify(f.provider.toolTurn.mock.calls[1])).not.toContain('base64,dGVzdA==');
+    expect(JSON.stringify([...f.store.rows.values()])).not.toContain('inlineData');
+  });
   it('passes a natural Urdu customer request and attached image to Gemini, then forwards its structured estimate request',async()=>{
     const f=fixture();
     const message='ان پرچیوں سے آپ ارسلان شاہنواز صاحب اتحاد ٹاؤن لاہور کے گاہک کا ایسٹیمیٹ بنا دیں';
