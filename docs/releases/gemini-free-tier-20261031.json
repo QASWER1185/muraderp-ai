@@ -1,0 +1,18 @@
+{
+  "syntheticSlipVision": "SLIP 7 correctly recognized, HTTP 200",
+  "quotaSource": "Service Usage consumerQuotaMetrics: generate_content_free_tier_requests",
+  "testsRun": false,
+  "quotaProject": "muraderp-ai",
+  "apiVersion": "v1beta",
+  "pingHttp": 200,
+  "environment": {
+    "GEMINI_MODEL": "gemini-3.1-flash-lite",
+    "AI_MODEL": "gemini-3.1-flash-lite",
+    "AI_VISION_MODEL": "gemini-3.1-flash-lite"
+  },
+  "model": "gemini-3.1-flash-lite",
+  "runtimeCode": "Existing configuration-driven native Gemini adapter; no hardcoded model fallback",
+  "freeTierRequestsPerDay": 500,
+  "apiKeyOwningProjectIndependentlyVerified": false,
+  "freeTierRequestsPerMinute": 15
+}
