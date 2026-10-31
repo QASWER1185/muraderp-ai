@@ -1,3 +1,4 @@
+import { normalizeSavedEstimateLine } from '../ai-copilot/estimate-price-aliases.js';
 import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { createCopilotAuth } from '../middleware/copilot-auth.js';
@@ -10,13 +11,13 @@ import { assertBrowserSameOrigin } from '../security/browser-origin.js';
 
 const positive=z.number().int().positive(), date=z.string().date();
 const filters=z.object({search:z.string().trim().max(120).optional(),status:z.enum(['DRAFT','READY','INVOICED','CANCELLED']).optional(),from:date.optional(),to:date.optional(),limit:z.coerce.number().int().min(1).max(100).default(50),cursor:z.coerce.number().int().positive().optional()});
-const line=z.strictObject({id:positive.optional(),product_id:positive,quantity:z.number().positive().finite(),unit:z.string().trim().min(1).max(50),unit_price:z.number().finite().nonnegative().optional(),list_price:z.number().finite().nonnegative().optional(),discount_percent:z.number().finite().min(0).max(100).optional(),discount_amount:z.number().finite().nonnegative().optional(),description:z.string().trim().max(500).nullable().optional()}).superRefine((l,ctx)=>{
+const line=z.preprocess(normalizeSavedEstimateLine,z.strictObject({id:positive.optional(),product_id:positive.nullable().optional(),is_pending:z.boolean().optional(),is_unlisted:z.boolean().optional(),quantity:z.number().positive().finite(),unit:z.string().trim().min(1).max(50),unit_price:z.number().finite().nonnegative().optional(),list_price:z.number().finite().nonnegative().optional(),discount_percent:z.number().finite().min(0).max(100).optional(),discount_amount:z.number().finite().nonnegative().optional(),description:z.string().trim().max(500).nullable().optional()}).superRefine((l,ctx)=>{
   if(l.list_price===undefined&&l.unit_price===undefined)ctx.addIssue({code:'custom',path:['list_price'],message:'A list or saved rate is required'});
   if(l.discount_percent!==undefined&&l.list_price===undefined)ctx.addIssue({code:'custom',path:['list_price'],message:'List rate is required with a percentage discount'});
   if(l.list_price!==undefined&&l.unit_price!==undefined)ctx.addIssue({code:'custom',path:['unit_price'],message:'Use either list rate or legacy saved rate'});
   if(l.discount_amount!==undefined&&l.discount_percent!==undefined)ctx.addIssue({code:'custom',path:['discount_amount'],message:'Use a percentage or an amount discount, not both'});
   if((l.discount_amount??0)>l.quantity*(l.list_price??l.unit_price??0))ctx.addIssue({code:'custom',path:['discount_amount'],message:'Discount exceeds the line amount'});
-});
+}));
 const patch=z.strictObject({status:z.enum(['DRAFT','READY','INVOICED','CANCELLED']).optional(),expected_updated_at:z.string().datetime({offset:true}),notes:z.string().max(2000).nullable().optional(),issue_date:date.optional(),customer_id:positive.optional(),document_template:z.enum(['sanitary_electric','building_material']).optional(),pass_through_rent:z.number().finite().nonnegative().optional(),lines:z.array(line).min(1).max(500).optional()}).refine(p=>Object.keys(p).length>1,{message:'Specify a status or editable estimate field'});
 export function createEstimateBrowserRouter(options:{repository?:EstimateBrowserRepository;authenticate?:RequestHandler;tenantAuthorizer?:Pick<TenantAccessService,'assertAuthorized'> | undefined;internalApiToken?:string | undefined;servicePrincipalId?:string | undefined}={}){
   const router=Router(), repository=options.repository??new SupabaseEstimateBrowserRepository();

@@ -103,8 +103,8 @@ export class AutonomousV2Agent {
           } catch(error) {
             console.error('[TOOL-ERROR]',call.name,'args:',diagnostic(call.arguments),'stack:',diagnostic(error instanceof Error?error.stack??error.message:error));
             if(error instanceof ApiError && [401,403].includes(error.status))throw error;
-            result=error instanceof z.ZodError?{ok:false,message:'چند ضروری تفصیلات درست یا مکمل کر دیں۔',fields:error.issues.map(i=>i.path.join('.'))}
-              : {ok:false,message:v2ErrorMessage(error instanceof ApiError?error.code:'ERP_READ_FAILED')};
+            result=error instanceof z.ZodError?{ok:false,message:'چند ضروری تفصیلات درست یا مکمل کر دیں۔',code:'TOOL_VALIDATION_FAILED',fields:error.issues.map(i=>({path:i.path.join('.'),code:i.code,message:i.message}))}
+              : {ok:false,code:error instanceof ApiError?error.code:'ERP_READ_FAILED',message:v2ErrorMessage(error instanceof ApiError?error.code:'ERP_READ_FAILED')};
           }
           toolNames.push(call.name);
           input.push({type:'function_call_output',call_id:call.call_id,output:JSON.stringify(result)});

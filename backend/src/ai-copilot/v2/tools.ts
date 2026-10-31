@@ -1,3 +1,4 @@
+import { normalizeEstimateInput } from '../estimate-price-aliases.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { PermissionCode } from '../../auth/authorization.types.js';
@@ -19,8 +20,8 @@ const id = z.number().int().positive(), text = z.string().trim().min(1).max(200)
 const rateOverview=z.strictObject({query:text.optional(),rate_list_id:id.optional(),after_id:id.optional(),limit:z.number().int().min(1).max(10).default(5),sample_limit:z.number().int().min(1).max(10).default(5)});
 const ref = z.strictObject({ reference: text });
 const fields = z.strictObject({ name: text.optional(), phone: z.string().max(50).optional(), city: z.string().max(200).optional() });
-const nativeLine = z.strictObject({ id: id.optional(), product_id: id, quantity: z.number().finite().positive(), unit: text,
-  list_price: z.number().finite().nonnegative(), discount_percent: z.number().min(0).max(100).optional(), description: z.string().max(500).nullable().optional(),
+const nativeLine = z.strictObject({ id: id.optional(), product_id: id.nullable().optional(), name:text.optional(), size:text.optional(), is_pending:z.boolean().optional(), is_unlisted:z.boolean().optional(), quantity: z.number().finite().positive(), unit: z.string().trim().min(1).max(50),
+  list_price: z.number().finite().nonnegative().nullable().optional(), unit_price:z.number().finite().nonnegative().nullable().optional(), price:z.number().finite().nonnegative().nullable().optional(), discount_percent: z.number().min(0).max(100).optional(), description: z.string().max(500).nullable().optional(),
   termsEvidence:z.string().max(4000).optional(),rateListId:id.optional() });
 const edit = z.strictObject({ notes: z.string().max(2000).nullable().optional(), issue_date: z.iso.date().optional(), customer_id: id.optional(),
   document_template: z.enum(['sanitary_electric','building_material']).optional(), pass_through_rent: z.number().finite().nonnegative().optional(),
@@ -96,7 +97,7 @@ export const readNames = new Set(['search_products','lookup_product','lookup_cus
 const fingerprint = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const unavailable = (message: string) => ({ supported: false, executed: false, message });
 export interface V2ToolDependencies {
-  runtime: Pick<CopilotRuntime,'createUnifiedDraft'|'reviseUnifiedDraft'|'confirmAndExecute'|'createMasterDataDraft'|'createFinancialDraft'>;
+  runtime: Pick<CopilotRuntime,'createUnifiedDraft'|'reviseUnifiedDraft'|'confirmAndExecute'|'createMasterDataDraft'|'createFinancialDraft'> & Partial<Pick<CopilotRuntime,'saveDemandDraft'>>;
   reads: Pick<ErpToolRegistry,'definitions'|'execute'>;
   access: Pick<TenantAccessService,'assertBranchAccess'|'assertPermission'>;
   estimates: EstimateBrowserRepository;
@@ -127,7 +128,7 @@ export class V2ToolConnector {
     // V2 never enables legacy auto-save/auto-learning modes.
     const financial=['erp_create_invoice','erp_convert_estimate_to_invoice','erp_customer_return','erp_record_payment','erp_log_expense'].includes(review.tool)
       ||(review.tool==='erp_create_customer'&&Number(data.openingBalance??0)!==0);
-    const result = this.preview(c, 'runtime', { draftId: review.draftId, idempotencyKey: review.idempotencyKey }, review.preview,financial);
+    const result = this.preview(c, 'runtime', { draftId: review.draftId, idempotencyKey: review.idempotencyKey, nativeDraftOnly:!financial&&review.tool==='erp_create_estimate'&&(review.preview as any).nativeDraftOnly===true }, review.preview,financial);
     return { ...result, incomplete: review.preview.incomplete === true };
   }
   async execute(name: string, raw: unknown, scope: AgentScope, c: Conversation, userMessage: string, userEvidence: string, eligiblePreview?: string) : Promise<any> {
@@ -143,6 +144,7 @@ export class V2ToolConnector {
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema) return unavailable('یہ کاروباری سہولت ابھی اس ERP میں موجود نہیں۔');
     const p:any=schema.parse(raw);
+    if(name==='manage_estimate'){if(p.action==='create')p.data=normalizeEstimateInput(p.data);if(p.action==='update'&&p.data.changes)p.data.changes=normalizeEstimateInput(p.data.changes);}
     if(name==='get_rate_list'||(name==='manage_inventory_and_rates'&&p.action==='inspect_rate_list')){
       await this.authorize(scope,'sales.read');
       if(!this.deps.rateOverview)return unavailable('ریٹ لسٹ کی تفصیل پڑھنے کی سہولت ابھی دستیاب نہیں؛ اس سے کیٹلاگ خالی ہونے کی تصدیق نہیں ہوئی۔');
@@ -173,9 +175,15 @@ export class V2ToolConnector {
       if(!pending || pending.id!==p.previewId || (!approvedPrior&&!requestedDirect) || pending.expires<Date.now())
         return unavailable('اسی گفتگو کا تازہ پری ویو پہلے دیکھ لیں؛ موجودہ درخواست میں نیا پری ویو منظور نہیں ہو سکتا۔');
       if(!userMessage.includes(p.approvalEvidence)) return unavailable('منظوری موجودہ صارف کی ہدایت سے واضح نہیں؛ اصل پری ویو کی منظوری بتا دیں۔');
-      if(pending.preview.incomplete) return unavailable('پہلے باقی آئٹمز اور نرخ واضح کر دیں؛ نامکمل رقم پوسٹ نہیں ہو سکتی۔');
+      if(pending.preview.incomplete&&!pending.input.nativeDraftOnly) return unavailable('پہلے باقی آئٹمز اور نرخ واضح کر دیں؛ نامکمل رقم پوسٹ نہیں ہو سکتی۔');
       let result: any;
-      if(pending.kind==='runtime') result=await this.deps.runtime.confirmAndExecute(pending.input.draftId,scope.organizationId,scope.userId,pending.input.idempotencyKey,scope.branchId);
+      if(pending.kind==='runtime'&&pending.input.nativeDraftOnly){
+        if(!this.deps.runtime.saveDemandDraft)throw new Error('Native draft persistence is unavailable');
+        const saved=await this.deps.runtime.saveDemandDraft(pending.input.draftId,scope);
+        result=await this.deps.estimates.get(scope.organizationId,scope.branchId,String(saved.id));
+        if(!result||result.lines.length!==saved.lineCount)throw new Error('Saved draft row verification failed');
+      }
+      else if(pending.kind==='runtime') result=await this.deps.runtime.confirmAndExecute(pending.input.draftId,scope.organizationId,scope.userId,pending.input.idempotencyKey,scope.branchId);
       else if(pending.kind==='estimate_patch') {
         await this.authorize(scope,'sales.create');
         await this.deps.estimates.patch(scope.organizationId,scope.branchId,scope.userId,pending.input.id,pending.input.changes);
@@ -192,7 +200,7 @@ export class V2ToolConnector {
         if(existing) {delete c.pending;return {executed:false,alreadyExists:true,record:existing,message:'یہ catalog code پہلے موجود ہے؛ نیا نقل ریکارڈ نہیں بنایا گیا۔'};}
         result=await this.deps.erp.createProduct(pending.input,scope.organizationId);
       } else return unavailable('اس پری ویو کا محفوظ execution endpoint موجود نہیں۔');
-      if(!result || (pending.kind==='runtime' && result.status!=='EXECUTED')) return {executed:false,result,message:'اصل ERP ریکارڈ کی کامیاب تصدیق ابھی نہیں ہوئی۔'};
+      if(!result || (pending.kind==='runtime' && !pending.input.nativeDraftOnly && result.status!=='EXECUTED')) return {executed:false,result,message:'اصل ERP ریکارڈ کی کامیاب تصدیق ابھی نہیں ہوئی۔'};
       delete c.pending;
       return {executed:true,verified:true,result};
     }
@@ -218,10 +226,20 @@ export class V2ToolConnector {
         const changes:any=p.action==='delete'?{status:'CANCELLED'}:edit.parse(p.data.changes);
         if(!Object.keys(changes).length)return unavailable('ایسٹیمیٹ میں مطلوبہ تبدیلی بتا دیں۔');
         for(const row of changes.lines??[]) {
-          const prior=before.lines.find((l:any)=>row.id?l.id===row.id:l.product_id===row.product_id);
+          const prior=before.lines.find((l:any)=>row.id?l.id===row.id:row.product_id!=null&&l.product_id===row.product_id);
+          const prices=[row.list_price,row.unit_price,row.price].filter((n:any)=>n!=null);
+          if(prices.some((n:any)=>n!==prices[0]))return unavailable('ایک سطر کے لیے مختلف فی یونٹ نرخ دیے گئے ہیں؛ ایک درست نرخ بتا دیں۔');
+          const specified=['list_price','unit_price','price'].some(k=>Object.hasOwn(row,k));
+          if(specified&&prices[0]>0)row.is_pending=false;
+          row.is_pending??=specified?(prices[0]==null||(prices[0]===0&&!row.termsEvidence)):(prior?.is_pending??true);
+          row.list_price=row.is_pending?0:(prices[0]??prior?.list_price??0);
+          row.product_id??=prior?.product_id??null;
+          row.is_unlisted=row.product_id==null;
+          row.description??=([row.name,row.size].filter(Boolean).join(' ')||prior?.description||prior?.product_name);
+          delete row.price;delete row.unit_price;delete row.name;delete row.size;
           row.discount_percent??=prior?.discount_percent??0;
           const ownerTerms=row.termsEvidence&&userEvidence.includes(row.termsEvidence);
-          if(row.list_price!==prior?.list_price&&!ownerTerms) {
+          if(row.list_price!==prior?.list_price&&!ownerTerms&&!row.is_pending) {
             await this.authorize(scope,'products.read');
             const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,product_id:row.product_id,quantity:row.quantity,price_type:'SALE',
               customer_id:changes.customer_id??before.customer_id,rate_list_id:row.rateListId,as_of:new Date().toISOString()});
@@ -240,7 +258,7 @@ export class V2ToolConnector {
       const review=await this.deps.runtime.createUnifiedDraft('erp_amend_estimate',{...p.data.changes,draftId},scope);
       if(!['erp_create_estimate','erp_amend_estimate'].includes(review.tool))return unavailable('یہ ایسٹیمیٹ کا مسودہ نہیں؛ اصل کارروائی کا متعلقہ tool استعمال کریں۔');
       c.state.workingActionId=review.draftId;
-      return this.preview(c,'runtime',{draftId:review.draftId,idempotencyKey:review.idempotencyKey},review.preview);
+      return this.preview(c,'runtime',{draftId:review.draftId,idempotencyKey:review.idempotencyKey,nativeDraftOnly:review.tool==='erp_create_estimate'&&(review.preview as any).nativeDraftOnly===true},review.preview);
     }
     if(name==='manage_invoice') {
       if(p.action==='list') {
@@ -257,7 +275,7 @@ export class V2ToolConnector {
         const review=await this.deps.runtime.reviseUnifiedDraft(draftId,p.data.changes,scope);
         if(!['erp_create_invoice','erp_convert_estimate_to_invoice','erp_customer_return'].includes(review.tool))return unavailable('یہ bill یا return کا مسودہ نہیں؛ اصل کارروائی کا متعلقہ tool استعمال کریں۔');
         c.state.workingActionId=review.draftId;
-        return this.preview(c,'runtime',{draftId:review.draftId,idempotencyKey:review.idempotencyKey},review.preview,true);
+        return this.preview(c,'runtime',{draftId:review.draftId,idempotencyKey:review.idempotencyKey,nativeDraftOnly:review.tool==='erp_create_estimate'&&(review.preview as any).nativeDraftOnly===true},review.preview,true);
       }
       const {operation,...data}=p.data;
       return this.prepare(operation==='convert_estimate'?'erp_convert_estimate_to_invoice':operation==='return'?'erp_customer_return':'erp_create_invoice',data,scope,c);

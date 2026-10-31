@@ -9,7 +9,7 @@ const date = z.iso.date();
 export const saleItemSchema = z.strictObject({
   productId: id.optional(), name: text.optional(), size: text.optional(), brand: text.optional(),
   qty: z.number().finite().positive(), unit: z.string().trim().min(1).max(50).optional(),
-  rate: money.optional(), rateEvidence:text.optional(), discount: percent.optional(), rateListId: id.optional(),
+  rate: money.nullable().optional(), price: money.nullable().optional(), unit_price: money.nullable().optional(), ratePending:z.boolean().optional(), rateEvidence:text.optional(), discount: percent.optional(), rateListId: id.optional(),
   unitCost: money.optional(),
   rawShorthand: text.optional(),
   specificationPending:z.boolean().optional(),
@@ -116,5 +116,5 @@ export interface PreparedErpAction {
   input: Record<string,any>;
   data: Record<string,any>;
   preview: { title:string; summary:string; lines?:unknown[]; totals?:unknown; warnings?:string[]; incomplete?:boolean; partialTotals?:unknown;
-    savedEstimate?:unknown;companions?:unknown[];quotation?:unknown;privateMargin?:unknown;challan?:unknown;audit?:unknown };
+    nativeDraftOnly?:boolean;savedEstimate?:unknown;companions?:unknown[];quotation?:unknown;privateMargin?:unknown;challan?:unknown;audit?:unknown };
 }

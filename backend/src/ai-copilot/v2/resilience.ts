@@ -13,7 +13,7 @@ export async function withGeminiBackoff<T>(operation:()=>Promise<T>, signal?:Abo
     try { return await operation(); }
     catch(error) {
       const e=error as {status?:number|string;error?:{status?:string}};
-      if(signal?.aborted || retry>=3 || !(e.status===429 || e.status==='RESOURCE_EXHAUSTED' || e.error?.status==='RESOURCE_EXHAUSTED')) throw error;
+      if(signal?.aborted || retry>=3 || !(e.status===429 || e.status===503 || e.status==='UNAVAILABLE' || e.status==='RESOURCE_EXHAUSTED' || e.error?.status==='RESOURCE_EXHAUSTED')) throw error;
       await wait(2000*2**retry);
     }
   }

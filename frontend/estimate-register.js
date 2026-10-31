@@ -79,7 +79,7 @@ export function mountEstimateWorkspace(container,options={}){
       const loadCustomers=async()=>{let all=[],cursor;const seen=new Set();do{const page=await (options.listCustomers??listCustomers)(context,{limit:100,...(cursor?{cursor}:{})});all.push(...page.data);cursor=page.next_cursor;if(cursor&&seen.has(cursor))throw new Error('Customer pagination did not advance');seen.add(cursor);}while(cursor);return all;};
       const [customers,productPage]=await Promise.all([loadCustomers(),(options.listProducts??listProducts)(context,{limit:100})]);
       if(selected!==snapshot||!dialog.open)return;
-      const products=[...productPage.data,...snapshot.lines.map(line=>({id:line.product_id,name:line.product_name,unit:line.unit}))];
+      const products=[...productPage.data,...snapshot.lines.filter(line=>line.product_id!=null).map(line=>({id:line.product_id,name:line.product_name,unit:line.unit}))];
       mountSavedEstimateEditor(detail.querySelector('.estimate-preview-scroll'),snapshot,{customers,products,searchProducts:async search=>(await (options.listProducts??listProducts)(context,{search,limit:100})).data,onSave:async changes=>{if(selected!==snapshot)throw new Error('The estimate changed; reopen the editor.');await change(changes);},onCancel:renderDetail});
     }catch(error){renderDetail();detail.querySelector('[data-estimate-feedback]').textContent=error.message;}
   }

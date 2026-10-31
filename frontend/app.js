@@ -1,5 +1,5 @@
 import { signIn, getSession, signOut } from "./auth.js";
-import { mountCopilot } from "./copilot-ui.js?v=20261031_quota48";
+import { mountCopilot } from "./copilot-ui.js?v=20261031_estimate49";
 import { mountEstimateWorkspace } from "./estimate-register.js";
 import { mountCustomers } from "./customers.js";
 import { mountVendors } from "./vendors.js";
@@ -14,7 +14,7 @@ import { mountVendorPayments } from "./vendor-payments.js";
 import { mountRateLists } from "./rate-lists.js";
 import { mountAccounting } from "./accounting.js";
 import { mountReports } from "./reports.js";
-import { dashboardMarkup, mountDashboard } from "./dashboard.js?v=20261031_quota48";
+import { dashboardMarkup, mountDashboard } from "./dashboard.js?v=20261031_estimate49";
 import { icon } from "./icons.js";
 import { authorizedWorkspace, clearWorkspaceContext, connectPreferredWorkspace, getWorkspaceContext, preferredWorkspace, setWorkspaceContext } from "./workspace-context.js";
 import { flushOfflineQueue, getOfflineState, subscribeOfflineState } from "./offline-sync.js";

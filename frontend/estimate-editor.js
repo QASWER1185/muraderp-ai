@@ -59,8 +59,8 @@ export function mountSavedEstimateEditor(container,estimate,{customers=[],produc
       const updated=[...lineRoot.children].map(row=>{
         const original=lines.get(row.dataset.editorLine),get=name=>row.querySelector(`[name="${name}"]`).value;
         const name=get('product_name').trim();const product=[...catalog.values()].find(product=>product.name.toLocaleLowerCase()===name.toLocaleLowerCase()||product.sku?.toLocaleLowerCase()===name.toLocaleLowerCase());
-        const productId=product?.id??original.product_id;if(!productId)throw new Error('Choose a catalog product for each new line.');
-        return {...(original.id?{id:Number(original.id)}:{}),product_id:Number(productId),description:product?null:name,quantity:Number(get('quantity')),unit:get('unit').trim(),list_price:Number(get('list_price')),discount_percent:Number(get('discount_percent'))};
+        const productId=product?.id??original.product_id; if(!name)throw new Error('Each line needs an item name.');
+        return {...(original.id?{id:Number(original.id)}:{}),product_id:productId?Number(productId):null,...(!productId?{is_unlisted:true}:{}),is_pending:Number(get('list_price'))===0&&(original.is_pending||!productId),description:product?null:name,quantity:Number(get('quantity')),unit:get('unit').trim(),list_price:Number(get('list_price')),discount_percent:Number(get('discount_percent'))};
       });
       if(!updated.length)throw new Error('Keep at least one line in the estimate.');
       submit.disabled=true;

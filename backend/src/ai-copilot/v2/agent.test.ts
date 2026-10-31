@@ -28,6 +28,24 @@ function fixture(){
   return {store,deps,tools,provider,agent:new AutonomousV2Agent(provider,tools,store),review};
 }
 describe('Copilot v2 native reasoning and scoped ERP connector',()=>{
+  it('saves an incomplete native draft without financial execution',async()=>{
+    const f=fixture(),c=await f.store.open(scope);c.version=1;
+    Object.assign(f.review,{tool:'erp_create_estimate'});
+    Object.assign(f.review.preview,{nativeDraftOnly:true,incomplete:true});
+    const save=vi.fn(async()=>({id:99,lineCount:1}));Object.assign(f.deps.runtime,{saveDemandDraft:save});
+    f.deps.estimates.get.mockResolvedValue({id:99,status:'DRAFT',grand_total:0,lines:[{id:1,is_pending:true}]});
+    const text='Create and save the pending draft';
+    const preview=await f.tools.execute('manage_estimate',{action:'create',data:{customerId:34,items:[{name:'Solution',qty:6,unit:'can',unit_price:null}]}},scope,c,text,text);
+    const result=await f.tools.execute('execute_prepared_action',{previewId:preview.previewId,directInstruction:true,approvalEvidence:text},scope,c,text,text);
+    expect(result).toMatchObject({executed:true,verified:true,result:{id:99,status:'DRAFT'}});expect(save).toHaveBeenCalledOnce();expect(f.deps.runtime.confirmAndExecute).not.toHaveBeenCalled();
+  });
+  it('prepares an in-place price edit on an unlisted pending saved row',async()=>{
+    const f=fixture(),c=await f.store.open(scope);const text='Solution rate 50 per can';
+    f.deps.estimates.get.mockResolvedValue({id:99,customer_id:34,updated_at:'2026-10-31T00:00:00Z',status:'DRAFT',grand_total:0,lines:[{id:10,product_id:null,description:'Solution',quantity:6,unit:'can',list_price:0,discount_percent:0,is_pending:true}]});
+    const result=await f.tools.execute('manage_estimate',{action:'update',data:{reference:'99',changes:{lines:[{id:10,product_id:null,quantity:6,unit:'can',price:50,termsEvidence:text}]}}},scope,c,text,text);
+    expect(result.preview.after.grand_total).toBe(300);expect(c.pending!.input.changes.lines).toEqual([expect.objectContaining({id:10,product_id:null,list_price:50,is_unlisted:true,is_pending:false})]);
+  });
+
   it('does not replay or persist image bytes on a later text turn',async()=>{
     const f=fixture();f.provider.toolTurn.mockResolvedValue(say('Read the slip'));
     const first=await f.agent.run({message:'Read slip',content:[{type:'input_image',image_url:'data:image/png;base64,dGVzdA=='}]},scope);
@@ -126,7 +144,7 @@ describe('Copilot v2 native reasoning and scoped ERP connector',()=>{
     f.deps.runtime.createUnifiedDraft.mockResolvedValue({...f.review,tool:'erp_create_estimate'});
     const changes={updateLines:[{lineNumber:8,changes:{rate:100,rateEvidence:'نپل کا ریٹ 100 رکھیں'}}]};
     await f.tools.execute('manage_estimate',{action:'update',data:{changes}},scope,c,'نپل کا ریٹ 100 رکھیں','نپل کا ریٹ 100 رکھیں');
-    expect(f.deps.runtime.createUnifiedDraft).toHaveBeenCalledWith('erp_amend_estimate',expect.objectContaining({...changes,draftId}),scope);
+    expect(f.deps.runtime.createUnifiedDraft).toHaveBeenCalledWith('erp_amend_estimate',expect.objectContaining({...changes,draftId,updateLines:[{lineNumber:8,changes:{rate:100,rateEvidence:'نپل کا ریٹ 100 رکھیں',ratePending:false}}]}),scope);
     expect(f.deps.runtime.createUnifiedDraft.mock.calls[0][1]).not.toHaveProperty('items');
     expect(f.deps.runtime.reviseUnifiedDraft).not.toHaveBeenCalled();
   });

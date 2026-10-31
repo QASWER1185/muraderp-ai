@@ -36,6 +36,7 @@ export async function providerJson(fetcher: typeof fetch, url: string, key: stri
   }
   if(response.status===401 || response.status===403) throw new ApiError(401,"AI_API_KEY_REJECTED","The AI provider rejected its API key or model access. Check Copilot API key settings or contact your administrator.");
   if(response.status===402) throw new ApiError(402,"AI_PROVIDER_PAYMENT_REQUIRED","The AI provider requires an active billing plan or available credits.");
+  if(response.status===503) throw new ApiError(503,"AI_PROVIDER_BUSY","Gemini is temporarily busy. The draft is retained; retry shortly.");
   if(response.status===404) throw new ApiError(503,"AI_MODEL_UNAVAILABLE","The configured AI model is unavailable. Check the provider model setting.");
   if(response.status===400) {
     // Gemini reports invalid API keys as HTTP 400 INVALID_ARGUMENT. Detect only

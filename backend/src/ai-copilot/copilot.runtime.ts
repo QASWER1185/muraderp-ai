@@ -229,10 +229,12 @@ function defaultDependencies(erp: ErpService, requestProvider?: AiProviderContra
 }
 
 export class CopilotRuntime {
+  private readonly nativeDraftOnly:boolean;
   private readonly dependencies: CopilotRuntimeDependencies;
 
   constructor(erp: ErpService = new SupabaseErpService(), dependencies?: CopilotRuntimeDependencies, requestProvider?: AiProviderContract, options?:{verifiedPreferencesOnly?:boolean}) {
     this.dependencies = dependencies ?? defaultDependencies(erp, requestProvider,options);
+    this.nativeDraftOnly=options?.verifiedPreferencesOnly===true;
   }
 
   private async assertPlanAuthorized(plan: CopilotActionPlan): Promise<void> {
@@ -264,6 +266,7 @@ export class CopilotRuntime {
     if(!this.dependencies.operations) throw new ApiError(503,"COPILOT_NOT_CONFIGURED","ERP action services are not configured.");
     if(tool==='erp_create_estimate'&&(input as any)?.mode==='DEMAND_SLIP_ESTIMATE')await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,'customers.write');
     const prepared = await this.dependencies.operations.prepare(tool,input,scope);
+    if(this.nativeDraftOnly&&prepared.tool==='erp_create_estimate'){prepared.data.nativeDraftOnly=true;prepared.preview.nativeDraftOnly=true;}
     if(prepared.data.newCustomer)await this.dependencies.authorization.assertPermission(scope.userId,scope.organizationId,"customers.write");
     const key = "copilot-action-" + createHash("sha256").update(JSON.stringify({...scope,prepared})).digest("hex");
     const record = await this.persistPlan({...scope,source,target:ACTION_TARGETS[tool],unifiedAction:prepared,lines:[],requiresConfirmation:true},key);
