@@ -6,14 +6,13 @@ import { GeminiAdapter } from "./gemini.adapter.js";
 import { AnthropicAdapter } from "./anthropic.adapter.js";
 import { normalizeGeminiApiKey } from "./http.js";
 
-// Current stable native model; GEMINI_MODEL remains an explicit deployment override.
-const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
+import { configuredGeminiModel } from "./gemini-policy.js";
 
 function providerKey(name:AiProviderName){return name==="openai"?env.OPENAI_API_KEY:name==="groq"?env.GROQ_API_KEY:name==="gemini"?env.GEMINI_API_KEY:name==="anthropic"?env.ANTHROPIC_API_KEY:undefined;}
 function speechModel(name:AiProviderName,model:string){return name==="groq"?"whisper-large-v3-turbo":name==="gemini"||name==="anthropic"?model:"gpt-transcribe";}
 export function configuredAiProvider():AiProviderConfiguration {
   const provider=env.AI_PROVIDER??(env.GROQ_API_KEY?"groq":env.OPENAI_API_KEY?"openai":env.GEMINI_API_KEY?"gemini":env.ANTHROPIC_API_KEY?"anthropic":"groq");
-  const model=env.AI_MODEL??(provider==="gemini"?env.GEMINI_MODEL??DEFAULT_GEMINI_MODEL:provider==="groq"?"openai/gpt-oss-120b":provider==="openai"?"gpt-6-astra":"");
+  const model=provider==="gemini"?configuredGeminiModel(env.GEMINI_MODEL??env.AI_MODEL):env.AI_MODEL??(provider==="groq"?"openai/gpt-oss-120b":provider==="openai"?"gpt-6-astra":"");
   const key=env.AI_API_KEY??providerKey(provider);
   return {provider,apiKey:key===undefined?undefined:provider==="gemini"?normalizeGeminiApiKey(key):key,baseUrl:env.AI_BASE_URL,model,
     visionModel:env.AI_VISION_MODEL??(provider==="groq"?"qwen/qwen3.8-27b":undefined),
@@ -28,10 +27,8 @@ export function createGeminiUserProvider(apiKey?: string, fetcher: typeof fetch 
   const value = apiKey?.trim() || env.GEMINI_API_KEY;
   if (!value) throw new ApiError(503, "AI_NOT_CONFIGURED", "Enter a Gemini API key in Copilot settings or configure GEMINI_API_KEY on the server.");
   const key = normalizeGeminiApiKey(value);
-  // Browser keys use the native Gemini adapter and an independently configurable model.
-  const model = env.GEMINI_MODEL ?? (env.AI_PROVIDER === "gemini" && env.AI_MODEL?.trim()
-    ? env.AI_MODEL
-    : DEFAULT_GEMINI_MODEL);
+  // Browser and server requests use the verified deployment model.
+  const model = configuredGeminiModel(env.GEMINI_MODEL ?? (env.AI_PROVIDER === "gemini" ? env.AI_MODEL : undefined));
   return createAiProvider({ provider: "gemini", apiKey: key, model, visionModel:env.AI_VISION_MODEL, speechModel: model, nativeToolsOnly:options?.nativeToolsOnly }, fetcher);
 }
 function adapter(config:AiProviderConfiguration,fetcher:typeof fetch):AiProviderContract {

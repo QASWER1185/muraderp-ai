@@ -12,12 +12,11 @@ export function createLiveGeminiProvider(requestKey?:string) {
     return createGeminiUserProvider(undefined,fetch,{nativeToolsOnly:true});
   }
   const key=normalizeGeminiApiKey(value);
-  const client=new GoogleGenAI({apiKey:key});
+  const client=new GoogleGenAI({apiKey:key,httpOptions:{apiVersion:'v1beta'}});
   let dispatched=false;
-  let fallbackModel:string|undefined;
   const transport:typeof fetch=async(input,init)=>{
     const url=new URL(input instanceof Request?input.url:String(input));
-    const model=fallbackModel??decodeURIComponent(url.pathname.split('/models/')[1]!.replace(/:generateContent$/,''));
+    const model=decodeURIComponent(url.pathname.split('/models/')[1]!.replace(/:generateContent$/,''));
     if(!dispatched){console.info(`[COPILOT-V2] Dispatching to Gemini Live (Model: ${model}; Key: ${requestKey?.trim()?'request':'env'})`);dispatched=true;}
     const body=JSON.parse(String(init?.body??'{}'));
     try {
@@ -25,16 +24,7 @@ export function createLiveGeminiProvider(requestKey?:string) {
         config:{...body.generationConfig,systemInstruction:body.systemInstruction,
           ...(body.tools?{tools:body.tools}:{}),...(body.toolConfig?{toolConfig:body.toolConfig}:{}),
           ...(init?.signal?{abortSignal:init.signal}:{})}});
-      let response;
-      try { response=await generate(model); }
-      catch(error) {
-        // Only model-not-found triggers this explicitly authorized fallback.
-        // Auth, invalid payloads, quotas and timeouts keep their actual errors.
-        if((error as {status?:number})?.status!==404||model!=='gemini-2.0-flash')throw error;
-        console.warn('[COPILOT-V2] gemini-2.0-flash returned 404; retrying gemini-1.5-flash');
-        fallbackModel='gemini-1.5-flash';
-        response=await generate(fallbackModel);
-      }
+      const response=await generate(model);
       return new Response(JSON.stringify(response),{status:200,headers:{'content-type':'application/json'}});
     } catch(error) {
       const failure=error as {status?:number;message?:string;cause?:{code?:string;message?:string}};

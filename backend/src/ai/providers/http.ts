@@ -1,3 +1,4 @@
+import { assertGeminiEndpoint } from "./gemini-policy.js";
 import { ApiError } from "../../errors/api-error.js";
 import { parseMediaDataUrl } from "../media.js";
 
@@ -13,6 +14,7 @@ export function normalizeGeminiApiKey(value: unknown): string {
 /** Never return upstream bodies, keys, source documents or URLs to the caller. */
 export async function providerJson(fetcher: typeof fetch, url: string, key: string | undefined,
   headers: Record<string,string>, body: unknown, signal?: AbortSignal): Promise<any> {
+  assertGeminiEndpoint(new URL(url));
   const apiKey = key?.trim();
   if (!apiKey) throw new ApiError(503,"AI_NOT_CONFIGURED","AI provider is not configured. Manual entry remains available.");
   const outboundHeaders: Record<string, string> = {"Content-Type":"application/json", ...headers};

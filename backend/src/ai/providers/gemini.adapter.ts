@@ -1,3 +1,4 @@
+import { geminiGenerateUrl } from "./gemini-policy.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApiError } from "../../errors/api-error.js";
@@ -12,7 +13,7 @@ export class GeminiAdapter implements AiProviderContract {
   readonly name="gemini" as const;
   constructor(private readonly config:AiProviderConfiguration,private readonly fetcher:typeof fetch=fetch){}
   private async request(model:string,body:unknown,signal?:AbortSignal,allowPartial=false){
-    const result=await providerJson(this.fetcher,`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,this.config.apiKey,{"x-goog-api-key":this.config.apiKey??""},body,signal);
+    const result=await providerJson(this.fetcher,geminiGenerateUrl(model),this.config.apiKey,{"x-goog-api-key":this.config.apiKey??""},body,signal);
     const candidate=result.candidates?.[0];
     if(!candidate || (candidate.finishReason!=="STOP" && !(allowPartial && candidate.finishReason==="MAX_TOKENS")) || !Array.isArray(candidate.content?.parts))throw new ApiError(422,"AI_INCOMPLETE","AI reasoning/extraction did not complete. Please clarify or retry.");
     return {parts:candidate.content.parts as any[],incomplete:candidate.finishReason!=="STOP"};
