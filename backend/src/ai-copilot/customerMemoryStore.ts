@@ -16,7 +16,7 @@ export interface CustomerPricingProfile {
 export interface CustomerMemory {
   recall(scope: AgentScope, customerId: number, customerName?: string): Promise<CustomerPricingProfile>;
   latestSale(scope: AgentScope, customerId: number, productId: number, invoiceId?: number): Promise<CommercialHistoryLine>;
-  assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number): Promise<void>;
+  assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number, allowMissingPurchaseBaseline?: boolean): Promise<void>;
 }
 
 /** History is a durable, live projection of ERP transactions, including non-Copilot sales.
@@ -71,14 +71,19 @@ export class CustomerMemoryStore implements CustomerMemory {
       throw new ApiError(422,"RETURN_INVOICE_CHOICE_REQUIRED","اس آئٹم کے پچھلے بلوں میں مختلف خالص نرخ ہیں: "+history.slice(0,5).map(line=>`${line.document_number} (ID ${line.document_id})، ${line.invoice_date}، ${line.currency_code} ${line.net_unit_price}/${line.unit}`).join("؛ ")+"۔ کس اصل بل کے نرخ پر واپسی کرنی ہے؟");
     return row;
   }
-  async assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number) {
+  async assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number, allowMissingPurchaseBaseline = false) {
     const { data, error } = await this.database().rpc("copilot_purchase_floor", {
       p_organization_id: scope.organizationId, p_product_id: productId, p_list_price: listPrice, p_unit: unit, p_currency: currency,
     });
     if (error) throw new ApiError(502, "PURCHASE_MEMORY_UNAVAILABLE", "Merchant cost floor could not be verified.");
     const stored = data == null ? undefined : Number(data);
     const costs = [stored, inventoryCost].filter((value): value is number => value !== undefined && Number.isFinite(value) && value >= 0);
-    if (!costs.length) throw new ApiError(422, "PURCHASE_BASELINE_REQUIRED", "A verified merchant purchase baseline is required before quoting this product.");
+    if (!costs.length && !allowMissingPurchaseBaseline) throw new ApiError(422, "PURCHASE_BASELINE_REQUIRED", "A verified merchant purchase baseline is required before quoting this product.");
+    // A saved V2 estimate draft may use an authoritative sale catalog price
+    // before purchase cost is available. Preserve the floor check whenever a
+    // purchase or inventory cost does exist; draft permission never implies a
+    // final sale or financial posting.
+    if (!costs.length) return;
     const net = listPrice * (1 - discount / 100);
     if (!Number.isFinite(net) || discount < 0 || discount > 100 || net + 0.0000001 < Math.max(...costs)) {
       throw new ApiError(422, "DISCOUNT_BELOW_COST", "The customer discount would reduce the sale price below the merchant cost floor.");

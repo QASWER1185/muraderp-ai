@@ -16,10 +16,10 @@ function dbFixture(rows:unknown[]=[]) {
   const db={from:vi.fn(()=>query),rpc:vi.fn(async()=>({data:50,error:null}))};return {db,query};
 }
 async function profile() {return new CustomerMemoryStore(()=>dbFixture([sale]).db).recall(scope,7,"Faisal Butt");}
-function operations(memory:CustomerMemory) {
+function operations(memory:CustomerMemory,verifiedPreferencesOnly=false) {
   const f=dbFixture();
   const product={id:11,name:sale.product_name,brand_id:5,category:"Pipes",unit:"pcs"};
-  const deps={database:()=>f.db,principal:"copilot-test",memory,
+  const deps={database:()=>f.db,principal:"copilot-test",memory,...(verifiedPreferencesOnly?{verifiedPreferencesOnly:true}:{}),
     erp:{getCustomer:vi.fn(async()=>({id:7,name:"Faisal Butt"})),getProduct:vi.fn(async()=>product),getWarehouse:vi.fn(async()=>({id:1})),listWarehouses:vi.fn(async()=>({data:[{id:1}],next_cursor:null}))},
     pricing:{resolvePrice:vi.fn(async()=>({unit_price:120,unit:"pcs",currency_code:"PKR",rate_list_id:1,rate_list_version_id:1}))},search:{searchProducts:vi.fn(),getProductBrand:vi.fn(async()=>"Dura Max")},
     returns:{recordSalesReturn:vi.fn(async()=>({credit_note:{id:31}}))},
@@ -54,6 +54,12 @@ describe("persistent customer commercial memory",()=>{
     expect(result.data.lines[0]).toMatchObject({unit_price:120,discountPercent:50,discount_amount:120});
     expect(memory.assertFloor).toHaveBeenCalledWith(scope,11,120,50,"pcs","PKR",undefined);
     expect(result.data.totals.grand_total).toBe(120);
+  });
+  it("allows a V2 estimate draft to use a verified sale rate when purchase cost is unavailable",async()=>{
+    const memory=await memoryFixture(),{ops}=operations(memory,true);
+    const result=await ops.prepare("erp_create_estimate",{customerId:7,items:[{productId:11,qty:2,discount:40}]},scope);
+    expect(memory.assertFloor).toHaveBeenCalledWith(scope,11,120,40,"pcs","PKR",undefined,true);
+    expect(result.data.lines[0]).toMatchObject({unit_price:120,discountPercent:40});
   });
   it("honors an explicit zero discount instead of replacing it with history",async()=>{
     const {ops}=operations(await memoryFixture());
@@ -97,6 +103,12 @@ describe("merchant cost guard",()=>{
   it("fails closed when cost is unknown or unavailable",async()=>{
     const f=dbFixture();f.db.rpc.mockResolvedValue({data:null as any,error:null});
     await expect(new CustomerMemoryStore(()=>f.db).assertFloor(scope,11,100,0,"pcs","PKR")).rejects.toMatchObject({code:"PURCHASE_BASELINE_REQUIRED"});
+  });
+  it("permits a draft with an unknown purchase baseline but still enforces any known cost floor",async()=>{
+    const unknown=dbFixture();unknown.db.rpc.mockResolvedValue({data:null as any,error:null});
+    await expect(new CustomerMemoryStore(()=>unknown.db).assertFloor(scope,11,100,40,"pcs","PKR",undefined,true)).resolves.toBeUndefined();
+    const known=dbFixture();known.db.rpc.mockResolvedValue({data:null as any,error:null});
+    await expect(new CustomerMemoryStore(()=>known.db).assertFloor(scope,11,100,40,"pcs","PKR",70,true)).rejects.toMatchObject({code:"DISCOUNT_BELOW_COST"});
   });
 });
 
