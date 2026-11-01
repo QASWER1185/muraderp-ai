@@ -110,7 +110,7 @@ function balanceMarkup(value) {
 function customerRowMarkup(customer, selectedId) {
   const active = String(customer.id) === String(selectedId);
   return `<div class="customer-center-row-wrap"><button class="customer-center-row${active ? " is-selected" : ""}" type="button" data-customer-select="${escapeHtml(customer.id)}" aria-current="${active ? "true" : "false"}">
-    <span class="customer-center-row-copy"><strong dir="auto">${escapeHtml(customer.name)}</strong><span>${escapeHtml(customer.phone || "Phone unavailable")} <i aria-hidden="true">•</i> <em>${count(customer.estimates_count)} Estimates</em></span></span>
+    <span class="customer-center-row-copy"><strong dir="auto">${escapeHtml(customer.name)}</strong><span>${escapeHtml(customer.phone || "—")} <i aria-hidden="true">•</i> <em>${count(customer.estimates_count)} Estimates</em></span></span>
     ${balanceMarkup(customer.balance)}
   </button><button class="customer-center-row-edit" type="button" data-customer-edit="${escapeHtml(customer.id)}" aria-label="Edit ${escapeHtml(customer.name)}">Edit</button></div>`;
 }
@@ -168,7 +168,7 @@ function detailMarkup(center, state, activeTab) {
   if (state === "error") return `<div class="customer-center-empty" role="alert"><h2>Account could not be loaded</h2><p>${escapeHtml(center?.message || "Please try again.")}</p><button type="button" class="button secondary" data-center-retry>Try again</button></div>`;
   const customer = center.customer ?? {};
   const balance = customerBalanceLabel(center.balance);
-  return `<header class="customer-ledger-header"><div class="customer-ledger-title-row"><button class="button secondary customer-center-back" type="button" data-center-back>← Back to Customers</button><div><p class="eyebrow">CUSTOMER CENTER</p><h2 dir="auto">${escapeHtml(customer.name)}</h2><p class="customer-ledger-contact"><span>${escapeHtml(customer.phone || "Phone unavailable")}</span><span dir="auto">City: ${escapeHtml(customer.city || "—")}</span><span dir="auto">Address: ${escapeHtml(customer.address || "—")}</span></p></div><button class="button secondary" type="button" data-customer-edit="${escapeHtml(customer.id)}">Edit Customer</button></div>
+  return `<header class="customer-ledger-header"><div class="customer-ledger-title-row"><button class="button secondary customer-center-back" type="button" data-center-back>← Back to Customers</button><div><p class="eyebrow">CUSTOMER CENTER</p><h2 dir="auto">${escapeHtml(customer.name)}</h2><p class="customer-ledger-contact"><span>${escapeHtml(customer.phone || "—")}</span><span dir="auto">City: ${escapeHtml(customer.city || "—")}</span><span dir="auto">Address: ${escapeHtml(customer.address || "—")}</span></p></div><button class="button secondary" type="button" data-customer-edit="${escapeHtml(customer.id)}">Edit Customer</button></div>
     <div class="customer-ledger-actions"><button class="button primary" type="button" data-center-new-estimate="${escapeHtml(customer.id)}">+ New Estimate</button><button class="button secondary" type="button" data-center-new-invoice>+ New Invoice</button></div></header>
     <div class="customer-center-kpis"><article class="customer-center-kpi customer-center-kpi-balance"><span>Net Balance</span><strong class="customer-balance-${balance.tone}" dir="auto">${escapeHtml(balance.label)}</strong><small>Opening balance + posted invoices − payments − returns</small></article>
       <article class="customer-center-kpi"><span>Total Estimates</span><strong>${count(center.estimates_count)} active / ${count((center.estimates ?? []).length)} total</strong><small>Quote history · PKR ${money(center.estimates_total_amount)}</small></article>
@@ -391,3 +391,4 @@ export function mountCustomers(container, options = {}) {
   renderPanel();
   if (context) void load(true);
 }
+
