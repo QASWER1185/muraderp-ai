@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { PermissionCode } from "../../auth/authorization.types.js";
 import {hardwareKinds} from '../demand-slip.js';
 const id = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export const COPILOT_CATALOG_TOOL_SCHEMAS={activate_rate_list:z.strictObject({rate_list_id:id,confirm:z.boolean()})};
 const text = z.string().trim().min(1).max(200);
 const money = z.number().finite().nonnegative();
 const percent = z.number().finite().min(0).max(100);

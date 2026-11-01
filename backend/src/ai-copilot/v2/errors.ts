@@ -1,5 +1,7 @@
 /** V2 failures never invoke a legacy agent or expose upstream payloads. */
 export function v2ErrorMessage(code:string):string {
+  if(code==='RATE_LIST_NOT_ACTIVE')return 'اس آئٹم کا ACTIVE کیٹلاگ نرخ دستیاب نہیں۔ اگر فہرست DRAFT ہے تو پہلے مالک سے اسے فعال کرنے کی منظوری لیں۔ مسودے یا archived کیٹلاگ سے نرخ نہیں لگایا گیا۔';
+  if(code==='ESTIMATE_PRICE_CONFLICT')return 'دیا ہوا کیٹلاگ نرخ ACTIVE ریٹ لسٹ سے مختلف ہے؛ فعال نرخ استعمال کریں۔ DRAFT یا archived نرخ شامل نہیں کیا گیا۔';
   if(code==='V2_VISION_TOO_LARGE')return 'اس گفتگو کی تصاویر کا مجموعی حجم زیادہ ہو گیا ہے؛ نئی گفتگو میں متعلقہ پرچیاں بھیج دیں۔';
   if(['UNAUTHORIZED','FORBIDDEN','ACCESS_DENIED','AI_API_KEY_REJECTED'].includes(code))
     return 'رسائی کی تصدیق نہیں ہو سکی؛ اپنا سائن اِن یا Gemini کی اجازت چیک کر لیں۔';

@@ -165,6 +165,11 @@ export class DefaultErpOperations implements ErpOperations {
       if(!invoice&&original.ratePending)throw new ApiError(422,'ESTIMATE_RATE_PENDING','اس آئٹم کا نرخ مالک سے درکار ہے۔');
       if(!invoice&&original.rate!==undefined){
         const product=original.productId?await this.deps.erp.getProduct(original.productId,scope.organizationId):null;
+        if(original.rateListId||product){
+          const source=product?await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:'SALE',product_id:product.id,quantity:original.qty,...(original.rateListId?{rate_list_id:original.rateListId}:{}),as_of:asOf+'T23:59:59.999Z',...(customer.id?{customer_id:customer.id}:{})}):null;
+          if(!source)throw new ApiError(422,'RATE_LIST_NOT_ACTIVE','List is in DRAFT or inactive status, or has no active rate for this item. Ask user if they want to activate it first.');
+          if(Number(source.unit_price)!==original.rate)throw new ApiError(422,'ESTIMATE_PRICE_CONFLICT','Quoted catalog price differs from the ACTIVE catalog. Use its active rate; draft or archived catalog prices are not allowed.');
+        }
         if(original.productId&&!product)requireChoice('منتخب آئٹم اس ادارے میں دستیاب نہیں۔');
         if(!original.name&&!product)requireChoice('براہ کرم اس نرخ والے آئٹم کا نام بتا دیں۔');
         const discount=original.discount??0;

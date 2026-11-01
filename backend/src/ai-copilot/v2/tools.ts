@@ -10,6 +10,8 @@ import type { PricingService } from '../../services/pricing.service.js';
 import type { TenantAccessService } from '../../auth/tenant-access.service.js';
 import { estimateView, type EstimateBrowserRepository } from '../../repositories/estimate-browser.repository.js';
 import { ERP_ACTION_SCHEMAS as actions } from '../tools/registry.js';
+import { COPILOT_CATALOG_TOOL_SCHEMAS } from '../tools/registry.js';
+import type { CopilotRateListActivation } from './rate-list-activation.js';
 import { vendorPaymentSchema } from '../agent/payment-state.js';
 import type { Conversation, V2Store } from './store.js';
 import type { SupabaseInvoiceBrowserRepository } from '../../repositories/invoice-browser.repository.js';
@@ -55,6 +57,7 @@ const party = z.union([
   z.strictObject({ type: z.enum(['customer','vendor']), action: z.literal('get_ledger'), data: z.strictObject({ id: id.optional(), query: text.optional(), limit: z.number().int().min(1).max(20).default(20) }) }),
 ]);
 export const V2_SCHEMAS = {
+  ...COPILOT_CATALOG_TOOL_SCHEMAS,
   get_rate_list:rateOverview,
   list_customers:z.strictObject({limit:z.number().int().min(1).max(50).default(20),cursor:id.optional()}),
   search_customers:z.strictObject({query:text,limit:z.number().int().min(1).max(20).default(10)}),
@@ -78,6 +81,7 @@ export const V2_SCHEMAS = {
   execute_prepared_action: z.strictObject({ previewId: z.string().uuid(), approvalEvidence: z.string().trim().min(1).max(4000),directInstruction:z.boolean().default(false) }),
 };
 const descriptions: Record<keyof typeof V2_SCHEMAS, string> = {
+  activate_rate_list:'Owner/admin/manager only. confirm=false inspects scoped catalog status. On explicit user activation instruction confirm=true prepares atomic publication of its latest DRAFT version and existing items; then execute_prepared_action using exact user approval. Never activate just to answer pricing. Only ACTIVE catalogs may supply prices.',
   get_rate_list:'Proactively inspect a whole brand/catalog without a product ID. query accepts partial/fuzzy English/Urdu brand or list name/code (Popular, پاپولر, Dura); rate_list_id selects a known ID. No query lists active store-wide catalogs. Returns active version, effective dates, discount, complete distinct-product and rate-row counts, pipe/fitting/other grouping, categories, catalog price range with actual currency/units, and samples. Follow nextCursor as after_id for more matching lists. No guessed prices, no currency conversion, no sales ranking.',
   list_customers:'List actual customers without requiring a search phrase. Paginated by ID: follow nextCursor when hasMore; one page is not the full customer count.',
   search_customers:'Search actual customers by partial English/Urdu name, phone or city, including common Roman Urdu spellings. Inspect items; do not confuse ambiguous candidates with not found. Never guess an ID.',
@@ -98,6 +102,7 @@ export const readNames = new Set(['search_products','lookup_product','lookup_cus
 const fingerprint = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const unavailable = (message: string) => ({ supported: false, executed: false, message });
 export interface V2ToolDependencies {
+  rateActivation?:Pick<CopilotRateListActivation,'prepare'|'activate'>;
   runtime: Pick<CopilotRuntime,'createUnifiedDraft'|'reviseUnifiedDraft'|'confirmAndExecute'|'createMasterDataDraft'|'createFinancialDraft'> & Partial<Pick<CopilotRuntime,'saveDemandDraft'>>;
   reads: Pick<ErpToolRegistry,'definitions'|'execute'>;
   access: Pick<TenantAccessService,'assertBranchAccess'|'assertPermission'>;
@@ -160,6 +165,13 @@ export class V2ToolConnector {
       raw={...(raw as any),data:{...data,changes}};
     }
     const p:any=schema.parse(raw);
+    if(name==='activate_rate_list'){
+      await this.authorize(scope,'products.write');
+      if(!this.deps.rateActivation)return unavailable('Rate-list activation is unavailable.');
+      const candidate=await this.deps.rateActivation.prepare(scope.organizationId,scope.userId,p.rate_list_id);
+      if(!p.confirm||candidate.status!=='DRAFT')return {...candidate,executed:false,message:candidate.status==='DRAFT'?'List is in DRAFT status. Ask user if they want to activate it first.':'No draft publication is required.'};
+      return this.preview(c,'rate_list_activation',{rateListId:p.rate_list_id,versionId:candidate.versionId},{title:'Activate rate list',...candidate,summary:'Publish this exact DRAFT rate-list version as ACTIVE, atomically retiring the previous active version.'});
+    }
     if(name==='manage_estimate'){if(p.action==='create')p.data=normalizeEstimateInput(p.data);if(p.action==='update'&&p.data.changes&&!p.data.reference)p.data.changes=normalizeEstimateInput(p.data.changes);}
     if(name==='get_rate_list'||(name==='manage_inventory_and_rates'&&p.action==='inspect_rate_list')){
       await this.authorize(scope,'sales.read');
@@ -200,6 +212,11 @@ export class V2ToolConnector {
         if(!result||result.lines.length!==saved.lineCount)throw new Error('Saved draft row verification failed');
       }
       else if(pending.kind==='runtime') result=await this.deps.runtime.confirmAndExecute(pending.input.draftId,scope.organizationId,scope.userId,pending.input.idempotencyKey,scope.branchId);
+      else if(pending.kind==='rate_list_activation') {
+        await this.authorize(scope,'products.write');
+        if(!this.deps.rateActivation)throw new Error('Rate-list activation is unavailable');
+        result=await this.deps.rateActivation.activate(scope.organizationId,scope.userId,pending.input.rateListId,pending.input.versionId);
+      }
       else if(pending.kind==='estimate_patch') {
         await this.authorize(scope,'sales.create');
         await this.deps.estimates.patch(scope.organizationId,scope.branchId,scope.userId,pending.input.id,pending.input.changes);

@@ -162,3 +162,8 @@ describe("persistent slip learning bank",()=>{
     const f=dbFixture();await new SlipLearningStore(()=>f.db).confirm(scope,"action",[]);expect(f.db.rpc).not.toHaveBeenCalled();
   });
 });
+
+describe('active-only owner catalog quote guard',()=>{
+ it('rejects a quoted draft or archived catalog price even with owner rate evidence',async()=>{const {ops,deps}=operations(await memoryFixture(),true);vi.mocked(deps.pricing.resolvePrice).mockResolvedValue(null);await expect(ops.prepare('erp_create_estimate',{customerId:7,items:[{productId:11,qty:1,rate:100,rateListId:13,rateEvidence:'use100'}]},scope)).rejects.toMatchObject({code:'RATE_LIST_NOT_ACTIVE'});});
+ it('rejects a quoted catalog price that differs from the active source',async()=>{const {ops}=operations(await memoryFixture(),true);await expect(ops.prepare('erp_create_estimate',{customerId:7,items:[{productId:11,qty:1,rate:100,rateListId:13,rateEvidence:'use100'}]},scope)).rejects.toMatchObject({code:'ESTIMATE_PRICE_CONFLICT'});});
+});

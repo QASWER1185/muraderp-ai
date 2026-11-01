@@ -188,3 +188,11 @@ describe('saved delta transport aliases',()=>{it('accepts the observed flat upda
 const f=fixture(),c=await f.store.open(scope);f.deps.estimates.get.mockResolvedValue({id:28,status:'DRAFT',updated_at:'now',grand_total:60,lines:[{id:19,line_number:1,product_id:1,quantity:1,unit:'pcs',list_price:100,discount_percent:40}]});
 const r=await f.tools.execute('manage_estimate',{action:'update',data:{reference:'28',updateLines:[{lineNumber:1,changes:{qty:9}}]}},scope,c,'quantity9','quantity9');expect(r.preview.after.grand_total).toBe(540);expect(c.pending!.input.changes.lines[0]).toMatchObject({id:19,quantity:9,list_price:100});expect(f.deps.pricing.resolvePrice).not.toHaveBeenCalled();
 })});
+
+describe('activation connector registration and approval',()=>{it('registers activation, inspects without writing and uses exact approved publication',async()=>{
+const f=fixture(),c=await f.store.open(scope);f.deps.rateActivation={prepare:vi.fn(async()=>({rateListId:13,status:'DRAFT',versionId:15})),activate:vi.fn(async()=>({rateListId:13,versionId:15,status:'ACTIVE'}))};
+expect(f.tools.definitions().some((t:any)=>t.name==='activate_rate_list')).toBe(true);
+await f.tools.execute('activate_rate_list',{rate_list_id:13,confirm:false},scope,c,'inspect','inspect');expect(f.deps.rateActivation.activate).not.toHaveBeenCalled();
+const text='Activate list13 now';const r=await f.tools.execute('activate_rate_list',{rate_list_id:13,confirm:true},scope,c,text,text);
+const result=await f.tools.execute('execute_prepared_action',{previewId:r.previewId,approvalEvidence:text,directInstruction:true},scope,c,text,text);expect(result).toMatchObject({executed:true,verified:true});expect(f.deps.rateActivation.activate).toHaveBeenCalledWith(scope.organizationId,scope.userId,13,15);expect(f.deps.access.assertPermission).toHaveBeenCalledWith(scope,'products.write');
+})});

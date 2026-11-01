@@ -34,7 +34,11 @@ export class CopilotRateOverviewRepository {
         .order('effective_from',{ascending:false}).order('version_number',{ascending:false}).limit(1);
       if(error)fail(error);const version=versions?.[0];
       const metadata={id:list.id,code:list.code,name:list.name,isActive:list.is_active,currency:list.currency_code,scope:list.scope_type};
-      if(!version||!list.is_active)return {...metadata,status:'NO_CURRENT_ACTIVE_VERSION',version:null,totalItems:null,priceRange:null,samples:[],authoritative:true};
+      if(!version||!list.is_active){
+        const {data:drafts,error:draftError}=await client.from('rate_list_versions').select('id,status').eq('rate_list_id',list.id).eq('status','DRAFT').limit(1);
+        if(draftError)fail(draftError);
+        return {...metadata,status:drafts?.length?'DRAFT':'NO_CURRENT_ACTIVE_VERSION',message:drafts?.length?'List is in DRAFT status. Ask user if they want to activate it first.':'No current ACTIVE catalog version is available.',version:null,totalItems:null,priceRange:null,samples:[],authoritative:true};
+      }
       const products=new Map<number,{id:number;name:string;sku:string;category:string;unit:string}>();
       const categories:Record<string,number>={},breakdown={pipes:0,fittings:0,other:0};
       let totalRateRows=0,min:number|null=null,max:number|null=null,invalidRateRows=0;
