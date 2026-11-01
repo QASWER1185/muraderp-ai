@@ -111,8 +111,15 @@ export interface V2ToolDependencies {
 }
 export class V2ToolConnector {
   constructor(readonly deps: V2ToolDependencies) {}
-  definitions() {
-    return v2Definitions(this.deps.reads.definitions());
+  definitions(userMessage?:string,pendingId?:string) {
+    const definitions=v2Definitions(this.deps.reads.definitions());
+    // Bind approval provenance to actual current user text, never a model's
+    // paraphrase. The execution handler still independently enforces scope,
+    // exact evidence, preview freshness and financial prior-turn approval.
+    const approval:any=definitions.find((tool:any)=>tool.name==='execute_prepared_action');
+    if(approval&&userMessage&&userMessage.length<=4000)approval.parameters.properties.approvalEvidence.enum=[userMessage];
+    if(approval&&pendingId)approval.parameters.properties.previewId.enum=[pendingId];
+    return definitions;
   }
   async authorize(scope: AgentScope, permission?: PermissionCode) {
     await this.deps.access.assertBranchAccess(scope, scope.branchId);

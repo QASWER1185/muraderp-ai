@@ -79,7 +79,7 @@ export class AutonomousV2Agent {
       // Large slips may need many catalog lookups. Let the model choose its
       // connectors within the request deadline, without a fixed line/call cap.
       while(!signal.aborted) {
-        const {output}=await this.provider.toolTurn(V2_INSTRUCTIONS,input,this.tools.definitions(),{toolChoice:'auto',signal});
+        const {output}=await this.provider.toolTurn(V2_INSTRUCTIONS,input,this.tools.definitions(userMessage,c.pending?.id),{toolChoice:'auto',signal});
         const parts=Array.isArray(output)?output:[];
         input.push(...parts);
         const calls=parts.filter((o:any)=>o?.type==='function_call');
