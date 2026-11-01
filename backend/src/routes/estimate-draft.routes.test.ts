@@ -116,3 +116,4 @@ describe("browser-safe estimate draft route", () => {
     expect(createDraft).not.toHaveBeenCalled();
   });
 });
+it('creates an estimate for an existing customer whose phone is null',async()=>{const f=appFor();f.getCustomer.mockResolvedValue({id:7,organization_id:organizationId,name:'Customer without phone',phone:null,address:'Plaza 4, Raiwind Road',city:'Lahore',opening_balance:0,created_at:'',updated_at:''});const response=await request(f.app).post('/api/v1/estimates').set('X-Organization-Id',organizationId).set('X-Branch-Id',branchId).set('Idempotency-Key','customer-null-phone-estimate').send({customer_id:7,estimate_number:'EST-PHONE-NULL',issue_date:'2026-11-01',currency_code:'PKR',lines:[{product_id:10,quantity:2,unit:'bag',unit_price:1200}]});expect(response.status).toBe(201);expect(f.createDraft).toHaveBeenCalledOnce();console.log('Estimate for customer without phone: HTTP201');});

@@ -58,12 +58,15 @@ function requiredText(value, label, maxLength) {
 }
 
 export function validateCustomerDraft(input) {
+  if (String(input?.phone ?? "").trim().length > 50) throw new Error("Phone must be 50 characters or fewer.");
+  if (String(input?.address ?? "").trim().length > 500) throw new Error("Address must be 500 characters or fewer.");
   const openingBalance = input?.opening_balance === "" || input?.opening_balance == null ? 0 : Number(input.opening_balance);
   if (!Number.isFinite(openingBalance) || Math.abs(openingBalance) > 999999999999) throw new Error("Opening balance must be a valid amount.");
   return {
     name: requiredText(input?.name, "Customer name", 200),
-    phone: requiredText(input?.phone, "Phone", 50),
-    city: requiredText(input?.address ?? input?.city, "Address", 120),
+    phone: String(input?.phone ?? "").trim() || null,
+    address: String(input?.address ?? "").trim() || null,
+    city: requiredText(input?.city, "City", 120),
     opening_balance: openingBalance,
   };
 }
@@ -77,7 +80,7 @@ export function customerErrorMessage(error) {
 export function customerRowsMarkup(customers) {
   return customers.map((customer) => `<tr>
     <td>${escapeHtml(customer.id)}</td><td><strong>${escapeHtml(customer.name)}</strong></td>
-    <td>${escapeHtml(customer.phone)}</td><td>${escapeHtml(customer.city)}</td>
+    <td>${escapeHtml(customer.phone || "—")}</td><td>${escapeHtml(customer.city)}</td>
     <td>${escapeHtml(new Date(customer.updated_at).toLocaleDateString())}</td>
     <td><button class="button secondary compact" type="button" data-customer-edit="${escapeHtml(customer.id)}">Edit</button></td>
   </tr>`).join("");
@@ -89,8 +92,9 @@ function contextMarkup() {
     <form id="customer-form" class="customer-form">
       <div class="section-head customer-heading"><div><p class="eyebrow">Customer record</p><h2 id="customer-editor-title">New customer</h2></div><button class="icon-button" type="button" data-customer-close aria-label="Close">×</button></div>
       <label>Customer name<input name="name" maxlength="200" autocomplete="name" required /></label>
-      <label>Phone<input name="phone" maxlength="50" autocomplete="tel" required /></label>
-      <label>Address<input name="city" maxlength="120" autocomplete="street-address" required /></label>
+      <label>Phone (optional)<input name="phone" maxlength="50" autocomplete="tel" /></label>
+      <label>City<input name="city" maxlength="120" autocomplete="address-level2" required /></label>
+      <label>Address (optional)<textarea name="address" maxlength="500" autocomplete="street-address"></textarea></label>
       <label>Opening Balance (PKR)<input name="opening_balance" type="number" step="0.01" value="0" inputmode="decimal" /></label>
       <p id="customer-form-result" class="form-message" role="alert" hidden></p>
       <div class="dialog-actions"><button class="button secondary" type="button" data-customer-close>Cancel</button><button id="customer-save" class="button primary" type="submit">Save customer</button></div>
@@ -164,7 +168,7 @@ function detailMarkup(center, state, activeTab) {
   if (state === "error") return `<div class="customer-center-empty" role="alert"><h2>Account could not be loaded</h2><p>${escapeHtml(center?.message || "Please try again.")}</p><button type="button" class="button secondary" data-center-retry>Try again</button></div>`;
   const customer = center.customer ?? {};
   const balance = customerBalanceLabel(center.balance);
-  return `<header class="customer-ledger-header"><div class="customer-ledger-title-row"><button class="button secondary customer-center-back" type="button" data-center-back>← Back to Customers</button><div><p class="eyebrow">CUSTOMER CENTER</p><h2 dir="auto">${escapeHtml(customer.name)}</h2><p class="customer-ledger-contact"><span>${escapeHtml(customer.phone || "Phone unavailable")}</span><span dir="auto">${escapeHtml(customer.address || customer.city || "Address unavailable")}</span></p></div><button class="button secondary" type="button" data-customer-edit="${escapeHtml(customer.id)}">Edit Customer</button></div>
+  return `<header class="customer-ledger-header"><div class="customer-ledger-title-row"><button class="button secondary customer-center-back" type="button" data-center-back>← Back to Customers</button><div><p class="eyebrow">CUSTOMER CENTER</p><h2 dir="auto">${escapeHtml(customer.name)}</h2><p class="customer-ledger-contact"><span>${escapeHtml(customer.phone || "Phone unavailable")}</span><span dir="auto">City: ${escapeHtml(customer.city || "—")}</span><span dir="auto">Address: ${escapeHtml(customer.address || "—")}</span></p></div><button class="button secondary" type="button" data-customer-edit="${escapeHtml(customer.id)}">Edit Customer</button></div>
     <div class="customer-ledger-actions"><button class="button primary" type="button" data-center-new-estimate="${escapeHtml(customer.id)}">+ New Estimate</button><button class="button secondary" type="button" data-center-new-invoice>+ New Invoice</button></div></header>
     <div class="customer-center-kpis"><article class="customer-center-kpi customer-center-kpi-balance"><span>Net Balance</span><strong class="customer-balance-${balance.tone}" dir="auto">${escapeHtml(balance.label)}</strong><small>Opening balance + posted invoices − payments − returns</small></article>
       <article class="customer-center-kpi"><span>Total Estimates</span><strong>${count(center.estimates_count)} active / ${count((center.estimates ?? []).length)} total</strong><small>Quote history · PKR ${money(center.estimates_total_amount)}</small></article>
@@ -298,6 +302,7 @@ export function mountCustomers(container, options = {}) {
     field("name").value = customer?.name ?? "";
     field("phone").value = customer?.phone ?? "";
     field("city").value = customer?.city ?? "";
+    field("address").value = customer?.address ?? "";
     field("opening_balance").value = String(customer?.opening_balance ?? 0);
     formResult.hidden = true;
     formResult.textContent = "";
@@ -366,7 +371,7 @@ export function mountCustomers(container, options = {}) {
     formResult.hidden = true;
     saveButton.disabled = true;
     try {
-      const draft = validateCustomerDraft({ name: data.get("name"), phone: data.get("phone"), address: data.get("city"), opening_balance: data.get("opening_balance") });
+      const draft = validateCustomerDraft({ name: data.get("name"), phone: data.get("phone"), city: data.get("city"), address: data.get("address"), opening_balance: data.get("opening_balance") });
       const customerId = form.dataset.customerId;
       const result = customerId ? await updateCustomer(context, customerId, draft) : await createCustomer(context, draft);
       const saved = result.data;

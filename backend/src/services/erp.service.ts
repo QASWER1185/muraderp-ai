@@ -17,7 +17,7 @@ export type Vendor = Tables["vendors"]["Row"];
 export type Warehouse = Tables["warehouses"]["Row"];
 
 export type BrandInput = Pick<Tables["brands"]["Insert"], "name">;
-export type CustomerInput = Pick<Tables["customers"]["Insert"], "name" | "phone" | "city" | "opening_balance">;
+export type CustomerInput = Pick<Tables["customers"]["Insert"], "name" | "phone" | "address" | "city" | "opening_balance">;
 export type ProductInput = Pick<
   Tables["products"]["Insert"],
   "name" | "sku" | "category" | "unit" | "purchase_price" | "sale_price"
@@ -204,7 +204,7 @@ export class SupabaseErpService implements ErpService {
   }
 
   async createCustomer(input: CustomerInput, organizationId: string): Promise<Customer> {
-    const { data, error } = await this.client.from("customers").insert({ ...input, organization_id: organizationId }).select("*").single();
+    const { data, error } = await this.client.from("customers").insert({ ...input, phone: input.phone?.trim() || null, address: input.address ?? null, organization_id: organizationId }).select("*").single();
     if (error) throw databaseError(error, "Customer creation");
     return data;
   }
@@ -212,7 +212,7 @@ export class SupabaseErpService implements ErpService {
   async updateCustomer(id: number, input: Patch<CustomerInput>, organizationId: string): Promise<Customer | null> {
     const { data, error } = await this.client
       .from("customers")
-      .update(input as Tables["customers"]["Update"])
+      .update({ ...input, ...(Object.hasOwn(input, "phone") ? {phone: input.phone?.trim() || null} : {}) } as Tables["customers"]["Update"])
       .eq("organization_id", organizationId)
       .eq("id", id)
       .select("*")

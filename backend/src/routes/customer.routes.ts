@@ -30,11 +30,12 @@ const customerCenterRangeSchema = z.object({
 const shortText = z.string().trim().min(1).max(200);
 const customerFields = {
   name: shortText,
-  phone: z.string().trim().min(1).max(50),
+  phone: z.string().trim().max(50).optional().nullable().transform(value => value === "" ? null : value),
+  address: z.string().trim().max(500).optional().nullable(),
   city: z.string().trim().min(1).max(120),
   opening_balance: z.number().finite().min(-999999999999).max(999999999999),
 };
-const customerSchema = z.strictObject({ ...customerFields, opening_balance: customerFields.opening_balance.default(0) });
+const customerSchema = z.strictObject({ ...customerFields, phone: customerFields.phone.default(null), address: customerFields.address.default(null), opening_balance: customerFields.opening_balance.default(0) });
 const customerPatchSchema = z.strictObject(customerFields)
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: "At least one field is required" });
@@ -133,7 +134,7 @@ export function createCustomerRouter(options: CustomerRouterOptions = {}): Route
     response.setHeader("Cache-Control", "no-store");
     response.status(200).json({
       data: {
-        customer: { id: customer.id, name: customer.name, phone: customer.phone, address: (customer as typeof customer & { address?: string | null }).address ?? customer.city ?? "", city: customer.city },
+        customer: { id: customer.id, name: customer.name, phone: customer.phone, address: customer.address ?? null, city: customer.city },
         ...summaryAndTransactions,
       },
     });

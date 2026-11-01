@@ -8,7 +8,7 @@ export class WhatsAppEstimateService {
 
   prepareDelivery(
     estimate: EstimateDocument,
-    phone: string,
+    phone: string | null,
     layoutKey: EstimateLayoutKey = "CLASSIC_PAKISTAN",
     header?: BusinessHeaderProfile,
   ): WhatsAppEstimateDelivery {

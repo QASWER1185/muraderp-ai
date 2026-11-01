@@ -8,6 +8,8 @@ describe("customer production workflow", () => {
       name: "Ali Raza",
       phone: "03001234567",
       city: "Lahore",
+      address: null,
+      opening_balance: 0,
     });
   });
 
@@ -44,3 +46,6 @@ describe("customer production workflow", () => {
     expect(sw).toContain('"/customer-api.js"');
   });
 });
+
+ it("allows absent phone and independent optional address",()=>{expect(validateCustomerDraft({name:"Test Cust Address",city:"Lahore",address:"Plaza 4, Raiwind Road"})).toMatchObject({phone:null,address:"Plaza 4, Raiwind Road",city:"Lahore"});expect(()=>validateCustomerDraft({name:"Test",address:"Lahore"})).toThrow("City is required");});
+it('shows separate English address/city labels and an optional Phone form field',()=>{const source=readFileSync(new URL('./customers.js',import.meta.url),'utf8');expect(source).toContain('Phone (optional)');expect(source).toContain('Address (optional)');expect(source).toContain('name="address" maxlength="500"');expect(source).toContain('name="city" maxlength="120" autocomplete="address-level2" required');expect(source).not.toContain('autocomplete="tel" required');});
