@@ -183,3 +183,8 @@ describe('targeted saved edits',()=>{
  expect(c.pending!.input.changes.lines).toHaveLength(28);expect(c.pending!.input.changes.lines[0]).toMatchObject({id:1,quantity:9,list_price:100});expect(c.pending!.input.changes.lines[1]).toMatchObject({id:2,quantity:8,list_price:100});expect(r.preview.after.grand_total).toBe(13500);expect(f.deps.pricing.resolvePrice).not.toHaveBeenCalled();
  });
 });
+
+describe('saved delta transport aliases',()=>{it('accepts the observed flat updateLines and qty shorthand without replacing other lines',async()=>{
+const f=fixture(),c=await f.store.open(scope);f.deps.estimates.get.mockResolvedValue({id:28,status:'DRAFT',updated_at:'now',grand_total:60,lines:[{id:19,line_number:1,product_id:1,quantity:1,unit:'pcs',list_price:100,discount_percent:40}]});
+const r=await f.tools.execute('manage_estimate',{action:'update',data:{reference:'28',updateLines:[{lineNumber:1,changes:{qty:9}}]}},scope,c,'quantity9','quantity9');expect(r.preview.after.grand_total).toBe(540);expect(c.pending!.input.changes.lines[0]).toMatchObject({id:19,quantity:9,list_price:100});expect(f.deps.pricing.resolvePrice).not.toHaveBeenCalled();
+})});

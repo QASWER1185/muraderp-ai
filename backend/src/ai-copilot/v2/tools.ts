@@ -151,6 +151,14 @@ export class V2ToolConnector {
     }
     const schema=V2_SCHEMAS[name as keyof typeof V2_SCHEMAS];
     if(!schema) return unavailable('یہ کاروباری سہولت ابھی اس ERP میں موجود نہیں۔');
+    if(name==='manage_estimate'&&(raw as any)?.action==='update'&&(raw as any)?.data?.reference){
+      const data={...(raw as any).data},changes={...(data.changes??{})};
+      if(data.updateLines){if(changes.updateLines)return unavailable('جزوی تبدیلیاں صرف ایک جگہ بھیجیں۔');changes.updateLines=data.updateLines;delete data.updateLines;}
+      if(Array.isArray(changes.updateLines))changes.updateLines=changes.updateLines.map((delta:any)=>{
+        const row={...delta.changes};if(row.qty!=null){if(row.quantity!=null&&row.quantity!==row.qty)return { ...delta,changes:row };row.quantity=row.qty;delete row.qty;}return {...delta,changes:row};
+      });
+      raw={...(raw as any),data:{...data,changes}};
+    }
     const p:any=schema.parse(raw);
     if(name==='manage_estimate'){if(p.action==='create')p.data=normalizeEstimateInput(p.data);if(p.action==='update'&&p.data.changes&&!p.data.reference)p.data.changes=normalizeEstimateInput(p.data.changes);}
     if(name==='get_rate_list'||(name==='manage_inventory_and_rates'&&p.action==='inspect_rate_list')){
