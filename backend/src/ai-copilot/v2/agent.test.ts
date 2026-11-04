@@ -196,3 +196,12 @@ await f.tools.execute('activate_rate_list',{rate_list_id:13,confirm:false},scope
 const text='Activate list13 now';const r=await f.tools.execute('activate_rate_list',{rate_list_id:13,confirm:true},scope,c,text,text);
 const result=await f.tools.execute('execute_prepared_action',{previewId:r.previewId,approvalEvidence:text,directInstruction:true},scope,c,text,text);expect(result).toMatchObject({executed:true,verified:true});expect(f.deps.rateActivation.activate).toHaveBeenCalledWith(scope.organizationId,scope.userId,13,15);expect(f.deps.access.assertPermission).toHaveBeenCalledWith(scope,'products.write');
 })});
+
+it('lists estimates through the scoped read connector without forcing a status',async()=>{
+ const f=fixture(),c=await f.store.open(scope);
+ f.deps.estimates.list=vi.fn(async()=>({data:[{estimate_number:'EST-1069',status:'DRAFT',created_at:'2026-11-01'}],next_cursor:null}));
+ const result=await f.tools.execute('manage_estimate',{action:'list',data:{search:'کنڈیوٹ',limit:1}},scope,c,'latest conduit estimate','latest conduit estimate');
+ expect(f.deps.estimates.list).toHaveBeenCalledWith(scope.organizationId,scope.branchId,{search:'کنڈیوٹ',limit:1,deepSearch:true});
+ expect(result.data[0].estimate_number).toBe('EST-1069');
+ expect(f.deps.access.assertPermission).toHaveBeenCalledWith(scope,'sales.read');
+});

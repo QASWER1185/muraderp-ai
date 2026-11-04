@@ -1,7 +1,8 @@
 import { getSupabaseAdminClient } from '../config/supabase.js';
+import { matchesEstimateSearch, estimateSearchResult } from '../ai-copilot/estimate-search.js';
 import { ApiError } from '../errors/api-error.js';
 
-export interface EstimateFilters { search?: string | undefined; status?: string | undefined; from?: string | undefined; to?: string | undefined; limit: number; cursor?: number | undefined }
+export interface EstimateFilters { search?: string | undefined; status?: string | undefined; from?: string | undefined; to?: string | undefined; limit: number; deepSearch?: boolean | undefined; cursor?: number | undefined }
 export interface EstimateBrowserRepository {
   list(org: string, branch: string, filters: EstimateFilters): Promise<{ data: any[]; next_cursor: number | null }>;
   get(org: string, branch: string, reference: string): Promise<any | null>;
@@ -47,6 +48,24 @@ export class SupabaseEstimateBrowserRepository implements EstimateBrowserReposit
     return records.map(record=>estimateView({...record,customers:customers?.find((c:any)=>c.id===record.customer_id)},(items??[]).filter((item:any)=>item.estimate_id===record.id)));
   }
   async list(org: string, branch: string, filters: EstimateFilters) {
+    if(filters.deepSearch) {
+      const found:any[]=[];
+      // Read scoped headers newest first, then join ALL persisted line snapshots.
+      // Apply matching before the result limit; never search only the first page.
+      for(let offset=0;;offset+=100){
+        let page=this.factory().from('estimates').select('*').eq('organization_id',org).eq('branch_id',branch)
+          .order('created_at',{ascending:false}).order('id',{ascending:false}).range(offset,offset+99);
+        if(filters.status)page=page.eq('status',filters.status==='INVOICED'?'CONVERTED':filters.status);
+        if(filters.from)page=page.gte('issue_date',filters.from);
+        if(filters.to)page=page.lte('issue_date',filters.to);
+        const {data,error}=await page;
+        if(error)throw new ApiError(502,'ESTIMATE_READ_FAILED','Estimates could not be loaded');
+        const rows=await this.enrich(org,data??[]);
+        found.push(...rows.filter(r=>matchesEstimateSearch(r,filters.search)).map(estimateSearchResult));
+        if(found.length>=filters.limit||(data??[]).length<100)break;
+      }
+      return {data:found.slice(0,filters.limit),next_cursor:null};
+    }
     const client=this.factory();
     let query=client.from('estimates').select('*').eq('organization_id',org).eq('branch_id',branch).order('id',{ascending:false}).limit(filters.limit+1);
     if(filters.status) query=query.eq('status',filters.status==='INVOICED'?'CONVERTED':filters.status);
