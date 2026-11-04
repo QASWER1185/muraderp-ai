@@ -109,7 +109,7 @@ const descriptions: Record<ErpActionName,string> = {
   erp_create_invoice:"Prepare a direct invoice including discounts, carriage and any payment in one atomic transaction. Current sale rates and verified inventory costs are required. Use unitCost only when explicitly provided by the user.",
   erp_get_business_report:"Read a date-bounded authoritative daily sales, customer balances, low-stock or realized profit report. No approval/write is required.",
   erp_record_vendor_bill:"Prepare a supplier bill with catalog or explicitly quoted purchase costs and trade/invoice discounts. Approval reuses recordPurchase for atomic inventory, vendor payable and balanced accounting. Never guess costs.",
-  erp_customer_return:"Prepare a return bound to this customer's exact historical invoice line and NET billed rate/discount. Never supply prices. The server asks for invoiceId when historical rates differ; pass the owner's chosen source invoice on follow-up. Requires approval before credit and stock restoration.",
+  erp_customer_return:"Prepare a return bound to this customer's exact historical invoice line and NET billed rate/discount. Never supply prices. Defaults to the actual latest invoice by created_at DESC; invoiceId/invoiceItemId explicitly bind a different source chosen by the owner. Requires approval before credit and stock restoration.",
 };
 export const ERP_ACTION_DEFINITIONS = Object.entries(ERP_ACTION_SCHEMAS).map(([name,schema]) => ({
   type:"function" as const, name, description:descriptions[name as ErpActionName], strict:false, parameters:z.toJSONSchema(schema),

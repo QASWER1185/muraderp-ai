@@ -76,8 +76,7 @@ export class CustomerMemoryStore implements CustomerMemory {
     if(invoiceId&&!invoiceItemId&&history.filter(row=>row.document_id===invoiceId).length>1)throw new ApiError(422,'RETURN_INVOICE_CHOICE_REQUIRED','This product occurs on multiple invoice lines; provide the exact invoiceItemId from the saved invoice.');
     const row = history[0];
     if (!row) throw new ApiError(422, "RETURN_HISTORY_REQUIRED", "No posted sale for this exact customer and product exists in this branch.");
-    if(!invoiceId && new Set(history.map(line=>`${line.currency_code}:${line.net_unit_price}:${line.unit}`)).size>1)
-      throw new ApiError(422,"RETURN_INVOICE_CHOICE_REQUIRED","اس آئٹم کے پچھلے بلوں میں مختلف خالص نرخ ہیں: "+history.slice(0,5).map(line=>`${line.document_number} (ID ${line.document_id})، ${line.invoice_date}، ${line.currency_code} ${line.net_unit_price}/${line.unit}`).join("؛ ")+"۔ کس اصل بل کے نرخ پر واپسی کرنی ہے؟");
+
     return row;
   }
   async assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number, allowMissingPurchaseBaseline = false) {

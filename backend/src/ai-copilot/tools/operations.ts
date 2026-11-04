@@ -162,7 +162,7 @@ export class DefaultErpOperations implements ErpOperations {
       try {
       // Owner prices are transaction terms, not catalog updates. They do not
       // require a catalog match or a purchase baseline to prepare an estimate.
-      if(!invoice&&original.ratePending)throw new ApiError(422,'ESTIMATE_RATE_PENDING','اس آئٹم کا نرخ مالک سے درکار ہے۔');
+      if(!invoice&&original.ratePending)return {line_number:offset+index+1,...(original.productId?{product_id:original.productId}:{}),productName:[original.name,original.size].filter(Boolean).join(' '),quantity:original.qty,unit:original.unit??'pcs',unit_price:null,discount_amount:0,discountPercent:original.discount??0,pending:true,pendingReason:'Rate not yet supplied'};
       if(!invoice&&original.rate!==undefined){
         const product=original.productId?await this.deps.erp.getProduct(original.productId,scope.organizationId):null;
         if(original.rateListId){
@@ -321,7 +321,7 @@ export class DefaultErpOperations implements ErpOperations {
     const totals=calculateEstimateTotals(priced,input.carriageCharges??0);
     for(const key of Object.keys(totals) as Array<keyof typeof totals>)totals[key]=amount(totals[key]);
     if((input.paidAmount??0)>totals.customer_payable_total)requireChoice("Paid amount exceeds the invoice payable amount.");
-    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf,
+    return {...(customer.id?{customerId:customer.id}:{}),customerName:customer.name,...(customer.newCustomer?{newCustomer:customer.newCustomer,servicePrincipalId:this.deps.principal}:{}),...(warehouseId?{warehouseId}:{}),lines,totals,date:asOf,
       ...(input.mode===DEMAND_SLIP_ESTIMATE?{mode:DEMAND_SLIP_ESTIMATE,unmatched_hardware_items:lines.filter(x=>x.pending&&x.hardware)}:{}),
       ...(priced.length!==lines.length?{incomplete:true,pendingCount:lines.length-priced.length}:{})};
   }

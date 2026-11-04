@@ -96,7 +96,8 @@ export class AutonomousV2Agent {
             const rows=Array.isArray(result)?result:Array.isArray((result as any)?.items)?(result as any).items:Array.isArray((result as any)?.data)?(result as any).data:null;
             console.log('[TOOL-EXEC]',call.name,'args:',diagnostic(JSON.stringify(raw)),'resultCount:',rows?rows.length:result==null?0:1);
             if(!seen.has(key)&&(result as any)?.executed===true&&(result as any)?.verified===true){
-              verifiedReceipts.push({summary,result});
+              const receiptSummary=(result as any).estimate_number?`Saved ${(result as any).estimate_number}: ${(result as any).item_count} items, PKR ${(result as any).grand_total}${(result as any).partial?' (partial; pending rates remain)':''}`:summary;
+              verifiedReceipts.push({summary:receiptSummary,result});
               c.executions=[...(c.executions??[]),{at:new Date().toISOString(),summary,result}];
             }
             seen.set(key,result);
@@ -123,7 +124,7 @@ export class AutonomousV2Agent {
       }
     }
     const newPreview=Boolean(c.pending&&c.pending.id!==eligiblePreview);
-    const documentAction=newPreview&&toolNames.some(name=>['manage_estimate','manage_invoice','convert_estimate_to_invoice','manage_credit_memo','manage_vendor_bill'].includes(name));
+    const documentAction=(newPreview||verifiedReceipts.some(receipt=>(receipt.result as any).saved))&&toolNames.some(name=>['manage_estimate','manage_invoice','convert_estimate_to_invoice','manage_credit_memo','manage_vendor_bill'].includes(name));
     const responseMode=verifiedReceipts.length||newPreview?'action':toolNames.length?'read':'conversation';
     c.messages.push({role:'assistant',content:answer});
     c.state.expires=Date.now()+30*60_000;

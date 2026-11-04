@@ -1,0 +1,65 @@
+{
+  "tools": [
+    "activate_rate_list",
+    "get_rate_list",
+    "list_customers",
+    "search_customers",
+    "search_products",
+    "get_stock",
+    "manage_estimate",
+    "manage_invoice",
+    "convert_estimate_to_invoice",
+    "manage_credit_memo",
+    "manage_vendor_bill",
+    "manage_vendor_payment",
+    "manage_customer_payment",
+    "record_customer_payment",
+    "record_vendor_payment",
+    "query_erp_records",
+    "manage_customer",
+    "manage_inventory",
+    "manage_rate_list",
+    "analyze_profit_margin",
+    "query_erp_analytics",
+    "record_financial_transaction",
+    "manage_inventory_and_rates",
+    "manage_party",
+    "manage_shop_memory",
+    "execute_prepared_action"
+  ],
+  "reused": [
+    "manage_estimate",
+    "manage_invoice",
+    "manage_credit_memo",
+    "manage_customer",
+    "manage_vendor_bill",
+    "analyze_profit_margin"
+  ],
+  "aliases": [
+    "record_customer_payment",
+    "record_vendor_payment",
+    "query_erp_records"
+  ],
+  "directSave": {
+    "passed": true,
+    "toolCalls": 1,
+    "atomicSaveCalls": 1,
+    "itemCount": 16,
+    "returnedAssignedId": true,
+    "total": 2608,
+    "manualRates": {
+      "Solution": 1100,
+      "Tape": 30,
+      "Blade": 100
+    },
+    "sameEstimateAppendAndRateUpdate": true,
+    "pendingDraftSaved": true,
+    "newCustomerAtomic": true
+  },
+  "paymentAndVendorBillSchemas": "passed",
+  "nonpostedBillDraft": "saved without confirmation",
+  "finalFinancialApproval": "retained",
+  "build": "passed",
+  "databaseFixtures": "rolled back",
+  "migration": "20261104160000"
+}
