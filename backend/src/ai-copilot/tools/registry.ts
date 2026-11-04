@@ -1,3 +1,4 @@
+import {purchaseSchema} from '../../types/purchase.schema.js';
 import { z } from "zod";
 import type { PermissionCode } from "../../auth/authorization.types.js";
 import {hardwareKinds} from '../demand-slip.js';
@@ -17,7 +18,7 @@ export const saleItemSchema = z.strictObject({
 });
 const demandFields={mode:z.literal('DEMAND_SLIP_ESTIMATE').optional(),customerPhone:text.optional(),storeRules:z.array(text).max(10).optional(),hardwarePricing:z.enum(['pending','catalog']).optional(),hardwareRates:z.array(z.strictObject({kind:z.enum(hardwareKinds),rate:money})).max(hardwareKinds.length).optional()};
 const sale = { ...demandFields,customerId: id.optional(), customerName: text.optional(), customerAddress: text.optional(), brand: text.optional(),
-  items: z.array(saleItemSchema).min(1).max(500), discountScheme: z.strictObject({ percent }).optional(),
+  carriageCharges:money.optional(),items: z.array(saleItemSchema).min(1).max(500), discountScheme: z.strictObject({ percent }).optional(),
   pricingRules:z.array(z.strictObject({brand:text.optional(),match:text,discount:percent})).max(20).optional() };
 const auditLine=z.strictObject({productId:id,name:text,quantity:z.number().finite().positive(),unitPrice:money,discount:percent,specification:text,unitCost:money.optional(),expectedWholesaleDiscount:percent.optional()});
 export const DEPOT_ACTION_SCHEMAS={
@@ -53,7 +54,8 @@ export const ERP_ACTION_SCHEMAS = {
     reference: z.string().trim().max(200).optional(), notes: z.string().trim().max(2000).optional(), paymentDate: date.optional(),
     allocations: z.array(z.strictObject({ invoiceId: id, amount: z.number().finite().positive() })).optional() }),
   erp_create_estimate: z.strictObject(sale),
-  erp_customer_return: z.strictObject({ customerId: id, productId: id, qty: z.number().finite().positive(),
+  erp_record_vendor_bill: purchaseSchema.extend({items:z.array(z.strictObject({product_id:id,quantity:z.number().finite().positive(),unit_cost:money.optional(),list_price:money.optional(),purchase_discount_percent:percent.optional(),rate_list_id:id.optional()})).min(1).max(500)}),
+  erp_customer_return: z.strictObject({ invoiceItemId:id.optional(),customerId: id, productId: id, qty: z.number().finite().positive(),
     invoiceId: id.optional(), warehouseId: id.optional(), reason: z.string().trim().min(1).max(2000) }),
   erp_convert_estimate_to_invoice: z.strictObject({ estimateId: id, warehouseId: id.optional(),
     paidAmount: money.default(0),
@@ -78,7 +80,7 @@ export const ERP_ACTION_PERMISSIONS: Record<ErpActionName, PermissionCode> = {
   erp_record_payment:"payments.create", erp_create_estimate:"sales.create",
   erp_convert_estimate_to_invoice:"sales.create", erp_create_invoice:"sales.create",
   erp_get_business_report:"reports.view",
-  erp_customer_return:"returns.create",
+  erp_customer_return:"returns.create",erp_record_vendor_bill:"purchases.create",
 };
 const descriptions: Record<ErpActionName,string> = {
   erp_amend_estimate:"Amend the current unconfirmed estimate while retaining customer, brand and every slip line. Use pricingRules for category/brand discounts (pipe 50%, fittings 52%). Use updateLines with the displayed lineNumber and only changed input fields to correct ONE row, even when two rows share a product; removeLineNumbers removes specific rows. updateItems/removeProductIds affect all rows for that product. addItems appends observed rows. Omit draftId for working context. Recalculates one fresh preview, no posting.",
@@ -106,6 +108,7 @@ const descriptions: Record<ErpActionName,string> = {
   erp_convert_estimate_to_invoice:"Prepare conversion of a persisted active estimate to an invoice, with stock, receivables and accounting. Warehouse is required if more than one exists. Costs come from reconciled movement valuation or explicit reviewed unitCosts; never guess.",
   erp_create_invoice:"Prepare a direct invoice including discounts, carriage and any payment in one atomic transaction. Current sale rates and verified inventory costs are required. Use unitCost only when explicitly provided by the user.",
   erp_get_business_report:"Read a date-bounded authoritative daily sales, customer balances, low-stock or realized profit report. No approval/write is required.",
+  erp_record_vendor_bill:"Prepare a supplier bill with catalog or explicitly quoted purchase costs and trade/invoice discounts. Approval reuses recordPurchase for atomic inventory, vendor payable and balanced accounting. Never guess costs.",
   erp_customer_return:"Prepare a return bound to this customer's exact historical invoice line and NET billed rate/discount. Never supply prices. The server asks for invoiceId when historical rates differ; pass the owner's chosen source invoice on follow-up. Requires approval before credit and stock restoration.",
 };
 export const ERP_ACTION_DEFINITIONS = Object.entries(ERP_ACTION_SCHEMAS).map(([name,schema]) => ({

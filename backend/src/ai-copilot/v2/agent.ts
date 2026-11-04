@@ -123,7 +123,7 @@ export class AutonomousV2Agent {
       }
     }
     const newPreview=Boolean(c.pending&&c.pending.id!==eligiblePreview);
-    const documentAction=newPreview&&toolNames.some(name=>name==='manage_estimate'||name==='manage_invoice');
+    const documentAction=newPreview&&toolNames.some(name=>['manage_estimate','manage_invoice','convert_estimate_to_invoice','manage_credit_memo','manage_vendor_bill'].includes(name));
     const responseMode=verifiedReceipts.length||newPreview?'action':toolNames.length?'read':'conversation';
     c.messages.push({role:'assistant',content:answer});
     c.state.expires=Date.now()+30*60_000;

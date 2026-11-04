@@ -44,7 +44,7 @@ export interface InvoiceBrowserRepository {
 }
 
 type UntypedClient = { from(table: string): any };
-const invoiceColumns = "id, invoice_number, customer_id, source_estimate_id, document_template, warehouse_id, issue_date, status, currency_code, subtotal, discount_total, grand_total, pass_through_rent, notes";
+const invoiceColumns = "id, created_at, invoice_number, customer_id, source_estimate_id, document_template, warehouse_id, issue_date, status, currency_code, subtotal, discount_total, grand_total, pass_through_rent, notes";
 const lineColumns = "id, line_number, product_id, quantity, unit, unit_price, line_total, unit_cost, cogs_total";
 
 export class SupabaseInvoiceBrowserRepository implements InvoiceBrowserRepository {
@@ -60,10 +60,10 @@ export class SupabaseInvoiceBrowserRepository implements InvoiceBrowserRepositor
     if(query.startDate)request=request.gte('issue_date',query.startDate);
     if(query.endDate)request=request.lte('issue_date',query.endDate);
     const ascending=query.order==='oldest';
-    const {data,error}=await request.order('issue_date',{ascending}).order('id',{ascending}).limit(query.limit+1);
+    const {data,error}=await request.order('created_at',{ascending}).order('id',{ascending}).limit(query.limit+1);
     if(error)throw new ApiError(502,'INVOICE_READ_FAILED','Invoices could not be listed');
     const rows=(data??[]) as InvoiceSummary[];
-    return {data:rows.slice(0,query.limit),hasMore:rows.length>query.limit,ordering:'issue_date_then_id',
+    return {data:rows.slice(0,query.limit),hasMore:rows.length>query.limit,ordering:'created_at_then_id',
       authoritative:true,complete:rows.length<=query.limit,period:{startDate:query.startDate??null,endDate:query.endDate??null}};
   }
 
@@ -107,10 +107,9 @@ export class SupabaseInvoiceBrowserRepository implements InvoiceBrowserRepositor
       const source: any = sourceByLine.get(Number(item.line_number));
       const quantity = Number(item.quantity);
       const unitPrice = Number(item.unit_price);
-      const discountAmount = Number(source?.discount_amount ?? 0);
       const listPrice = Number(source?.pricing_provenance?.list_price ?? source?.unit_price ?? unitPrice);
-      const lineAmount = quantity * unitPrice - discountAmount;
-      const discountPercent = Number(source?.pricing_provenance?.discount_percent ?? (listPrice * quantity > 0 ? discountAmount / (listPrice * quantity) * 100 : 0));
+      const lineAmount = Number(item.line_total);
+      const discountPercent = Number(source?.pricing_provenance?.discount_percent ?? (listPrice * quantity > 0 ? (listPrice * quantity - lineAmount) / (listPrice * quantity) * 100 : 0));
       return {
         ...item,
         product_name: item.products?.name ?? `Product ${item.product_id}`,

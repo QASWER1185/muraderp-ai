@@ -1,0 +1,414 @@
+{
+  "registeredTools": [
+    {
+      "name": "activate_rate_list",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "get_rate_list",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "list_customers",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "search_customers",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "search_products",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "get_stock",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "manage_estimate",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "manage_invoice",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "convert_estimate_to_invoice",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_credit_memo",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_vendor_bill",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_vendor_payment",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_customer_payment",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_customer",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_inventory",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "manage_rate_list",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "analyze_profit_margin",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "query_erp_analytics",
+      "registry": "v2",
+      "status": "added adapter to native engine"
+    },
+    {
+      "name": "record_financial_transaction",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "manage_inventory_and_rates",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "manage_party",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "manage_shop_memory",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "execute_prepared_action",
+      "registry": "v2",
+      "status": "reused/extended"
+    },
+    {
+      "name": "erp_amend_estimate",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_accept_companions",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_create_site",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_prepare_site_return",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_transfer_site_material",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_deliver_site_transfer",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_create_dispatch",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_record_dispatch",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_log_expense",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_update_commodity_rates",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_reconcile_vendor_quote",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_correct_vendor_quote",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_find_site_records",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_dispatch_status",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_depot_insights",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_calculate_landed_cost",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_import_rate_list",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_update_product_price",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_create_customer",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_update_customer",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_record_payment",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_create_estimate",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_record_vendor_bill",
+      "registry": "native actions",
+      "status": "added connector to recordPurchase"
+    },
+    {
+      "name": "erp_customer_return",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_convert_estimate_to_invoice",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_create_invoice",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_business_report",
+      "registry": "native actions",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_estimate",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "erp_list_estimates",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_invoice",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "erp_compare_brand_rates",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_product_sale_rate",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "erp_audit_catalog_rates",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "recall_customer_memory",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "search_products",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "lookup_product",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "search_rate_lists",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "lookup_current_sale_rate",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "lookup_customers",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "lookup_vendors",
+      "registry": "legacy ERP",
+      "status": "reused"
+    },
+    {
+      "name": "lookup_vendors",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "query_customer_ledger",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "query_inventory",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "calculate_margin",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "compare_products",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "list_payment_documents",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "prepare_customer_payment",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "prepare_vendor_payment",
+      "registry": "business reads",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_profit_summary",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_top_customers",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_top_salesmen",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_top_profitable_products",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_top_vendors",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_daily_cash_summary",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_slow_moving_stock",
+      "registry": "analytics",
+      "status": "reused"
+    },
+    {
+      "name": "erp_get_inventory_summary",
+      "registry": "analytics",
+      "status": "reused"
+    }
+  ],
+  "verification": {
+    "build": "passed",
+    "schemas": "passed",
+    "tradeProfitPKR": 200,
+    "costProfitPKR": 50,
+    "carriageExcluded": true,
+    "largeSlipLines": 500,
+    "conversion": "reuses native handler",
+    "creditMemo": "reuses historical return engine",
+    "customerPayment": "reuses receipt engine",
+    "supplierBill": "reuses recordPurchase",
+    "returnOrdering": "created_at DESC",
+    "customerCostRedaction": "passed"
+  },
+  "liveWritesPerformed": false
+}

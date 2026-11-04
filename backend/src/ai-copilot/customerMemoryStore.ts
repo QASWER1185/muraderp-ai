@@ -15,7 +15,7 @@ export interface CustomerPricingProfile {
 }
 export interface CustomerMemory {
   recall(scope: AgentScope, customerId: number, customerName?: string): Promise<CustomerPricingProfile>;
-  latestSale(scope: AgentScope, customerId: number, productId: number, invoiceId?: number): Promise<CommercialHistoryLine>;
+  latestSale(scope: AgentScope, customerId: number, productId: number, invoiceId?: number, invoiceItemId?:number): Promise<CommercialHistoryLine>;
   assertFloor(scope: AgentScope, productId: number, listPrice: number, discount: number, unit: string, currency: string, inventoryCost?: number, allowMissingPurchaseBaseline?: boolean): Promise<void>;
 }
 
@@ -31,10 +31,10 @@ export class CustomerMemoryStore implements CustomerMemory {
       if (productId !== undefined) query = query.eq("product_id", productId).eq("document_type", "invoice");
       if (invoiceId !== undefined) query = query.eq("document_id", invoiceId);
       query = query.order("invoice_date", { ascending: false }).order("document_id", { ascending: false }).order("source_item_id", { ascending: false });
-      const { data, error } = await (invoiceId === undefined ? query.range(offset, offset + 499) : query.limit(1));
+      const { data, error } = await query.range(offset, offset + 499);
       if (error) throw new ApiError(502, "CUSTOMER_MEMORY_UNAVAILABLE", "Customer sales history could not be verified.");
       rows.push(...(data ?? []));
-      if (invoiceId !== undefined || (data ?? []).length < 500) return rows;
+      if ((data ?? []).length < 500) return rows;
     }
   }
   async recall(scope: AgentScope, customerId: number, customerName = String(customerId)): Promise<CustomerPricingProfile> {
@@ -63,8 +63,17 @@ export class CustomerMemoryStore implements CustomerMemory {
         (last ? ` | Historical Discount: ${last.discount_percent}% on ${last.brand_name ?? last.product_name} / ${last.category} | Last Order: ${last.invoice_date} (${last.document_number})` : ""),
     };
   }
-  async latestSale(scope: AgentScope, customerId: number, productId: number, invoiceId?: number) {
-    const history = await this.history(scope, customerId, productId, invoiceId);
+  async latestSale(scope: AgentScope, customerId: number, productId: number, invoiceId?: number, invoiceItemId?:number) {
+    let history = await this.history(scope, customerId, productId, invoiceId);
+    if(invoiceItemId!=null)history=history.filter(row=>row.source_item_id===invoiceItemId);
+    const ids=[...new Set(history.map(row=>row.document_id))],created=new Map<number,number>();
+    for(let offset=0;offset<ids.length;offset+=100){
+      const {data,error}=await this.database().from('invoices').select('id,created_at').eq('organization_id',scope.organizationId).eq('branch_id',scope.branchId).eq('customer_id',customerId).in('id',ids.slice(offset,offset+100)).order('created_at',{ascending:false});
+      if(error)throw new ApiError(502,'CUSTOMER_MEMORY_UNAVAILABLE','Historical invoice creation dates could not be read.');
+      for(const invoice of data??[])created.set(invoice.id,Date.parse(invoice.created_at));
+    }
+    history=history.filter(row=>created.has(row.document_id)).sort((a,b)=>created.get(b.document_id)!-created.get(a.document_id)!||b.document_id-a.document_id||b.source_item_id-a.source_item_id);
+    if(invoiceId&&!invoiceItemId&&history.filter(row=>row.document_id===invoiceId).length>1)throw new ApiError(422,'RETURN_INVOICE_CHOICE_REQUIRED','This product occurs on multiple invoice lines; provide the exact invoiceItemId from the saved invoice.');
     const row = history[0];
     if (!row) throw new ApiError(422, "RETURN_HISTORY_REQUIRED", "No posted sale for this exact customer and product exists in this branch.");
     if(!invoiceId && new Set(history.map(line=>`${line.currency_code}:${line.net_unit_price}:${line.unit}`)).size>1)

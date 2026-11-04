@@ -1,3 +1,4 @@
+import {CopilotOperationsRepository} from '../../repositories/copilot-operations.repository.js';
 import { createLiveGeminiProvider } from './live-provider.js';
 import type { AiProviderContract } from '../../ai/providers/contracts.js';
 import { SupabaseErpService } from '../../services/erp.service.js';
@@ -23,7 +24,7 @@ export function createV2Agent(provider: AiProviderContract = createLiveGeminiPro
     return createLocalDemoAgent(provider);
   }
   const store=new SupabaseV2Store();
-  const connector=new V2ToolConnector({store,rateActivation:new CopilotRateListActivation(),access:new TenantAccessService(createServiceRoleAuthorizationGateway()),
+  const connector=new V2ToolConnector({store,operations:new CopilotOperationsRepository(),rateActivation:new CopilotRateListActivation(),access:new TenantAccessService(createServiceRoleAuthorizationGateway()),
     runtime:new CopilotRuntime(undefined,undefined,provider,{verifiedPreferencesOnly:true}),reads:createConversationalTools(provider),
     estimates:new SupabaseEstimateBrowserRepository(),invoices:new SupabaseInvoiceBrowserRepository(),directory:new CopilotDirectoryRepository(),rateOverview:new CopilotRateOverviewRepository(),erp:new SupabaseErpService(),pricing:new DefaultPricingService(new SupabaseRateListRepository())});
   return new AutonomousV2Agent(provider,connector,store);

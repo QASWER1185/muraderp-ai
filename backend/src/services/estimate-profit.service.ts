@@ -23,7 +23,7 @@ export class DefaultEstimateProfitService {
     const analyses: EstimateLineProfitAnalysis[] = [];
 
     for (const line of lines) {
-      const revenue = line.quantity * line.unit_price;
+      const revenue = line.quantity * line.unit_price - (line.discount_amount ?? 0);
       const costUnitPrice = await this.costResolver.resolveEstimatedCost(line.product_id, asOf);
       const estimatedCost = costUnitPrice === null ? null : line.quantity * costUnitPrice;
       const profitLoss = estimatedCost === null ? null : revenue - estimatedCost;

@@ -37,16 +37,8 @@ function atLeastOneField<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
   return schema.partial().refine((value) => Object.keys(value).length > 0, { message: "At least one field is required" });
 }
 
-export const purchaseSchema = z.strictObject({
-  vendor_id: idSchema,
-  warehouse_id: idSchema,
-  items: z.array(z.strictObject({ product_id: idSchema, quantity: z.number().finite().positive(), unit_cost: z.number().finite().positive() })).min(1).max(500),
-  purchase_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  invoice_number: z.string().trim().min(1).max(100).optional(),
-  discount: z.number().finite().nonnegative().optional(),
-  tax: z.number().finite().nonnegative().optional(),
-  notes: z.string().trim().min(1).max(2_000).optional(),
-});
+export {purchaseSchema} from '../types/purchase.schema.js';
+import {purchaseSchema} from '../types/purchase.schema.js';
 
 type TenantAuthorizer = Pick<TenantAccessService, "assertAuthorized">;
 

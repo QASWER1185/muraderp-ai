@@ -57,7 +57,7 @@ export const ACTION_TARGETS:Record<ErpWriteName,CopilotTarget>={
   erp_import_rate_list:"rate_list_update",erp_update_product_price:"product_price_update",
   erp_create_customer:"customer_create",erp_update_customer:"customer_update",erp_record_payment:"customer_payment",
   erp_create_estimate:"estimate",erp_create_invoice:"invoice",erp_convert_estimate_to_invoice:"estimate_convert_invoice",
-  erp_customer_return:"customer_return",
+  erp_customer_return:"customer_return",erp_record_vendor_bill:"supplier_bill",
 };
 export interface OperationsDependencies {
   /** V2 preferences come only from verified shop memory passed in tool input. */
@@ -165,7 +165,7 @@ export class DefaultErpOperations implements ErpOperations {
       if(!invoice&&original.ratePending)throw new ApiError(422,'ESTIMATE_RATE_PENDING','اس آئٹم کا نرخ مالک سے درکار ہے۔');
       if(!invoice&&original.rate!==undefined){
         const product=original.productId?await this.deps.erp.getProduct(original.productId,scope.organizationId):null;
-        if(original.rateListId||product){
+        if(original.rateListId){
           const source=product?await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,price_type:'SALE',product_id:product.id,quantity:original.qty,...(original.rateListId?{rate_list_id:original.rateListId}:{}),as_of:asOf+'T23:59:59.999Z',...(customer.id?{customer_id:customer.id}:{})}):null;
           if(!source)throw new ApiError(422,'RATE_LIST_NOT_ACTIVE','List is in DRAFT or inactive status, or has no active rate for this item. Ask user if they want to activate it first.');
           if(Number(source.unit_price)!==original.rate)throw new ApiError(422,'ESTIMATE_PRICE_CONFLICT','Quoted catalog price differs from the ACTIVE catalog. Use its active rate; draft or archived catalog prices are not allowed.');
@@ -376,9 +376,34 @@ export class DefaultErpOperations implements ErpOperations {
         items:input.items.map((item:any)=>({brand:input.brand,category:item.category??(/pipe|پائپ/i.test(item.name)?"Pipes":/valve|plug|وال|پلگ/i.test(item.name)?"Hardware":"Fittings"),
           name:item.name,size:item.size,unit:item.unit,list_price:item.list_price,discountPercent:item.discount})),
         standardDiscountPercent:input.items.every((item:any)=>item.discount===input.items[0].discount)?input.items[0].discount:null,complete:true,confidence:1,warnings:[]});
+    } else if(tool==='erp_record_vendor_bill') {
+      const vendor=await this.deps.erp.getVendor(input.vendor_id,scope.organizationId);
+      if(!vendor)requireChoice('Vendor was not found in this organization.');
+      const warehouseId=await this.warehouse(input.warehouse_id,scope),items=[];
+      for(const item of input.items){
+        const product=await this.deps.erp.getProduct(item.product_id,scope.organizationId);
+        if(!product)requireChoice('Purchase product was not found in this organization.');
+        let unitCost=item.unit_cost;
+        if(item.list_price!=null){
+          const net=amount(item.list_price*(1-(item.purchase_discount_percent??0)/100));
+          if(unitCost!=null&&Math.abs(unitCost-net)>.005)requireChoice('Net purchase cost disagrees with the list price and trade discount.');
+          unitCost=net;
+        }else if(item.purchase_discount_percent!=null)requireChoice('A purchase trade discount requires its list price.');
+        if(unitCost==null){
+          const rate=await this.deps.pricing.resolvePrice({organization_id:scope.organizationId,product_id:item.product_id,quantity:item.quantity,price_type:'PURCHASE',vendor_id:input.vendor_id,rate_list_id:item.rate_list_id,as_of:new Date().toISOString()});
+          if(!rate||rate.unit!==product.unit)requireChoice('An active purchase rate or explicit verified supplier cost is required.');
+          unitCost=rate.unit_price;
+        }
+        if(unitCost<=0)requireChoice('The native supplier bill requires a positive net unit cost.');
+        items.push({product_id:item.product_id,quantity:item.quantity,unit_cost:unitCost});
+      }
+      const subtotal=amount(items.reduce((sum,item)=>sum+item.quantity*item.unit_cost,0));
+      if((input.discount??0)>subtotal)requireChoice('Invoice discount exceeds the supplier subtotal.');
+      const purchase={vendor_id:vendor.id,warehouse_id:warehouseId,items,purchase_date:input.purchase_date??today(),...(input.invoice_number?{invoice_number:input.invoice_number}:{}),discount:input.discount??0,tax:input.tax??0,...(input.notes?{notes:input.notes}:{})};
+      data={purchase,vendorName:vendor.name,lines:items,totals:{subtotal,discount:purchase.discount,tax:purchase.tax,grand_total:amount(subtotal-purchase.discount+purchase.tax)}};
     } else if(tool==="erp_customer_return") {
       const customer=await this.customer(input,scope);
-      const sale=await this.memory.latestSale(scope,customer.id,input.productId,input.invoiceId);
+      const sale=await this.memory.latestSale(scope,customer.id,input.productId,input.invoiceId,input.invoiceItemId);
       const warehouseId=await this.warehouse(input.warehouseId,scope);
       const returned=await this.rows("credit_note_items","id,quantity,credit_notes!inner(status)",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("invoice_item_id",sale.source_item_id).eq("credit_notes.status","POSTED"));
       if(input.qty+returned.reduce((sum,row)=>sum+Number(row.quantity),0)>Number(sale.quantity))requireChoice("Return quantity exceeds the remaining quantity of the bound historical invoice line.");
@@ -409,6 +434,7 @@ export class DefaultErpOperations implements ErpOperations {
       if(source.record.currency_code!=="PKR")requireChoice("This invoice workflow requires a PKR estimate.");
       const warehouseId=await this.warehouse(input.warehouseId,scope),lines=[];
       for(const item of source.items) {
+        if(!item.product_id||(item as any).is_pending)requireChoice('Resolve pending rates and link freeform items to inventory products before posting the saved estimate.');
         const cost=await this.inventory(item.product_id,warehouseId,scope,input.unitCosts?.find((row:any)=>row.productId===item.product_id)?.unitCost);
         await this.memory.assertFloor(scope,item.product_id,Number(item.unit_price),Number(item.quantity)*Number(item.unit_price)===0?0:Number(item.discount_amount)/(Number(item.quantity)*Number(item.unit_price))*100,item.unit,source.record.currency_code,cost.unitCost);
         if(item.quantity>cost.available)requireChoice(`آئٹم ${item.product_id} کا موجودہ اسٹاک ${cost.available} ${item.unit} ہے، جبکہ ایسٹیمیٹ میں ${item.quantity} درکار ہیں۔ مقدار کم کریں یا پہلے وصولی درج کریں؛ موجودہ ایسٹیمیٹ سے کام جاری رہے گا۔`);
@@ -458,9 +484,10 @@ export class DefaultErpOperations implements ErpOperations {
     if(data.mode===DEMAND_SLIP_ESTIMATE&&data.lines?.some((line:any)=>!line.product_id))requireChoice('جناب، یہ تخمینہ مکمل مسودے میں محفوظ ہے؛ مالی بل بنانے سے پہلے متفرق سامان کے کیٹلاگ آئٹمز منسلک کریں۔');
     if(data.incomplete || data.lines?.some((line:any)=>line.pending))requireChoice("جناب، پینڈنگ نرخوں والا مسودہ محفوظ نہیں ہو گا۔ پہلے تمام آئٹمز کے فعال نرخ واضح کر کے نیا پری ویو تیار کریں۔");
     if(DEPOT_WRITES.has(tool))return this.depot.execute(action,scope,key);
+    if(tool==='erp_record_vendor_bill')return this.deps.erp.recordPurchase(data.purchase,{organizationId:scope.organizationId,branchId:scope.branchId,actorUserId:scope.userId,servicePrincipalId:this.deps.principal,operation:'purchase.create',idempotencyKey:key,requestFingerprint:digest(action)});
     if(tool==="erp_customer_return") {
       // Revalidate the exact approved source, never silently rebind to a newer sale.
-      const sale=await this.memory.latestSale(scope,input.customerId,input.productId,data.sale.document_id);
+      const sale=await this.memory.latestSale(scope,input.customerId,input.productId,data.sale.document_id,data.sale.source_item_id);
       equal(sale,data.sale,"Historical return binding");
       const service=this.deps.returns??new SupabaseSalesReturnService(this.deps.database);
       const result=await service.recordSalesReturn({credit_note_number:data.documentNumber,invoice_id:sale.document_id,customer_id:input.customerId,
@@ -517,6 +544,14 @@ export class DefaultErpOperations implements ErpOperations {
   async verify(action:PreparedErpAction,scope:AgentScope,result:any) {
     const {tool,input,data}=action;
     if(DEPOT_WRITES.has(tool))return this.depot.verify(action,scope,result);
+    if(tool==='erp_record_vendor_bill'){
+      const saved=await this.deps.erp.getPurchase(result.purchase?.id,scope.organizationId,scope.branchId);
+      if(!saved)throw new Error('Posted supplier bill was not found.');
+      equal(saved.purchase.vendor_id,data.purchase.vendor_id,'Supplier bill vendor');
+      equal(Number(saved.purchase.total),data.totals.grand_total,'Supplier bill total');
+      equal(saved.items.map(row=>[row.product_id,Number(row.quantity),Number(row.unit_cost)]).sort(),data.purchase.items.map((row:any)=>[row.product_id,row.quantity,row.unit_cost]).sort(),'Supplier bill lines');
+      return;
+    }
     if(tool==="erp_customer_return") {
       const notes=await this.rows("credit_notes","id,customer_id,invoice_id,status,grand_total",q=>q.eq("organization_id",scope.organizationId).eq("branch_id",scope.branchId).eq("id",result.credit_note?.id));
       const note=notes[0];if(!note||note.status!=="POSTED")throw new Error("Posted return was not found.");
