@@ -38,7 +38,7 @@ export function vendorRowsMarkup(vendors) {
     <td>${escapeHtml(vendor.id)}</td>
     <td><strong>${escapeHtml(vendor.name)}</strong></td>
     <td>${escapeHtml(vendor.phone)}</td>
-    <td>${escapeHtml(vendor.city)}</td>
+    <td>${escapeHtml(vendor.city)}${vendor.address ? `<small>${escapeHtml(vendor.address)}</small>` : ""}</td>
     <td>${escapeHtml(new Date(vendor.updated_at).toLocaleDateString())}</td>
     <td><button class="button secondary compact" type="button" data-vendor-edit="${escapeHtml(vendor.id)}">Edit</button></td>
   </tr>`).join("");

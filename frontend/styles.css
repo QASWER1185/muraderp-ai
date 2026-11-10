@@ -1100,3 +1100,5 @@ a{color:#04588C}
 @media (max-width:720px){
   .estimate-detail-dialog .document-line-formula{font-weight:500;color:#0f172a}
 }
+
+.register-sort-controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.register-sort-controls button{min-height:36px}
