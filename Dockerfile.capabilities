@@ -1,0 +1,3 @@
+# Preserve the exact deployed runtime, including changes absent from GitHub.
+FROM asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api@sha256:fac23430301c99b5bd55faef4a1f4bdfed7f82da85f743d3f78f763c1c071257
+COPY runtime-addon/ /app/backend/dist/
