@@ -1,5 +1,6 @@
-const CACHE_NAME = "muraderp-ai-shell-v52-capabilities";
+const CACHE_NAME = "muraderp-ai-shell-v53-capabilities";
 const APP_SHELL = [
+  "/register-actions.js",
   "/record-deletion.js", "/register-tools.js", "/settings.js",
   "/copilot-history.js",
   "/copilot-recovery.js",

@@ -10,6 +10,7 @@ const db = new PGlite({ extensions: { pg_trgm } });
 const tests = [
   'database_foundation.sql',
   'guarded_record_deletion.sql',
+  'remaining_capabilities.sql',
   'stock_adjustment_void.sql',
   'accounting_ledger_foundation_v2.sql',
   'p0_8_authoritative_accounting_posting.sql',

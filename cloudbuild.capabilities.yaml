@@ -1,5 +1,5 @@
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ['build', '-f', 'Dockerfile.capabilities', '-t', 'asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api:capabilities-preserved-v2', '.']
+    args: ['build', '-f', 'Dockerfile.capabilities', '-t', 'asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api:capabilities-complete-v3', '.']
 images:
-  - asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api:capabilities-preserved-v2
+  - asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api:capabilities-complete-v3

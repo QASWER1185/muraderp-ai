@@ -10,9 +10,11 @@ import { getSupabaseAdminClient } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { normalizeServicePrincipalId } from '../security/service-principal.js';
 import { ApiError } from '../errors/api-error.js';
-export function createCapabilitiesRouter(options:{internalApiToken?:string|undefined;servicePrincipalId?:string|undefined;tenantAuthorizer?:Pick<TenantAccessService,'assertAuthorized'>|undefined}={}) {
+import { createRegisterApiRouter } from './register-api.routes.js';
+export function createCapabilitiesRouter(options:{internalApiToken?:string|undefined;servicePrincipalId?:string|undefined;tenantAuthorizer?:Pick<TenantAccessService,'assertAuthorized'>|undefined;recordDeletion?:Parameters<typeof createRecordDeletionRouter>[0]|undefined}={}) {
  const router=Router();let authorizer=options.tenantAuthorizer;
- router.use(createRecordDeletionRouter(options));
+ router.use(createRegisterApiRouter(options));
+ router.use(createRecordDeletionRouter({...options,...options.recordDeletion}));
  router.use('/stock',createStockAdjustmentRouter(options));
  router.use('/settings',createSettingsRouter(options));
  const authenticate=createCopilotAuth(options.internalApiToken,options.servicePrincipalId);

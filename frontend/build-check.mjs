@@ -9,7 +9,7 @@ for (const file of required) {
   if (!existsSync(path)) throw new Error(`Missing production asset: ${file}`);
   if (!readFileSync(path, "utf8").trim()) throw new Error(`Empty production asset: ${file}`);
 }
-required.push("estimate-register.js", "estimate-editor.js", "document-templates.js", "copilot-history.js", "copilot-recovery.js", "settings.js", "register-tools.js", "record-deletion.js", "copilot-key.js", "supabase-config.js", "public-config.js", "request.js");
+required.push("register-actions.js", "estimate-register.js", "estimate-editor.js", "document-templates.js", "copilot-history.js", "copilot-recovery.js", "settings.js", "register-tools.js", "record-deletion.js", "copilot-key.js", "supabase-config.js", "public-config.js", "request.js");
 // Missing transitive modules halt the whole app before any click handlers mount.
 for (const file of required.filter(file => file.endsWith(".js"))) {
   const source = readFileSync(resolve(root, file), "utf8");

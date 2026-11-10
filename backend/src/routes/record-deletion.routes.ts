@@ -36,10 +36,20 @@ export function createRecordDeletionRouter(options: {
   internalApiToken?: string | undefined; servicePrincipalId?: string | undefined;
   authenticate?: RequestHandler; tenantAuthorizer?: Pick<TenantAccessService,'assertAuthorized'> | undefined;
   remove?: (args: Record<string, unknown>)=>Promise<{data:unknown;error:{code?:string;message?:string}|null}>;
+  removeVersion?: (args: Record<string, unknown>)=>Promise<{data:unknown;error:{code?:string;message?:string}|null}>;
 }={}) {
   const router=Router();
   const authenticate=options.authenticate??createCopilotAuth(options.internalApiToken,options.servicePrincipalId);
   let authorizer=options.tenantAuthorizer;
+  router.delete('/rate-lists/:id/versions/:vid',authenticate,async(request,response)=>{
+    const i=deletionIdentity(request);authorizer??=new TenantAccessService(createServiceRoleAuthorizationGateway());
+    await authorizer.assertAuthorized({userId:i.userId,organizationId:i.organizationId},'products.write',{kind:'branch',branchId:i.branchId});
+    const positive=z.coerce.number().int().positive();
+    const args={p_list_id:positive.parse(request.params.id),p_version_id:positive.parse(request.params.vid),p_organization_id:i.organizationId,p_branch_id:i.branchId,p_actor_user_id:i.userId};
+    const {data,error}=options.removeVersion?await options.removeVersion(args):await(getSupabaseAdminClient() as any).rpc('delete_rate_list_version_scoped',args);
+    if(error)throw new ApiError(error.code==='23514'||error.code==='23503'?409:error.code==='42501'?403:502,'DELETE_REFUSED',['23514','23503'].includes(error.code??'')?error.message??'Referenced records prevent deletion':'Version could not be deleted');
+    if(!data)throw new ApiError(404,'NOT_FOUND','record not found');response.status(204).send();
+  });
   for(const [path,entity,permission] of targets) router.delete(`/${path}/:id`,authenticate,async(request,response)=>{
     const identity=deletionIdentity(request);
     authorizer??=new TenantAccessService(createServiceRoleAuthorizationGateway());

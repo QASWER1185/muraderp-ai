@@ -1,3 +1,4 @@
+import { mountRegisterActions } from './register-actions.js';
 import { mountSettings } from './settings.js';
 import { mountRegisterTools } from './register-tools.js';
 import { mountRecordDeletion } from './record-deletion.js';
@@ -112,6 +113,7 @@ function navigate(routeId, updateHistory = true) {
   if(id==="estimates")mountEstimateWorkspace(content,{route:currentSection});
   mountRecordDeletion(content,id,()=>navigate(currentSection,false));
   mountRegisterTools(content,id);
+  mountRegisterActions(content,id,()=>navigate(id,false));
   shell.classList.remove("menu-open");
   content.focus({ preventScroll: true });
 }
