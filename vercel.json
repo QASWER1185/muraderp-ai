@@ -5,6 +5,7 @@
   "buildCommand": "npm run build --prefix frontend",
   "outputDirectory": "frontend/dist",
   "rewrites": [
+    {"source": "/settings", "destination": "/index.html"},
     {
       "source": "/api/copilot",
       "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot"

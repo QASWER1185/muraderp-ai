@@ -1,11 +1,14 @@
 import { getCopilotApiKey } from "./copilot-key.js";
 import { boundedFetch } from "./request.js";
+export const COPILOT_CHAT_PATH = "/api/v1/ai/copilot/v2/chat";
+const legacyChatPaths = new Set(["/api/copilot", "/api/copilot/", "/api/copilot/chat", "/api/copilot/agent", "/api/copilot/agent/input", "/api/v1/ai/copilot", "/api/v1/ai/copilot/", "/api/v1/ai/copilot/chat", "/api/v1/ai/copilot/agent", "/api/v1/ai/copilot/agent/input"]);
 
 function newIdempotencyKey(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
 
 async function api(path, options = {}) {
+  if (options.method === "POST" && legacyChatPaths.has(path)) path = COPILOT_CHAT_PATH;
   const apiKey = getCopilotApiKey();
-  const response = await boundedFetch(path, { credentials: "include", ...options, headers: { "Content-Type": "application/json", ...(apiKey ? { "X-Api-Key": apiKey, "X-AI-Provider": "gemini" } : {}), ...(options.headers ?? {}) } }, path.endsWith("/settings") ? 15000 : path.endsWith("/agent/input") || path==="/api/copilot/chat" ? 300000 : 65000);
+  const response = await boundedFetch(path, { credentials: "include", ...options, headers: { "Content-Type": "application/json", ...(apiKey ? { "X-Api-Key": apiKey, "X-AI-Provider": "gemini" } : {}), ...(options.headers ?? {}) } }, path.endsWith("/settings") ? 15000 : path.endsWith("/v2/chat") || path.endsWith("/agent/input") || path==="/api/copilot/chat" ? 120000 : 135000);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(body.error?.message ?? "Copilot request failed");
@@ -41,7 +44,7 @@ export async function createCopilotReview(input, branchId) {
 }
 
 export async function askCopilot(message, organizationId, branchId, conversationToken, conversationId, selection) {
-  return api("/api/v1/ai/copilot/agent", {
+  return api(COPILOT_CHAT_PATH, {
     method: "POST",
     headers: { "X-Organization-Id": organizationId, "X-Branch-Id": branchId },
     body: JSON.stringify({ message, ...(conversationToken ? { conversationToken } : {}), ...(conversationId ? { conversationId } : {}),...(selection?{selection}:{}) }),
@@ -49,8 +52,10 @@ export async function askCopilot(message, organizationId, branchId, conversation
 }
 
 export async function askCopilotMedia(input, organizationId, branchId) {
-  return api(input.attachments ? "/api/copilot/chat" : "/api/v1/ai/copilot/agent/input", {
-    method:"POST",headers:{"X-Organization-Id":organizationId,"X-Branch-Id":branchId},body:JSON.stringify(input),
+  if(input.source === "text") return askCopilot(input.message ?? "",organizationId,branchId,input.conversationToken,input.conversationId,input.selection);
+  const {messages: _messages, history: _history, ...currentUpload} = input;
+  return api(COPILOT_CHAT_PATH, {
+    method:"POST",headers:{"X-Organization-Id":organizationId,"X-Branch-Id":branchId},body:JSON.stringify(currentUpload),
   });
 }
 
@@ -111,4 +116,7 @@ export async function confirmCopilotDraft({ id, organizationId, branchId, userId
     method: "POST",
     headers: { "X-Organization-Id": organizationId, "X-Branch-Id": branchId, ...(userId ? { "X-User-Id": userId } : {}), "Idempotency-Key": idempotencyKey },
   });
+}
+export async function saveDemandEstimateDraft(id,organizationId,branchId){
+  return api(`/api/v1/ai/copilot/demand-drafts/${encodeURIComponent(id)}/save`,{method:'POST',headers:{'X-Organization-Id':organizationId,'X-Branch-Id':branchId}});
 }

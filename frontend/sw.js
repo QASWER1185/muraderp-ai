@@ -1,11 +1,13 @@
-const CACHE_NAME = "muraderp-ai-shell-v39";
+const CACHE_NAME = "muraderp-ai-shell-v52-capabilities";
 const APP_SHELL = [
+  "/record-deletion.js", "/register-tools.js", "/settings.js",
+  "/copilot-history.js",
   "/copilot-recovery.js",
   "/",
   "/index.html",
-  "/styles.css",
-  "/app.js",
-  "/dashboard.js",
+  "/styles.css?v=20261101_preview51",
+  "/app.js?v=20261101_preview51",
+  "/dashboard.js?v=20261101_preview51",
   "/dashboard-api.js",
   "/icons.js",
   "/icons/icon.svg",
@@ -31,13 +33,13 @@ const APP_SHELL = [
   "/warehouse-api.js",
   "/warehouses.js",
   "/auth.js",
-  "/public-config.js",
+  "/public-config.js?v=20261101_preview51",
   "/supabase-config.js",
   "/request.js",
   "/ai-experience.js",
-  "/copilot-api.js",
+  "/copilot-api.js?v=20261101_preview51",
   "/copilot-key.js",
-  "/copilot-ui.js",
+  "/copilot-ui.js?v=20261101_preview51",
   "/estimate-conversion.js",
   "/estimate-pdf.js",
   "/estimate-api.js",
@@ -57,7 +59,7 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith("muraderp-ai-shell-") && key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", (event) => {

@@ -14,6 +14,7 @@ import { SalesTransactionService } from "../services/sales-transaction.service.j
 import type { EstimateAggregate } from "../services/estimate-clone-reprice.service.js";
 import type { SalesTransactionPort } from "../types/sales-transaction.types.js";
 import { requireAuthoritativeTransactionIdentity } from "./authoritative-transaction-context.js";
+import { getSupabaseAdminClient } from '../config/supabase.js';
 
 const id = z.coerce.number().int().positive();
 const page = z.object({ cursor: id.optional(), limit: z.coerce.number().int().min(1).max(100).default(50) });
@@ -125,6 +126,16 @@ export function createInvoiceBrowserRouter(options: InvoiceBrowserOptions = {}):
     const query = page.parse(request.query);
     response.setHeader("Cache-Control", "no-store");
     response.json(await repository.list(identity.organizationId, identity.branchId, query.limit, query.cursor));
+  });
+
+  router.post('/:id/void',async(request,response)=>{
+    const identity=await authorize(request,'sales.approve');
+    const principal=normalizeServicePrincipalId(options.servicePrincipalId??env.INTERNAL_API_PRINCIPAL_ID);
+    if(!principal)throw new ApiError(503,'ERP_NOT_CONFIGURED','Invoice service principal is not configured');
+    const {data,error}=await (getSupabaseAdminClient() as any).rpc('void_invoice_scoped',{p_id:id.parse(request.params.id),p_organization_id:identity.organizationId,p_branch_id:identity.branchId,p_actor_user_id:identity.userId,p_principal:principal});
+    if(error)throw new ApiError(error.code==='23514'?409:error.code==='42501'?403:502,'VOID_REFUSED',error.code==='23514'?error.message:'Invoice could not be voided');
+    if(!data)throw new ApiError(404,'NOT_FOUND','Invoice was not found in this workspace');
+    response.json({data:{id:Number(request.params.id),status:'VOIDED'}});
   });
 
   router.get("/ready-estimates", async (request, response) => {

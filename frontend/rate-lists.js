@@ -47,7 +47,7 @@ export function validateRateListVersion(input, products) {
   return { version_number, effective_from, items };
 }
 
-function listMarkup(lists) {
+export function listMarkup(lists) {
   if (!lists.length) return `<div class="empty-state">${icon("tags", 26)}<h2>No Rate Lists yet</h2><p>Create a list for Sale or Purchase pricing.</p></div>`;
   return `<div class="invoice-list">${lists.map((list) => `<button class="invoice-row" type="button" data-rate-list-id="${list.id}"><span><strong>${escapeHtml(list.name)}</strong><small>${escapeHtml(list.code)} · ${escapeHtml(list.price_type)} · ${escapeHtml(list.scope_type)}${list.scope_type === "CUSTOMER" ? ` #${list.customer_id}` : list.scope_type === "VENDOR" ? ` #${list.vendor_id}` : ""}</small></span><span class="status-pill ${list.is_active ? "neutral" : "review"}">${list.is_active ? "Available" : "Inactive"}</span>${icon("chevron")}</button>`).join("")}</div>`;
 }

@@ -5,7 +5,7 @@ import type { EstimateDocument } from "./estimate-document.types.js";
  * Invoice is the authoritative sales transaction.
  * There is intentionally no user-facing "Post Invoice" action.
  */
-export type InvoiceStatus = "DRAFT" | "POSTED" | "PARTIALLY_PAID" | "PAID" | "VOID";
+export type InvoiceStatus = "DRAFT" | "POSTED" | "PARTIALLY_PAID" | "PAID" | "VOID" | "VOIDED";
 
 export interface InvoiceDefinition {
   invoice_number: string;

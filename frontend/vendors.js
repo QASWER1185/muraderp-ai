@@ -18,7 +18,9 @@ function requiredText(value, label, maxLength) {
 }
 
 export function validateVendorDraft(input) {
+  if(String(input?.address??'').trim().length>2000)throw new Error('Address must be 2000 characters or fewer.');
   return {
+    ...(input?.address===undefined?{}:{address:String(input.address??'').trim()||null}),
     name: requiredText(input?.name, "Vendor name", 200),
     phone: requiredText(input?.phone, "Phone", 50),
     city: requiredText(input?.city, "City", 120),
@@ -50,6 +52,7 @@ function contextMarkup() {
       <label>Vendor name<input name="name" maxlength="200" autocomplete="organization" required /></label>
       <label>Phone<input name="phone" maxlength="50" autocomplete="tel" required /></label>
       <label>City<input name="city" maxlength="120" autocomplete="address-level2" required /></label>
+      <label>Address (optional)<textarea name="address" maxlength="2000" autocomplete="street-address"></textarea></label>
       <p id="vendor-form-result" class="form-message" role="alert" hidden></p>
       <div class="dialog-actions"><button class="button secondary" type="button" data-vendor-close>Cancel</button><button id="vendor-save" class="button primary" type="submit">Save vendor</button></div>
     </form>
@@ -103,7 +106,8 @@ export function mountVendors(container, options = {}) {
     loadError = null;
     renderPanel();
     try {
-      const page = await listVendors(context, { limit: 50, ...(reset || nextCursor === null ? {} : { cursor: nextCursor }) });
+      const page = await listVendors(context, { limit: 100, ...(reset || nextCursor === null ? {} : { cursor: nextCursor }) });
+      const seen=new Set(); while(page.next_cursor!=null&&!seen.has(page.next_cursor)){seen.add(page.next_cursor);const more=await listVendors(context,{limit:100,cursor:page.next_cursor});page.data.push(...more.data);page.next_cursor=more.next_cursor;}
       if (sequence !== loadSequence) return;
       vendors = reset ? page.data : [...vendors, ...page.data];
       nextCursor = page.next_cursor;
@@ -124,6 +128,7 @@ export function mountVendors(container, options = {}) {
     field("name").value = vendor?.name ?? "";
     field("phone").value = vendor?.phone ?? "";
     field("city").value = vendor?.city ?? "";
+    field('address').value=vendor?.address??'';
     formResult.hidden = true;
     formResult.textContent = "";
     dialog.showModal();
@@ -151,7 +156,7 @@ export function mountVendors(container, options = {}) {
     formResult.hidden = true;
     saveButton.disabled = true;
     try {
-      const draft = validateVendorDraft({ name: data.get("name"), phone: data.get("phone"), city: data.get("city") });
+      const draft = validateVendorDraft({ name: data.get("name"), phone: data.get("phone"), city: data.get("city"), address:data.get('address') });
       const vendorId = form.dataset.vendorId;
       const result = vendorId ? await updateVendor(context, vendorId, draft) : await createVendor(context, draft);
       const saved = result.data;

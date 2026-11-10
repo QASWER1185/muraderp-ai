@@ -83,6 +83,8 @@ describe("Rate List browser route", () => {
     const bad = await request(app).post("/api/v1/rate-lists/5/versions/99/publish").set(headers).send({});
     expect(bad.status).toBe(404);
     expect(repo.publishVersion).not.toHaveBeenCalled();
+    const canonical = await request(app).post("/api/v1/rate-lists/versions/11/publish").set(headers).send({});
+    expect(canonical.status).toBe(200);
     const published = await request(app).post("/api/v1/rate-lists/5/versions/11/publish").set(headers).send({});
     expect(published.status).toBe(200);
     expect(repo.publishVersion).toHaveBeenCalledWith(11, organizationId);

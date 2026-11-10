@@ -1,18 +1,31 @@
-import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js";
+import { copilotHistoryKey, loadCopilotHistory, saveCopilotHistory } from './copilot-history.js';
+import { createCopilotDraft, createCopilotReview, askCopilot, askCopilotMedia, prepareConversationDraft, prepareConversationPayment, quoteCopilotEstimateLine, createCopilotRateListDraft, extractInvoiceDocument, confirmCopilotDraft, getCopilotProviderStatus, testCopilotProvider } from "./copilot-api.js?v=20261031_estimate49";
 import { clearCopilotApiKey, getCopilotApiKey, saveCopilotApiKey } from "./copilot-key.js";
 import { queueJsonRequest } from "./offline-sync.js";
 import { getWorkspaceContext } from "./workspace-context.js";
 import { icon } from "./icons.js";
+import { copilotRecoveryMessage } from "./copilot-recovery.js";
+import {saveDemandEstimateDraft} from './copilot-api.js?v=20261031_estimate49';
 
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+const MAX_BATCH_BYTES = 18 * 1024 * 1024;
 const CONVERSATION_MAX_AGE_MS = 29 * 60_000;
 const MEDIA_TYPES = new Set(["image/jpeg","image/png","image/webp","application/pdf","audio/webm","audio/mp4","audio/mpeg","audio/wav","audio/ogg"]);
 export function erpActionReviewMarkup(review) {
   const preview=review.preview;
+  if(preview.mode==='DEMAND_SLIP_ESTIMATE')return demandEstimateMarkup(review);
   const lines=preview.lines??[];
   const quotation=preview.quotation;
   const grouped=quotation?.sections?.map(section=>`<section><h4>${escapeHtml(section.brand)}</h4><div class="shop-table"><table><thead><tr>${["آئٹم","سائز","مقدار","لسٹ ریٹ PKR","رعایت %","خالص رقم PKR"].map(label=>`<th>${label}</th>`).join("")}</tr></thead><tbody>${section.lines.map(line=>`<tr>${[line.name,line.size??"—",`${line.quantity} ${line.unit}`,line.rate,line.discountPercent??"—",line.amount].map(value=>`<td><bdi dir="auto">${escapeHtml(value)}</bdi></td>`).join("")}</tr>`).join("")}</tbody></table></div><p>برانڈ رعایت: <bdi dir="ltr">PKR ${escapeHtml(section.savings)}</bdi> · رقم: <bdi dir="ltr">PKR ${escapeHtml(section.total)}</bdi></p></section>`).join("");
-  return `<article class="review-card confirmation-card" dir="auto"><h3>منظوری کے لیے پری ویو</h3>${formatCopilotAnswer(preview.summary)}<div class="review-lines">${grouped??lines.map((line,index)=>`<div class="review-line"><strong>${index+1}. ${escapeHtml(line.productName??line.name??"")}</strong><p>${escapeHtml(line.quantity??line.qty??"")} ${escapeHtml(line.unit??"")} · نرخ ${escapeHtml(line.unit_price??line.list_price??"")} · رعایت ${escapeHtml(line.discountPercent??0)}%</p></div>`).join("")}</div>${preview.totals?`<p><strong>کل رقم: <bdi dir="ltr">PKR ${escapeHtml(preview.totals.grand_total)}</bdi></strong></p>`:""}${preview.warnings?.length?`<p class="review-warning">${escapeHtml(preview.warnings.join(" "))}</p>`:""}${quotation?`<details><summary>گاہک کا واٹس ایپ کارڈ</summary><pre data-customer-quotation>${escapeHtml(quotation.text)}</pre><button type="button" class="button secondary" data-copy-quotation>متن کاپی کریں</button><button type="button" class="button secondary" data-download-card>کارڈ ڈاؤن لوڈ کریں</button></details>`:""}${preview.privateMargin?`<details class="merchant-scorecard"><summary>صرف دکاندار کے لیے مارجن</summary><p>${preview.privateMargin.costsKnown?`خرید لاگت: PKR ${escapeHtml(preview.privateMargin.cost)} · متوقع مجموعی منافع: PKR ${escapeHtml(preview.privateMargin.grossProfit)}`:"خرید لاگت کی مکمل تصدیق دستیاب نہیں؛ منافع کا اندازہ نہیں لگایا گیا۔"}</p></details>`:""}${preview.challan?`<details open><summary>بغیر نرخ کا ڈسپیچ چلّان</summary><pre data-customer-quotation>${escapeHtml(preview.challan.text)}</pre><button type="button" class="button secondary" data-download-card>چلّان ڈاؤن لوڈ کریں</button></details>`:""}<button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button><button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور محفوظ کریں</button></article>`;
+  return `<article class="review-card confirmation-card" dir="auto"><h3>${preview.incomplete?"نرخوں کی تصدیق کا مسودہ":"منظوری کے لیے پری ویو"}</h3>${formatCopilotAnswer(preview.summary)}<div class="review-lines">${grouped??lines.map((line,index)=>`<div class="review-line"><strong>${index+1}. ${escapeHtml(line.productName??line.name??"")}</strong><p>${escapeHtml(line.quantity??line.qty??"")} ${escapeHtml(line.unit??"")} · نرخ ${escapeHtml(line.pending?"پینڈنگ تصدیق":line.unit_price??line.list_price??"")} · رعایت ${escapeHtml(line.discountPercent??0)}%</p></div>`).join("")}</div>${preview.totals?`<p><strong>کل رقم: <bdi dir="ltr">PKR ${escapeHtml(preview.totals.grand_total)}</bdi></strong></p>`:""}${preview.warnings?.length?`<p class="review-warning">${escapeHtml(preview.warnings.join(" "))}</p>`:""}${quotation?`<details><summary>گاہک کا واٹس ایپ کارڈ</summary><pre data-customer-quotation>${escapeHtml(quotation.text)}</pre><button type="button" class="button secondary" data-copy-quotation>متن کاپی کریں</button><button type="button" class="button secondary" data-download-card>کارڈ ڈاؤن لوڈ کریں</button></details>`:""}${preview.privateMargin?`<details class="merchant-scorecard"><summary>صرف دکاندار کے لیے مارجن</summary><p>${preview.privateMargin.costsKnown?`خرید لاگت: PKR ${escapeHtml(preview.privateMargin.cost)} · متوقع مجموعی منافع: PKR ${escapeHtml(preview.privateMargin.grossProfit)}`:"خرید لاگت کی مکمل تصدیق دستیاب نہیں؛ منافع کا اندازہ نہیں لگایا گیا۔"}</p></details>`:""}${preview.challan?`<details open><summary>بغیر نرخ کا ڈسپیچ چلّان</summary><pre data-customer-quotation>${escapeHtml(preview.challan.text)}</pre><button type="button" class="button secondary" data-download-card>چلّان ڈاؤن لوڈ کریں</button></details>`:""}<button type="button" class="button secondary" data-draft-cancel>منسوخ کریں</button>${preview.incomplete?"":'<button type="button" class="button primary" data-confirm-draft>تصدیق کریں اور محفوظ کریں</button>'}</article>`;
+}
+export function demandEstimateMarkup(review){
+  const p=review.preview,lines=p.lines??[],priced=lines.filter(x=>!x.pending),pending=lines.filter(x=>x.pending);
+  const money=value=>Number(value).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const headers=['#','آئٹم و تفصیل','سائز','تعداد','یونٹ','لسٹ ریٹ','رعایت %','نیٹ ریٹ','کل رقم (PKR)'];
+  const rows=lines.map((x,i)=>{const rate=x.unit_price,net=rate-(x.quantity?Number(x.discount_amount??0)/x.quantity:0);return `<tr>${[x.line_number??i+1,x.productName,x.size??'—',x.quantity,x.unit,x.pending?'ریٹ مطلوب':money(rate),x.discountPercent??0,x.pending?'ریٹ مطلوب':money(net),x.pending?'ریٹ مطلوب':money(x.quantity*rate-Number(x.discount_amount??0))].map(v=>`<td><bdi dir="auto">${escapeHtml(v)}</bdi></td>`).join('')}</tr>`;}).join('');
+  const total=p.partialTotals??p.totals;
+  return `<article class="review-card confirmation-card" dir="rtl" data-demand-estimate><h3>ایسٹیمیٹ کا مسودہ</h3><p>${escapeHtml(p.customer?.name??"")} · ${escapeHtml(p.customer?.address??"")} · <bdi dir="ltr">${escapeHtml(p.customer?.phone??"")}</bdi></p>${formatCopilotAnswer(String(p.summary??"").split("\n\n| # |")[0])}<section><h4>تمام آئٹمز</h4><div class="shop-table"><table><thead><tr>${headers.map(x=>`<th>${escapeHtml(x)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><p><strong>${pending.length?'نرخ والے آئٹمز کی جزوی رقم':'کل رقم'}: <bdi dir="ltr">PKR ${money(total?.grand_total??0)}</bdi></strong></p></section>${pending.length?`<section><h4>ریٹ مطلوب</h4><ul>${pending.map(x=>`<li>${escapeHtml(x.productName)} ${escapeHtml(x.size??'')}: ${escapeHtml(x.quantity)} ${escapeHtml(x.unit==='gaz'?'گز':x.unit==='pcs'?'عدد':x.unit)} — ریٹ مطلوب</li>`).join('')}</ul>${p.hardwareQuestion?formatCopilotAnswer(p.hardwareQuestion):'<p>باقی سطروں کے درست کیٹلاگ سائز یا فعال نرخ کی تصدیق کر دیں۔</p>'}</section>`:''}<button type="button" class="button primary" data-save-demand-draft="${escapeHtml(review.draftId)}">ایسٹیمیٹ کا مسودہ محفوظ کریں</button></article>`;
 }
 export function depotReportMarkup(report){
   if(report.catalogIntegrity===true)return `<article class="review-card" dir="auto"><h3>کیٹلاگ نرخوں کی پڑتال</h3>${report.rows.map(row=>`<p>${escapeHtml(row.name)} · موجودہ ${escapeHtml(row.currentListPrice??"نامعلوم")} · کیٹلاگ ${escapeHtml(row.expectedListPrice)} · ${row.status==="verified"?"تصدیق شدہ":"درستگی کا پری ویو درکار"}</p>`).join("")}<p>قیمتوں کی تبدیلی الگ پری ویو اور واضح منظوری کے بعد محفوظ ہو گی۔</p></article>`;
@@ -55,12 +68,12 @@ export function customerDraftReviewMarkup(review) {
 export function customerPreparationMarkup() {
   return '<article class="review-card" data-customer-preparation><span class="status-pill review">Details required</span><h3>Prepare new customer</h3><div class="review-fields"><label>Name<input name="name" type="text" maxlength="200" required /></label><label>Phone<input name="phone" type="tel" maxlength="50" required /></label><label>City/address<input name="city" type="text" maxlength="120" required /></label></div><p>Customer creation requires a separate explicit confirmation.</p><button class="button primary" type="button" data-prepare-customer>Prepare customer review</button></article>';
 }
-export function validateAttachment(file) {
+export function validateAttachment(file, sourceImage = false) {
   const suppliedMime=String(file.type).split(";")[0].trim().toLowerCase();
   const mimeType=suppliedMime==="image/jpg"?"image/jpeg":suppliedMime;
   if(!MEDIA_TYPES.has(mimeType)) throw new Error("Use a JPEG, PNG, WebP, PDF, or supported audio file.");
   if(!file.size) throw new Error("The attachment is empty.");
-  if(file.size>MAX_MEDIA_BYTES) throw new Error("Attachments must be 8 MB or smaller.");
+  if(file.size>(sourceImage && mimeType.startsWith('image/') ? 32*1024*1024 : MAX_MEDIA_BYTES)) throw new Error("Use photos up to 32 MB before compression, or other attachments up to 8 MB.");
   return mimeType;
 }
 export function ambiguityMarkup(clarification) {
@@ -75,7 +88,7 @@ export function extractionMarkup(extraction,reviewText) {
   if(extraction.transcript && !extraction.document) return `<article class="review-card"><h3>صوتی پیغام کی عبارت</h3>${transcript}<p>گاہک اور سامان کی شناخت کے بعد موجودہ ERP نرخ استعمال ہوں گے۔</p></article>`;
   const doc=extraction.document;
   if(!doc) return "";
-  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3>${transcript}<p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p><bdi dir="auto">${escapeHtml([line.material,line.productName,line.specification,line.size].filter(Boolean).join(" · "))}</bdi> · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")} · پرچی کا نرخ ${escapeHtml(line.unitRate??"درج نہیں")} · رعایت ${escapeHtml(line.discountPercent??doc.discountPercent??"درج نہیں")}%</p>`).join("")}<p>پرچی کی ابتدائی رقم: ${escapeHtml(doc.subtotal??"درج نہیں")}؛ کل: ${escapeHtml(doc.total??"درج نہیں")}۔ ایسٹیمیٹ کی قیمت فعال ERP ریٹ لسٹ سے لی گئی ہے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
+  return `<article class="review-card" data-input-review><h3>پرچی سے پڑھی گئی تفصیل</h3>${transcript}<p>گاہک: ${escapeHtml(doc.customerName??"نام واضح کر دیں")}۔ شناخت کا اعتماد ${Math.round(doc.confidence*100)}%۔</p>${doc.lines.map(line=>`<p><bdi dir="auto">${escapeHtml([line.material,line.productName,line.specification,line.size].filter(Boolean).join(" · "))}</bdi> · ${escapeHtml(line.quantity??"مقدار واضح کر دیں")} ${escapeHtml(line.unit??"کیٹلاگ کا یونٹ")}</p>`).join("")}<p>یہ سامان کی طلب ہے؛ ایسٹیمیٹ کے نرخ فعال ERP کیٹلاگ اور آپ کی دی گئی رعایت سے لیے جائیں گے۔</p>${doc.warnings?.length?`<p class="review-warning">${escapeHtml(doc.warnings.join(" "))}</p>`:""}${reviewText?`<label>ضرورت ہو تو پڑھی گئی تفصیل درست کر دیں<textarea data-input-review-text maxlength="4000">${escapeHtml(reviewText)}</textarea></label><button class="button primary" type="button" data-use-reviewed-input>درست تفصیل کے ساتھ آگے بڑھیں</button>`:""}</article>`;
 }
 
 function conversationStorage(){try{return globalThis.sessionStorage;}catch{return null;}}
@@ -84,7 +97,7 @@ export function createCopilotConversation(now = Date.now, storage = conversation
   let scope = null;
   let expiresAt = 0;
   let conversationId = null;
-  const storageKey="muraderp-copilot-conversation-v1";
+  const storageKey="muraderp-copilot-conversation-v2";
   const forget=()=>{try{storage?.removeItem(storageKey);}catch{}};
   try {
     const saved=JSON.parse(storage?.getItem(storageKey)??"null");
@@ -111,7 +124,7 @@ export function createCopilotConversation(now = Date.now, storage = conversation
     clear() { token = null; conversationId = null; scope = null; expiresAt = 0; forget(); },
   };
 }
-function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
+function escapeHtml(value) { return String(value ?? "").replace(/\bCAT-[A-Za-z0-9_-]+\b/g,"کیٹلاگ آئٹم").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
 /** Small escaped Markdown subset: no HTML, links, images or executable markup. */
 export function formatCopilotAnswer(value){
   const inline=text=>escapeHtml(text).replace(/\*\*([^*\n]+)\*\*/g,"<strong>$1</strong>")
@@ -168,12 +181,46 @@ export function sourceForAttachment(file, camera = false) {
   return camera ? "camera" : "image";
 }
 
+async function compressSlipPhoto(file) {
+  const mimeType = validateAttachment(file, true);
+  if (!mimeType.startsWith('image/')) return file;
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('تصویر کھل نہیں سکی؛ دوبارہ منتخب کریں۔'));
+      element.src = url;
+    });
+    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    if (scale === 1 && file.size <= 512 * 1024) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('تصویر تیار نہیں ہو سکی؛ دوبارہ کوشش کریں۔');
+    context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.80));
+    if (!blob) throw new Error('تصویر compress نہیں ہو سکی؛ دوبارہ کوشش کریں۔');
+    const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', {type:'image/jpeg', lastModified:file.lastModified});
+    validateAttachment(compressed);
+    return compressed;
+  } finally { URL.revokeObjectURL(url); }
+}
+
 async function readFileAsBase64(file) {
   const mimeType=validateAttachment(file);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
-  return { mimeType, base64: btoa(binary) };
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("File could not be read. Please attach it again."));
+    reader.onabort = () => reject(new Error("File reading was cancelled. Please attach it again."));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+  const base64 = typeof dataUrl === "string" ? dataUrl.slice(dataUrl.indexOf(",") + 1) : "";
+  if (!base64) throw new Error("The attached file is empty. Please attach a readable slip.");
+  return { mimeType, base64 };
 }
 
 function matchField(label, match, name) {
@@ -231,6 +278,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   const micButton = document.querySelector("#copilot-mic");
   let attachment = null;
   let attachments = [];
+  let attachmentPreparation = Promise.resolve(), preparingAttachments = 0, attachmentGeneration = 0;
   let voiceAudio = null;
   let voiceAudioName = "";
   let attachmentFromCamera = false;
@@ -246,7 +294,31 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   let retryAction = null;
   let operationVersion=0, recordingVersion=0, recordingTimer=null, recordingBytes=0;
   const conversation = createCopilotConversation();
+  let historyKey = null;
+  let restoredConversationId = null;
+  const browserHistoryStorage = () => { try { return globalThis.localStorage; } catch { return null; } };
+  function currentHistoryKey() { return copilotHistoryKey(getAuthenticatedUserId(), getWorkspaceContext()); }
+  function persistHistory() {
+    if (!historyKey || historyKey !== currentHistoryKey()) return;
+    const context = getWorkspaceContext();
+    const id = conversation.idFor(getAuthenticatedUserId(), context.organizationId, context.branchId) ?? restoredConversationId;
+    saveCopilotHistory(browserHistoryStorage(), historyKey, { conversationId: id,
+      messages: [...thread.querySelectorAll('.chat-message')].slice(-200).map(row => ({ role: row.classList.contains('user') ? 'user' : 'assistant', text: row.querySelector('.message-body')?.textContent ?? '' })) });
+  }
+  function restoreHistory() {
+    const key = currentHistoryKey();
+    if (key === historyKey) return;
+    historyKey = null; restoredConversationId = null;
+    const saved = loadCopilotHistory(browserHistoryStorage(), key);
+    if (saved?.messages.length) {
+      thread.innerHTML = '';
+      for (const row of saved.messages) appendMessage(row.role, `<p>${escapeHtml(row.text).replaceAll('\n','<br>')}</p>`);
+      restoredConversationId = saved.conversationId;
+    } else welcome();
+    historyKey = key;
+  }
   const quoteVersions = new Map();
+  const demandDraftScopes=new Map();
 
   document.querySelector("#copilot-close").innerHTML = icon("close");
   document.querySelector("#copilot-key-close").innerHTML = icon("close");
@@ -260,7 +332,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const message = document.createElement("div");
     message.className = `chat-message ${role} ${className}`.trim();
     message.innerHTML = role === "assistant" ? `<span class="assistant-mark">${icon("sparkles")}</span><div class="message-body" dir="auto">${body}</div>` : `<div class="message-body" dir="auto">${body}</div>`;
-    thread.append(message); scrollThread(); return message;
+    thread.append(message); persistHistory(); scrollThread(); return message;
   }
   function welcome() {
     thread.innerHTML = "";
@@ -274,6 +346,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     status.hidden = !busy; status.innerHTML = busy ? `<span class="spinner"></span>${escapeHtml(message)}` : "";
   }
   function clearAttachment() {
+    attachmentGeneration++;
     attachmentUrls.forEach(url=>URL.revokeObjectURL(url));
     attachmentUrls = []; attachments=[]; attachment = null; voiceAudio = null; voiceAudioName = ""; attachmentFromCamera = false; fileInput.value = ""; cameraInput.value = ""; attachmentRoot.hidden = true; attachmentRoot.innerHTML = "";
   }
@@ -290,18 +363,29 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     attachment=attachments[0]??(voiceAudio?{type:voiceAudio.type,size:voiceAudio.size,name:voiceAudioName}:null);
   }
   function addAttachments(files,fromCamera=false) {
+    const generation = attachmentGeneration;
+    preparingAttachments++;
+    attachmentPreparation = attachmentPreparation.then(async () => {
     try {
-      const incoming=files.map(file=>({file,mimeType:validateAttachment(file)}));
+      const incoming=[];
+      for (const original of files) {
+        const file = await compressSlipPhoto(original);
+        incoming.push({file,mimeType:validateAttachment(file)});
+      }
+      if (generation !== attachmentGeneration) return;
       const incomingVoice=incoming.filter(item=>item.mimeType.startsWith("audio/"));
       const incomingSlips=incoming.filter(item=>!item.mimeType.startsWith("audio/"));
       if(incomingVoice.length>1||(incomingVoice.length&&voiceAudio))throw new Error("ایک پیغام کے ساتھ صرف ایک صوتی نوٹ شامل کریں۔");
       if(attachments.length+incomingSlips.length>10)throw new Error("ایک ساتھ زیادہ سے زیادہ 10 پرچیاں منتخب کریں۔");
-      if([...attachments,...incomingSlips.map(item=>item.file)].reduce((sum,file)=>sum+file.size,0)+(voiceAudio?.size??0)+incomingVoice.reduce((sum,item)=>sum+item.file.size,0)>MAX_MEDIA_BYTES)throw new Error("تمام فائلوں کا مجموعی حجم 8 MB تک رکھیں۔");
+      if([...attachments,...incomingSlips.map(item=>item.file)].reduce((sum,file)=>sum+file.size,0)+(voiceAudio?.size??0)+incomingVoice.reduce((sum,item)=>sum+item.file.size,0)>MAX_BATCH_BYTES)throw new Error("تمام compressed فائلوں کا مجموعی حجم 18 MB تک رکھیں۔");
       attachments=[...attachments,...incomingSlips.map(item=>item.file)];
       if(incomingVoice.length){voiceAudio=incomingVoice[0].file;voiceAudioName=voiceAudio.name||"صوتی پیغام";}
       if(fromCamera)attachmentFromCamera=true;
-    }catch(error){showError(error);return;}
-    renderAttachments();
+      renderAttachments();
+    }catch(error){if(generation===attachmentGeneration)showError(error);}
+    finally { preparingAttachments--; }
+    });
+    return attachmentPreparation;
   }
   function showError(error, action = null) {
     const original=error?.message??"";
@@ -319,9 +403,9 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       /codec|microphone|recording/iu.test(original)?"جناب، صوتی ریکارڈنگ شروع نہیں ہو سکی؛ مائیک کی اجازت اور معاون صوتی فارمیٹ دیکھ لیں۔":
       /sign in/iu.test(original)?"جناب، ERP تک رسائی کے لیے پہلے لاگ اِن کر لیں۔":
       /choose.*workspace/iu.test(original)?"جناب، پہلے اپنی فعال ورک اسپیس منتخب کر لیں۔":
-      "جناب، درخواست مکمل نہیں ہو سکی۔ تفصیل دیکھ کر دوبارہ کوشش کریں۔";
+      copilotRecoveryMessage(error);
     retryAction = action;
-    appendMessage("assistant", `<div class="message-error">${icon("alert")}<span><strong>جناب، یہ تفصیل دوبارہ دیکھ لیں</strong><p>${escapeHtml(message)}</p>${action ? '<button class="button secondary compact" type="button" data-copilot-retry>دوبارہ کوشش کریں</button>' : ""}</span></div>`, "error");
+    appendMessage("assistant", `<div class="review-card copilot-recovery" role="status">${icon("alert")}<span><p>${escapeHtml(message)}</p><p>اسی گفتگو میں درست تفصیل یا اگلا قدم بتا دیں۔</p>${action ? '<button class="button secondary compact" type="button" data-copilot-retry>اسی قدم کی دوبارہ پڑتال</button>' : ""}</span></div>`);
     if (error?.code === "AI_API_KEY_REJECTED" || error?.code === "AI_NOT_CONFIGURED") void openKeySettings();
   }
   function contextOrThrow() {
@@ -340,7 +424,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         ? `A Gemini key is saved in this browser and will be used${serverConfigured ? "; it overrides the server-side key." : "."}`
         : serverConfigured
           ? "A server-side AI key is configured. No browser key is needed."
-          : "Basic stock inquiries work without an AI key. Enter your Gemini API key to activate conversational workflows.";
+          : "Enter your Gemini API key to activate Copilot v2.";
       return serverConfigured;
     } catch {
       keyStatus.textContent = hasLocalKey
@@ -432,9 +516,11 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
 
   async function analyze(selection, submission) {
     if (operationBusy) return;
+    if (preparingAttachments) { await attachmentPreparation; if (operationBusy) return; }
     const context = contextOrThrow();
+    restoreHistory();
     const text = submission?.text??input.value.trim();
-    const files=submission?.files??attachments, audio=submission?.audio??voiceAudio, audioName=submission?.audioName??voiceAudioName;
+    const files=[...(submission?.files??attachments)], audio=submission?.audio??voiceAudio, audioName=submission?.audioName??voiceAudioName;
     const camera=submission?.camera??attachmentFromCamera;
     if(submission&&(submission.userId!==getAuthenticatedUserId()||submission.organizationId!==context.organizationId||submission.branchId!==context.branchId))throw new Error("Workspace changed. Please resend in the active workspace.");
     if (!text && !files.length && !audio) throw new Error("Write a message or add an attachment first.");
@@ -448,19 +534,23 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     const sentVoiceAudio=audio;
     const sentVoiceAudioName=audioName;
     const snapshot={text,files:sentAttachments,audio:sentVoiceAudio,audioName:sentVoiceAudioName,camera,action,userId:getAuthenticatedUserId(),organizationId:context.organizationId,branchId:context.branchId};
+    const restoreSubmission=()=>{}; // Retry uses the retained message snapshot; sent content never repopulates the composer.
     input.value="";input.style.height="auto";clearAttachment();
     const version=++operationVersion;
+    let acceptedForConversation=false;
     setBusy(true, source === "voice" ? "Transcribing audio, then processing with the ERP Agent" : source!=="text"?"Reading document, resolving ERP entities and processing the draft":"ERP Agent processing your request");
     try {
       const encodedAttachments=await Promise.all(sentAttachments.map(async file=>({fileName:file.name,media:await readFileAsBase64(file)})));
       const encodedVoice=sentVoiceAudio?{fileName:sentVoiceAudioName||"voice-note.webm",media:await readFileAsBase64(new File([sentVoiceAudio],sentVoiceAudioName||"voice-note.webm",{type:sentVoiceAudio.type}))}:null;
+      if(version!==operationVersion) return;
       const combinedAttachments=[...encodedAttachments,...(encodedVoice?[encodedVoice]:[])];
       const payload = { organizationId: context.organizationId, userId: getAuthenticatedUserId(), source, ...(text ? { text } : {}), ...(encodedAttachments[0] ? { media: encodedAttachments[0].media } : encodedVoice?.media ? {media:encodedVoice.media}: {}) };
       const mediaInput=combinedAttachments.length>1 ? {attachments:combinedAttachments} : {media:combinedAttachments[0]?.media??payload.media,fileName:combinedAttachments[0]?.fileName??sentAttachment?.name};
-      if (action === "auto" || action === "estimate" || (action === "rate_list_update" && sentAttachment)) {
+      // All conversational submissions use v2, regardless of the selected task.
+      if (["text", "image", "camera", "voice"].includes(source)) {
         const userId = getAuthenticatedUserId();
         const token = conversation.tokenFor(userId, context.organizationId, context.branchId);
-        const conversationId = conversation.idFor(userId, context.organizationId, context.branchId);
+        const conversationId = conversation.idFor(userId, context.organizationId, context.branchId) ?? restoredConversationId;
         activeDraft = null; preparedConversation = null; customerPreparationScope = null;
         thread.querySelectorAll("[data-customer-preparation], [data-conversation-draft], [data-conversation-payment], [data-agent-ambiguity], [data-input-review], .confirmation-card").forEach(card => card.remove());
         const response = source==="text"?await askCopilot(text, context.organizationId, context.branchId, token, conversationId, selection):await askCopilotMedia({source,...mediaInput,...(text?{message:text}:{}),task:action,...(token?{conversationToken:token}:{}),...(conversationId?{conversationId}:{})},context.organizationId,context.branchId);
@@ -468,12 +558,23 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         const current=getWorkspaceContext();
         if(getAuthenticatedUserId()!==userId || current?.organizationId!==context.organizationId || current?.branchId!==context.branchId) {conversation.clear();throw new Error("Workspace changed. Please resend in the active workspace.");}
         if (typeof response.data?.answer !== "string") throw new Error("Copilot did not return an answer.");
-        // Consume media once the server accepts the message, before rendering
-        // cards can fail. Subsequent text turns must never resend these files.
-        if(response.data.status!=="rate_limited"){input.value="";input.style.height="auto";clearAttachment();}
+        // A failed planning turn has not handed the slip to a usable draft.
+        // Keep its files and wording available for correction or an exact retry.
+        const retryable=["rate_limited","error","timeout","empty","limit","call_limit","malformed","duplicate"].includes(response.data.status);
+        const needsMedia=retryable || (response.data.status==="clarification" && !response.data.review && !response.data.draft);
+        if(needsMedia)restoreSubmission();
+        acceptedForConversation=!needsMedia;
+        if(acceptedForConversation){snapshot.files=[];snapshot.audio=null;retryAction=null;}
+        if(!needsMedia){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
+        restoredConversationId = response.data.conversationId;
+        persistHistory();
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant",formatCopilotAnswer(response.data.answer));
+        if(retryable && response.data.status!=="rate_limited" && response.data.documentAction===true && response.data.pendingPreview){
+          retryAction=()=>analyze(selection,snapshot);
+          appendMessage("assistant",'<div class="review-card copilot-recovery"><p>گفتگو اور منتخب فائلیں اسی قدم کی دوبارہ پڑتال کے لیے موجود ہیں۔</p><button class="button secondary compact" type="button" data-copilot-retry>اسی قدم کی دوبارہ پڑتال</button></div>');
+        }
         if (response.data.status !== "rate_limited" && response.data.preparation?.intent === "customer_create") {
           customerPreparationScope = { ...context, userId };
           appendMessage("assistant", customerPreparationMarkup());
@@ -484,7 +585,8 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         }
         if(response.data.review?.intent==="erp_action" && response.data.status!=="rate_limited") {
           const prepared=response.data.review;
-          activeDraft={id:prepared.draftId,idempotencyKey:prepared.idempotencyKey,intent:prepared.tool==="erp_create_estimate"?"estimate":prepared.tool,organizationId:context.organizationId,branchId:context.branchId,userId};
+          if(prepared.preview?.mode==='DEMAND_SLIP_ESTIMATE')demandDraftScopes.set(prepared.draftId,{organizationId:context.organizationId,branchId:context.branchId,userId});
+          activeDraft=prepared.requiresConfirmation===false?null:{id:prepared.draftId,idempotencyKey:prepared.idempotencyKey,intent:prepared.tool==="erp_create_estimate"?"estimate":prepared.tool,organizationId:context.organizationId,branchId:context.branchId,userId};
           appendMessage("assistant",erpActionReviewMarkup(prepared));
         }
         if(response.data.extraction) appendMessage("assistant",extractionMarkup(response.data.extraction,response.data.reviewText));
@@ -524,7 +626,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       review = response.data;
       quoteVersions.clear();
       appendMessage("assistant", reviewCardMarkup(review));
-    } catch(error) {if(version===operationVersion)showError(error,()=>analyze(selection,snapshot));}
+    } catch(error) {if(version===operationVersion){if(!acceptedForConversation)restoreSubmission();showError(error,()=>analyze(selection,snapshot));}}
     finally { if(version===operationVersion) setBusy(false); }
   }
   function fromCameraLabel(source) { return source === "camera" ? "Photo for review" : source === "image" ? "Attachment for review" : "ERP request"; }
@@ -656,7 +758,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
   }
 
   async function run(action) { try { retryAction = null; await action(); } catch (error) { setBusy(false); showError(error, action); } }
-  function reset() { operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; customerPreparationScope = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
+  function reset() { if(historyKey&&historyKey===currentHistoryKey()){try{browserHistoryStorage()?.removeItem(historyKey);}catch{}}historyKey=null;restoredConversationId=null; operationVersion++;recordingVersion++;clearTimeout(recordingTimer);if (recorder?.state === "recording") recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null; clearAttachment(); review = null; activeDraft = null; customerPreparationScope = null; preparedConversation = null; retryAction = null; conversation.clear(); input.value = ""; task.value = "auto"; status.hidden = true; setBusy(false); welcome(); }
 
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 150)}px`; });
   input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void run(analyze); } });
@@ -691,6 +793,13 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     if (event.target.closest("[data-prepare-customer]")) void run(() => prepareCustomer(event.target.closest("[data-customer-preparation]")));
     if (event.target.closest("[data-draft-cancel]")) { activeDraft = null; event.target.closest(".confirmation-card")?.remove(); appendMessage("assistant", "<p>Draft cancelled. Nothing was posted.</p>"); }
     if (event.target.closest("[data-confirm-draft]")) void run(confirmDraft);
+    const saveDemand=event.target.closest('[data-save-demand-draft]');
+    if(saveDemand)void run(async()=>{
+      const id=saveDemand.dataset.saveDemandDraft,original=demandDraftScopes.get(id),current=getWorkspaceContext();
+      if(!original||original.userId!==getAuthenticatedUserId()||original.organizationId!==current.organizationId||original.branchId!==current.branchId)throw new Error('Return to the original user, organization and branch before saving this draft.');
+      const saved=await saveDemandEstimateDraft(id,original.organizationId,original.branchId);
+      appendMessage('assistant',`<p>${escapeHtml(saved.data.message)}</p>`);
+    });
     if (event.target.closest("[data-copilot-retry]") && retryAction) void run(retryAction);
     const open = event.target.closest("[data-open-record]");
     if (open && openNativeAction) { openNativeAction(open.dataset.intent, open.dataset.recordId); dialog.close(); }
@@ -707,6 +816,18 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     }
   });
   document.querySelector("#copilot-close").addEventListener("click", () => {const wasRecording=recorder?.state==="recording";recordingVersion++;clearTimeout(recordingTimer);if(wasRecording) recorder.stop();recordingStream?.getTracks().forEach(track=>track.stop());recordingStream=null;micButton.classList.remove("recording");micButton.innerHTML=icon("mic");if(wasRecording) setBusy(false);dialog.close();});
+  document.querySelector("#copilot-new-chat").addEventListener("click", () => {
+    reset();
+    for (const storage of [browserHistoryStorage(), conversationStorage()]) {
+      try {
+        const keys = Array.from({length: storage?.length ?? 0}, (_, i) => storage.key(i));
+        for (const key of keys) if (key && (key.startsWith("muraderp.copilot.v2.history:") || key === "muraderp-copilot-conversation-v2" || key === "copilot_chat_history")) storage.removeItem(key);
+      } catch {}
+    }
+    quoteVersions.clear(); demandDraftScopes.clear(); recordingChunks=[];
+    micButton.classList.remove("recording"); micButton.innerHTML=icon("mic");
+    input.style.height="auto"; input.focus();
+  });
   document.querySelector("#copilot-settings").addEventListener("click", () => void openKeySettings());
   document.querySelector("#copilot-key-close").addEventListener("click", () => keyDialog.close());
   document.querySelector("#copilot-key-cancel").addEventListener("click", () => keyDialog.close());
@@ -733,6 +854,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
     event.preventDefault(); keyResult.hidden = true;
     try {
       saveCopilotApiKey(keyInput.value);
+      void refreshProviderStatus();
       keyInput.value = "";
       keyDialog.close();
     } catch (error) {
@@ -742,7 +864,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
       keyResult.hidden = false;
     }
   });
-  function openCopilot() { if (!dialog.open) dialog.showModal(); input.focus(); void checkKeyOnCopilotOpen(); }
+  function openCopilot() { restoreHistory(); if (!dialog.open) dialog.showModal(); input.focus(); void checkKeyOnCopilotOpen(); }
   document.querySelector("#copilot-button").addEventListener("click", openCopilot);
   welcome();
   return { open: openCopilot, reset };

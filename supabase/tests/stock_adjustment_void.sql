@@ -1,0 +1,33 @@
+begin;
+do $$
+declare org uuid:=gen_random_uuid(); actor uuid:=gen_random_uuid(); b uuid:=gen_random_uuid(); c bigint; p bigint; w bigint; inv bigint; result jsonb; j uuid; before_total numeric;
+begin
+ insert into auth.users(id) values(actor);
+ insert into public.organizations(id,name,slug) values(org,'Adjustment test',org::text);
+ insert into public.organization_memberships(organization_id,user_id,role,status) values(org,actor,'owner','active');
+ insert into public.branches(id,organization_id,code,name,status) values(b,org,'A','Adjustment branch','active');
+ insert into public.branch_access_grants(organization_id,branch_id,user_id,status) values(org,b,actor,'active');
+ insert into public.customers(organization_id,name,phone,city) values(org,'Test','0','Test') returning id into c;
+ insert into public.products(organization_id,name,sku,category,unit,purchase_price,sale_price) values(org,'Test',org::text,'Test','piece',60,100) returning id into p;
+ insert into public.warehouses(organization_id,name) values(org,'Test') returning id into w;
+ insert into public.inventory(organization_id,product_id,warehouse_id,quantity) values(org,p,w,10);
+ result:=public.adjust_stock_atomic(org,b,actor,p,w,1,'Cycle count','Test operator');
+ if (result->>'quantity_after')::numeric<>11 then raise exception '+1 failed';end if;
+ result:=public.adjust_stock_atomic(org,b,actor,p,w,-1,'Cycle count reversal','Test operator');
+ if (result->>'quantity_after')::numeric<>10 then raise exception '-1 failed';end if;
+ if (select count(*) from public.stock_adjustment_events where organization_id=org)<>2 then raise exception 'Adjustment audit missing';end if;
+ begin perform public.adjust_stock_atomic(org,b,actor,p,w,-11,'Invalid','Test');raise exception 'Negative stock accepted';exception when check_violation then null;end;
+ result:=public.post_invoice_atomic(org,b,actor,'capabilities-sql-test','sales.invoice.post','invoice-key','fingerprint',jsonb_build_object('invoice_number','VOID-TEST','customer_id',c,'issue_date',current_date,'currency_code','PKR','subtotal',200,'discount_total',20,'grand_total',180,'pass_through_rent',10),jsonb_build_array(jsonb_build_object('line_number',1,'product_id',p,'quantity',2,'unit','piece','unit_price',100,'line_total',200,'unit_cost',60,'cogs_total',120)),w);
+ inv:=(result->>'invoice_id')::bigint;
+ if (select quantity from public.inventory where product_id=p and warehouse_id=w)<>8 then raise exception 'Invoice stock setup failed';end if;
+ if not public.void_invoice_scoped(inv,org,b,actor,'capabilities-sql-test') then raise exception 'Void failed';end if;
+ if (select quantity from public.inventory where product_id=p and warehouse_id=w)<>10 then raise exception 'Void stock failed';end if;
+ if (select status from public.invoices where id=inv)<>'VOIDED' then raise exception 'Void status failed';end if;
+ if (select grand_total from public.invoices where id=inv)<>180 then raise exception 'Void changed figures';end if;
+ if (select sum(debit-credit) from public.customer_ledger_entries where organization_id=org)<>0 then raise exception 'Void receivable failed';end if;
+ if exists(select account_id from public.journal_lines l join public.journal_entries e on e.id=l.journal_entry_id where e.organization_id=org group by account_id having sum(debit-credit)<>0) then raise exception 'Void GL failed';end if;
+ perform public.void_invoice_scoped(inv,org,b,actor,'capabilities-sql-test');
+ if (select quantity from public.inventory where product_id=p and warehouse_id=w)<>10 then raise exception 'Void replay duplicated stock';end if;
+ begin perform public.delete_unused_record('invoices',inv,org,b,actor);raise exception 'Posted invoice deleted';exception when check_violation then null;end;
+end $$;
+rollback;

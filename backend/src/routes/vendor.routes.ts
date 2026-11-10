@@ -20,6 +20,7 @@ const pageSchema = z.object({
 });
 const shortText = z.string().trim().min(1).max(200);
 const vendorSchema = z.strictObject({
+  address: z.string().trim().max(2000).nullable().optional(),
   name: shortText,
   phone: z.string().trim().min(1).max(50),
   city: z.string().trim().min(1).max(120),

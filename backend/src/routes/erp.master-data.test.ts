@@ -79,7 +79,7 @@ describe("Phase 5 master-data acceptance", () => {
   for (const resource of resources) {
     it(`${resource.path} supports list/create/update/delete`, async () => {
       const service = makeService();
-      const app = createApp({ erpService: service, tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
+      const app = createApp({ erpService: service, recordDeletion: { remove: async () => ({ data: true, error: null }) }, tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
       const auth = { Authorization: `Bearer ${TOKEN}`, ...TENANT_HEADERS };
 
       expect((await request(app).get(`/api/v1/${resource.path}`).set(auth)).status).toBe(200);
@@ -102,7 +102,7 @@ describe("Phase 5 master-data acceptance", () => {
 
   it("rejects invalid pagination without reaching the service", async () => {
     const service = makeService();
-    const app = createApp({ erpService: service, tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
+    const app = createApp({ erpService: service, recordDeletion: { remove: async () => ({ data: true, error: null }) }, tenantAccessService, internalApiToken: TOKEN, internalApiPrincipalId: PRINCIPAL });
     const response = await request(app)
       .get("/api/v1/products?limit=101")
       .set("Authorization", `Bearer ${TOKEN}`)

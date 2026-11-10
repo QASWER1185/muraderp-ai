@@ -5,6 +5,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    {"source": "/settings", "destination": "/index.html"},
     {
       "source": "/api/copilot/:path*",
       "destination": "https://muraderp-api-jy6eophhla-el.a.run.app/api/copilot/:path*"

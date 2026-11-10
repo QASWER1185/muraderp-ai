@@ -13,6 +13,7 @@ async function dashboardRequest(path, context) {
   const normalized = normalizeWorkspaceContext(context);
   if (!normalized) throw new DashboardApiError("Choose your business workspace to load live dashboard data.", 400, "WORKSPACE_REQUIRED");
   const response = await fetch(path, {
+    signal: AbortSignal.timeout(20000),
     credentials: "include",
     headers: {
       "X-Organization-Id": normalized.organizationId,

@@ -131,6 +131,12 @@ export function createRateListBrowserRouter(options: RateListBrowserOptions = {}
     try { response.status(201).json({ data: await authoring.createDraftVersion({ ...input, effective_from: `${input.effective_from}T00:00:00.000Z`, rate_list_id: list.id, organization_id: identity.organizationId }) }); } catch (error) { mutationError(error); }
   });
 
+  router.post("/versions/:versionId/publish", async (request, response) => {
+    const identity = await authorize(request, "products.write");
+    const versionId = id.parse(request.params.versionId);
+    try { response.json({ data: await publication.publish(versionId, identity.organizationId) }); } catch (error) { mutationError(error); }
+  });
+
   router.post("/:id/versions/:versionId/publish", async (request, response) => {
     const identity = await authorize(request, "products.write");
     const list = await listFor(id.parse(request.params.id), identity.organizationId);

@@ -1,0 +1,10 @@
+// @vitest-environment happy-dom
+import {it,expect,vi} from 'vitest';
+import {csvText,selectRows,mountRegisterTools} from './register-tools.js';
+import {setWorkspaceContext} from './workspace-context.js';
+it('filters date and status before sorting and exports RFC 4180 fields',()=>{const rows=[{id:1,name:'A, "B"\nC',register_status:'POSTED',register_date:'2026-11-01'},{id:2,name:'Z',register_status:'DRAFT',register_date:'2026-11-02'}];const result=selectRows(rows,{search:'B',status:'POSTED',from:'2026-11-01',to:'2026-11-01',sort:'name'});expect(result).toHaveLength(1);expect(csvText([['name','Name']],result)).toBe('"Name"\r\n"A, ""B""\nC"\r\n');expect(selectRows(rows,{sort:'id',descending:true})[0].id).toBe(2);});
+it.each([['invoices','invoice-results'],['purchases','purchase-results'],['payments','payment-results'],['vendor-payments','vendor-payment-results'],['vendors','vendor-panel'],['rates','rate-list-results'],['inventory','stock-balances']])('provides search, status, date, clickable sort and CSV for %s',async(section,id)=>{
+ setWorkspaceContext({organizationId:'11111111-1111-4111-8111-111111111111',branchId:'22222222-2222-4222-8222-222222222222'});
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({data:[{id:1,name:'Alpha',invoice_number:'INV-1',status:'POSTED',quantity:1,created_at:'2026-11-01'}],next_cursor:null})}));
+ const root=document.createElement('div');root.innerHTML=`<div id="${id}"></div>`;document.body.append(root);mountRegisterTools(root,section);await new Promise(resolve=>setTimeout(resolve,30));expect(root.querySelector('[type=search]')).toBeTruthy();expect(root.querySelector('[data-export]')).toBeTruthy();expect(root.querySelector('[data-count]').textContent).toBe('1 of 1 records');expect(root.querySelector('th button')).toBeTruthy();const search=root.querySelector('[type=search]');search.value='missing';search.dispatchEvent(new Event('input',{bubbles:true}));expect(root.querySelector('[data-count]').textContent).toContain('0 of 1');root.remove();vi.unstubAllGlobals();
+});

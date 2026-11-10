@@ -22,7 +22,7 @@ export type ProductInput = Pick<
   Tables["products"]["Insert"],
   "name" | "sku" | "category" | "unit" | "purchase_price" | "sale_price"
 > & { brand_id?: number | null | undefined };
-export type VendorInput = Pick<Tables["vendors"]["Insert"], "name" | "phone" | "city">;
+export type VendorInput = Pick<Tables["vendors"]["Insert"], "name" | "phone" | "city"> & { address?: string | null | undefined };
 export type WarehouseInput = Pick<Tables["warehouses"]["Insert"], "name"> & {
   location?: string | null | undefined;
 };

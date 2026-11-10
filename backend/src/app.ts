@@ -1,3 +1,6 @@
+import { createSettingsRouter } from './routes/settings.routes.js';
+import { createStockAdjustmentRouter } from './routes/stock-adjustment.routes.js';
+import { createRecordDeletionRouter } from './routes/record-deletion.routes.js';
 import express from "express";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
@@ -41,7 +44,7 @@ import { createAccountingBrowserRouter } from "./routes/accounting.browser.route
 import { createReportsBrowserRouter } from "./routes/reports.browser.routes.js";
 import type { WorkspaceDiscoveryService } from "./services/workspace-discovery.service.js";
 
-export interface AppOptions { erpService?: ErpService; customerPaymentService?: CustomerPaymentService; vendorPaymentService?: VendorPaymentService; tenantAccessService?: Pick<TenantAccessService, "assertAuthorized">; workspaceDiscoveryService?: WorkspaceDiscoveryService; estimateConversionService?: EstimateCloneRepriceService; estimateWhatsAppShareService?: EstimateWhatsAppShareService; internalApiToken?: string; internalApiPrincipalId?: string; }
+export interface AppOptions { recordDeletion?: Parameters<typeof createRecordDeletionRouter>[0]; erpService?: ErpService; customerPaymentService?: CustomerPaymentService; vendorPaymentService?: VendorPaymentService; tenantAccessService?: Pick<TenantAccessService, "assertAuthorized">; workspaceDiscoveryService?: WorkspaceDiscoveryService; estimateConversionService?: EstimateCloneRepriceService; estimateWhatsAppShareService?: EstimateWhatsAppShareService; internalApiToken?: string; internalApiPrincipalId?: string; }
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../frontend");
 
 export function createApp(options: AppOptions = {}) {
@@ -73,6 +76,9 @@ export function createApp(options: AppOptions = {}) {
   // The Copilot mount above intentionally keeps its existing authentication flow.
   // This applies to the remaining versioned business API routers only.
   app.use("/api/v1", createApiKeyAuth(undefined, internalApiToken));
+  app.use('/api/v1/settings', createSettingsRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, tenantAuthorizer: options.tenantAccessService }));
+  app.use('/api/v1/stock', createStockAdjustmentRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, tenantAuthorizer: options.tenantAccessService }));
+  app.use('/api/v1', createRecordDeletionRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, tenantAuthorizer: options.tenantAccessService, ...options.recordDeletion }));
   app.use("/api/v1/workspaces", createWorkspaceRouter(options.workspaceDiscoveryService));
   app.use("/api/v1/warehouses", createWarehouseBrowserRouter({ internalApiToken, servicePrincipalId: internalApiPrincipalId, service: erpService, tenantAuthorizer: options.tenantAccessService }));
 

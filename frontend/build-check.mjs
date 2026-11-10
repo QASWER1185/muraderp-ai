@@ -9,12 +9,12 @@ for (const file of required) {
   if (!existsSync(path)) throw new Error(`Missing production asset: ${file}`);
   if (!readFileSync(path, "utf8").trim()) throw new Error(`Empty production asset: ${file}`);
 }
-required.push("copilot-key.js", "supabase-config.js", "public-config.js", "request.js");
+required.push("estimate-register.js", "estimate-editor.js", "document-templates.js", "copilot-history.js", "copilot-recovery.js", "settings.js", "register-tools.js", "record-deletion.js", "copilot-key.js", "supabase-config.js", "public-config.js", "request.js");
 // Missing transitive modules halt the whole app before any click handlers mount.
 for (const file of required.filter(file => file.endsWith(".js"))) {
   const source = readFileSync(resolve(root, file), "utf8");
   for (const match of source.matchAll(/(?:from\s*|import\s*)["']\.\/([^"']+)["']/g)) {
-    if (!required.includes(match[1])) throw new Error(`${file} imports an unstaged production asset: ${match[1]}`);
+    if (!required.includes(match[1].split("?")[0])) throw new Error(`${file} imports an unstaged production asset: ${match[1]}`);
   }
 }
 const html = readFileSync(resolve(root, "index.html"), "utf8");
@@ -30,7 +30,7 @@ const publicUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publicKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const { supabaseConfiguration } = await import("./supabase-config.js");
 supabaseConfiguration({ url: publicUrl, key: publicKey });
-writeFileSync(resolve(dist, "public-config.js"), `globalThis.MURADERP_PUBLIC_CONFIG = ${JSON.stringify(publicUrl && publicKey ? { url: publicUrl, key: publicKey } : {})};\n`);
+writeFileSync(resolve(dist, "public-config.js"), publicUrl && publicKey ? `globalThis.MURADERP_PUBLIC_CONFIG = ${JSON.stringify({ url: publicUrl, key: publicKey })};\n` : readFileSync(resolve(root,"public-config.js"),"utf8"));
 mkdirSync(resolve(dist, "icons"), { recursive: true });
 writeFileSync(resolve(dist, "icons", "icon.svg"), readFileSync(resolve(root, "icons", "icon.svg")));
 const assets = [...required, "icons/icon.svg"];
