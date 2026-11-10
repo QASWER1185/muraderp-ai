@@ -1,0 +1,99 @@
+import { getSupabaseServiceRoleClient } from "../config/supabase.js";
+import { ApiError } from "../errors/api-error.js";
+const invoiceColumns = "id, created_at, invoice_number, customer_id, source_estimate_id, document_template, warehouse_id, issue_date, status, currency_code, subtotal, discount_total, grand_total, pass_through_rent, notes";
+const lineColumns = "id, line_number, product_id, quantity, unit, unit_price, line_total, unit_cost, cogs_total";
+export class SupabaseInvoiceBrowserRepository {
+    clientFactory;
+    constructor(clientFactory = getSupabaseServiceRoleClient) {
+        this.clientFactory = clientFactory;
+    }
+    get client() {
+        // The generated Database type currently omits the existing invoice tables.
+        return this.clientFactory();
+    }
+    async listForCopilot(organizationId, branchId, query) {
+        let request = this.client.from('invoices').select(invoiceColumns).eq('organization_id', organizationId).eq('branch_id', branchId);
+        if (query.startDate)
+            request = request.gte('issue_date', query.startDate);
+        if (query.endDate)
+            request = request.lte('issue_date', query.endDate);
+        const ascending = query.order === 'oldest';
+        const { data, error } = await request.order('created_at', { ascending }).order('id', { ascending }).limit(query.limit + 1);
+        if (error)
+            throw new ApiError(502, 'INVOICE_READ_FAILED', 'Invoices could not be listed');
+        const rows = (data ?? []);
+        return { data: rows.slice(0, query.limit), hasMore: rows.length > query.limit, ordering: 'created_at_then_id',
+            authoritative: true, complete: rows.length <= query.limit, period: { startDate: query.startDate ?? null, endDate: query.endDate ?? null } };
+    }
+    async getByReference(organizationId, branchId, reference) {
+        if (/^\d+$/.test(reference))
+            return this.getById(organizationId, branchId, Number(reference));
+        const { data, error } = await this.client.from('invoices').select('id').eq('organization_id', organizationId).eq('branch_id', branchId).eq('invoice_number', reference).maybeSingle();
+        if (error)
+            throw new ApiError(502, 'INVOICE_READ_FAILED', 'Invoice could not be loaded');
+        return data ? this.getById(organizationId, branchId, data.id) : null;
+    }
+    async list(organizationId, branchId, limit, cursor) {
+        let query = this.client.from("invoices").select(invoiceColumns)
+            .eq("organization_id", organizationId).eq("branch_id", branchId)
+            .order("id", { ascending: false }).limit(limit + 1);
+        if (cursor !== undefined)
+            query = query.lt("id", cursor);
+        const { data, error } = await query;
+        if (error)
+            throw new ApiError(502, "INVOICE_READ_FAILED", "Invoices could not be loaded");
+        const rows = (data ?? []);
+        return { data: rows.slice(0, limit), next_cursor: rows.length > limit ? rows[limit - 1].id : null };
+    }
+    async getById(organizationId, branchId, id) {
+        const { data: invoice, error } = await this.client.from("invoices").select(invoiceColumns)
+            .eq("organization_id", organizationId).eq("branch_id", branchId).eq("id", id).maybeSingle();
+        if (error)
+            throw new ApiError(502, "INVOICE_READ_FAILED", "Invoice could not be loaded");
+        if (!invoice)
+            return null;
+        const { data: lines, error: lineError } = await this.client.from("invoice_items").select(`${lineColumns}, products!invoice_items_product_id_fkey(name,category)`)
+            .eq("invoice_id", id).order("line_number", { ascending: true });
+        if (lineError)
+            throw new ApiError(502, "INVOICE_READ_FAILED", "Invoice lines could not be loaded");
+        const [{ data: customer, error: customerError }, sourceItemsResult] = await Promise.all([
+            this.client.from("customers").select("id,name,phone,city").eq("id", invoice.customer_id).eq("organization_id", organizationId).maybeSingle(),
+            invoice.source_estimate_id == null
+                ? Promise.resolve({ data: [], error: null })
+                : this.client.from("estimate_items").select("line_number,quantity,unit_price,discount_amount,pricing_provenance,products!estimate_items_product_id_fkey(name,category)")
+                    .eq("estimate_id", invoice.source_estimate_id).order("line_number", { ascending: true }),
+        ]);
+        if (customerError)
+            throw new ApiError(502, "INVOICE_READ_FAILED", "Invoice customer details could not be loaded");
+        if (sourceItemsResult.error)
+            throw new ApiError(502, "INVOICE_READ_FAILED", "Source estimate pricing details could not be loaded");
+        const sourceByLine = new Map((sourceItemsResult.data ?? []).map((item) => [Number(item.line_number), item]));
+        const detailLines = (lines ?? []).map((item) => {
+            const source = sourceByLine.get(Number(item.line_number));
+            const quantity = Number(item.quantity);
+            const unitPrice = Number(item.unit_price);
+            const listPrice = Number(source?.pricing_provenance?.list_price ?? source?.unit_price ?? unitPrice);
+            const lineAmount = Number(item.line_total);
+            const discountPercent = Number(source?.pricing_provenance?.discount_percent ?? (listPrice * quantity > 0 ? (listPrice * quantity - lineAmount) / (listPrice * quantity) * 100 : 0));
+            return {
+                ...item,
+                product_name: item.products?.name ?? `Product ${item.product_id}`,
+                category: item.products?.category ?? source?.products?.category ?? "Items",
+                list_price: listPrice,
+                discount_percent: discountPercent,
+                net_rate: quantity ? lineAmount / quantity : unitPrice,
+                line_total: lineAmount,
+            };
+        });
+        return { invoice: { ...invoice, customer }, lines: detailLines };
+    }
+    async listReadyEstimates(organizationId, branchId) {
+        const { data, error } = await this.client.from("estimates").select("id, estimate_number, customer_id, issue_date")
+            .eq("organization_id", organizationId).eq("branch_id", branchId).eq("status", "READY")
+            .order("id", { ascending: false }).limit(100);
+        if (error)
+            throw new ApiError(502, "ESTIMATE_READ_FAILED", "Ready estimates could not be loaded");
+        return (data ?? []);
+    }
+}
+//# sourceMappingURL=invoice-browser.repository.js.map

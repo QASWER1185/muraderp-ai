@@ -1,0 +1,30 @@
+import { CopilotOperationsRepository } from '../../repositories/copilot-operations.repository.js';
+import { createLiveGeminiProvider } from './live-provider.js';
+import { SupabaseErpService } from '../../services/erp.service.js';
+import { TenantAccessService } from '../../auth/tenant-access.service.js';
+import { createServiceRoleAuthorizationGateway } from '../../auth/supabase-authorization.gateway.js';
+import { SupabaseEstimateBrowserRepository } from '../../repositories/estimate-browser.repository.js';
+import { DefaultPricingService } from '../../services/pricing.service.js';
+import { SupabaseRateListRepository } from '../../repositories/rate-list.repository.js';
+import { CopilotRuntime } from '../copilot.runtime.js';
+import { createConversationalTools } from '../agent/factory.js';
+import { SupabaseV2Store } from './store.js';
+import { V2ToolConnector } from './tools.js';
+import { AutonomousV2Agent } from './agent.js';
+import { env } from '../../config/env.js';
+import { createLocalDemoAgent } from './local-demo.js';
+import { SupabaseInvoiceBrowserRepository } from '../../repositories/invoice-browser.repository.js';
+import { CopilotDirectoryRepository } from '../../repositories/copilot-directory.repository.js';
+import { CopilotRateOverviewRepository } from '../../repositories/copilot-rate-overview.repository.js';
+import { CopilotRateListActivation } from './rate-list-activation.js';
+export function createV2Agent(provider = createLiveGeminiProvider()) {
+    if (env.NODE_ENV === 'development' && !env.SUPABASE_URL && !env.SUPABASE_SECRET_KEY) {
+        return createLocalDemoAgent(provider);
+    }
+    const store = new SupabaseV2Store();
+    const connector = new V2ToolConnector({ store, operations: new CopilotOperationsRepository(), rateActivation: new CopilotRateListActivation(), access: new TenantAccessService(createServiceRoleAuthorizationGateway()),
+        runtime: new CopilotRuntime(undefined, undefined, provider, { verifiedPreferencesOnly: true }), reads: createConversationalTools(provider),
+        estimates: new SupabaseEstimateBrowserRepository(), invoices: new SupabaseInvoiceBrowserRepository(), directory: new CopilotDirectoryRepository(), rateOverview: new CopilotRateOverviewRepository(), erp: new SupabaseErpService(), pricing: new DefaultPricingService(new SupabaseRateListRepository()) });
+    return new AutonomousV2Agent(provider, connector, store);
+}
+//# sourceMappingURL=factory.js.map
