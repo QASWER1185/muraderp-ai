@@ -567,7 +567,7 @@ export function mountCopilot({ getAuthenticatedUserId, openNativeAction }) {
         if(acceptedForConversation){snapshot.files=[];snapshot.audio=null;retryAction=null;}
         if(!needsMedia){input.value="";input.style.height="auto";clearAttachment();}
         conversation.accept(response.data.conversationToken, userId, context.organizationId, context.branchId, response.data.conversationId);
-        restoredConversationId = response.data.conversationId;
+        restoredConversationId = response.data.conversationId ?? restoredConversationId;
         persistHistory();
         activeDraft = null; preparedConversation = null;
         appendMessage("assistant",formatCopilotAnswer(response.data.answer));

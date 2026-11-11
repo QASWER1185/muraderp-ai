@@ -21,7 +21,7 @@ describe("application navigation with mounted page components", () => {
     expect(document.querySelector("#customer-panel")).not.toBeNull();
   });
 
-  it.each([["customers", "Customers", "#customer-panel"], ["inventory", "Stock", "#stock-balances"], ["estimates", "Estimates", "#estimate-lines"], ["invoices", "Invoices", "#invoice-results"]])(
+  it.each([["customers", "Customers", "#customer-panel"], ["inventory", "Stock", "#stock-balances"], ["estimates", "Estimates", "[data-estimate-results]"], ["invoices", "Invoices", "#invoice-results"]])(
     "mounts %s from a nested sidebar label and keeps it active", async (route, label, panel) => {
       document.querySelector(`#nav [data-route="${route}"] span`).click();
       await Promise.resolve();
@@ -49,7 +49,7 @@ describe("application navigation with mounted page components", () => {
   it("routes dashboard actions and closes the mobile menu", () => {
     document.querySelector('.app-shell').classList.add("menu-open");
     const action = document.createElement("button");
-    action.dataset.navigate = "estimates";
+    action.dataset.navigate = "estimates/create";
     action.innerHTML = "<span>Create estimate</span>";
     document.body.append(action);
     action.querySelector("span").click();

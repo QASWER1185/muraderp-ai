@@ -81,6 +81,7 @@ describe("estimate document calculations", () => {
       estimate_number: "EST-101",
       issue_date: "2026-09-14",
       currency_code: "PKR",
+      document_template: "sanitary_electric",
       notes: "Delivery included",
       overall_discount: 13500,
       carriage_delivery: 750,
@@ -99,7 +100,7 @@ describe("estimate document calculations", () => {
 
   it("renders the current unsaved draft with percentage totals and no Unit, per-item discount, or technical IDs", () => {
     const markup = estimatePreviewMarkup({ ...draft(), savedEstimateId: null, lines: meaningfulEstimateLines(draft().lines) });
-    for (const text of ["MURAD BUILDING MATERIALS STORE", "0308 6235608", "Al Kabir Town", "GM", "Discount (45%)", "Amount After Discount", "Carriage / Delivery", "Grand Total"]) expect(markup).toContain(text);
+    for (const text of ["M. MURAD BUILDING MATERIAL STORE", "0308-6235608", "Al Kabir Town", "GM", "Discount (45%)", "Amount After Discount", "Carriage / Delivery", "Grand Total"]) expect(markup).toContain(text);
     expect(markup).toContain("<th>#</th><th>Item</th><th>Quantity</th><th>Rate</th><th>Total</th>");
     expect(markup).not.toContain("<th>Unit</th>");
     expect(markup).not.toContain(">bag<");

@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 const mocks=vi.hoisted(()=>({context:{organizationId:"org",branchId:"branch"},ask:vi.fn(),media:vi.fn(),prepare:vi.fn(),confirm:vi.fn(),extract:vi.fn()}));
 vi.mock("./workspace-context.js",()=>({getWorkspaceContext:()=>mocks.context}));
 vi.mock("./copilot-api.js",()=>({askCopilot:mocks.ask,askCopilotMedia:mocks.media,prepareConversationDraft:mocks.prepare,prepareConversationPayment:vi.fn(),confirmCopilotDraft:mocks.confirm,createCopilotDraft:vi.fn(),createCopilotReview:vi.fn(),quoteCopilotEstimateLine:vi.fn(),createCopilotRateListDraft:vi.fn(),extractInvoiceDocument:mocks.extract}));
 import { mountCopilot,validateAttachment,ambiguityMarkup,extractionMarkup,conversationDraftMarkup } from "./copilot-ui.js";
+beforeEach(()=>{
+  vi.stubGlobal('Image',class { naturalWidth=100;naturalHeight=100;set src(value){queueMicrotask(()=>this.onload?.());} });
+  vi.stubGlobal('FileReader',class {readAsDataURL(file){file.arrayBuffer().then(bytes=>{this.result='data:'+file.type+';base64,'+Buffer.from(bytes).toString('base64');this.onload?.();},()=>this.onerror?.());}});
+});
 function setup(){
   mocks.context={organizationId:"org",branchId:"branch"};Object.values(mocks).filter(value=>typeof value?.mockReset==="function").forEach(value=>value.mockReset());
   const response={data:{answer:"Verified ERP draft",conversationToken:"signed",conversationId:"id",toolNames:["search_products"],draft:{customer:{name:"Qasim"},lines:[{productName:"Popular",quantity:20,unit:"PCS",discountPercent:10,rate:{currency_code:"PKR",unit_price:200,unit:"PCS"},amount:3600}],currencyCode:"PKR",totals:{subtotal:4000,discount_total:400,grand_total:3600},prepared:true}}};
@@ -12,9 +16,10 @@ function setup(){
   const query=selector=>{if(!nodes.has(selector))nodes.set(selector,node());return nodes.get(selector);};
   const thread=query("#copilot-thread");thread.querySelectorAll=selector=>messages.filter(message=>selector.split(",").some(part=>{const attribute=part.trim().match(/^\[([^\]]+)\]/)?.[1];return attribute?message.innerHTML.includes(attribute):part.trim()===".confirmation-card"&&message.innerHTML.includes('class="confirmation-card"');}));
   vi.stubGlobal("document",{querySelector:query,createElement:()=>node()});vi.stubGlobal("requestAnimationFrame",callback=>callback());vi.stubGlobal("navigator",{onLine:true});
-  vi.stubGlobal("URL",{createObjectURL:vi.fn(()=>"blob:fixture"),revokeObjectURL:vi.fn()});
+  let objectUrlSequence=0;
+  vi.stubGlobal("URL",{createObjectURL:vi.fn(()=>`blob:fixture-${++objectUrlSequence}`),revokeObjectURL:vi.fn()});
   const controller=mountCopilot({getAuthenticatedUserId:()=>"user"});query("#copilot-action").value="auto";
-  const idle=()=>vi.waitFor(()=>expect(query("#copilot-send").disabled).toBe(false));
+  const idle=async()=>{await new Promise(resolve=>setTimeout(resolve,0));return vi.waitFor(()=>expect(query("#copilot-send").disabled).toBe(false));};
   const send=async(text="")=>{query("#copilot-input").value=text;query("#copilot-send").listeners.get("click")();await idle();};
   const attach=(file,camera=false)=>{const input=query(camera?"#copilot-camera":"#copilot-file");input.files=Array.isArray(file)?file:[file];input.listeners.get("change")();};
   const attachmentClick=target=>query("#copilot-attachment").listeners.get("click")({target:{closest:selector=>selector===`[data-remove-slip]`||selector===`[data-remove-voice]`?target:null}});
@@ -24,6 +29,14 @@ function setup(){
 afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();});
 const image=()=>new File(["real fixture bytes"],"estimate.png",{type:"image/png"});
 describe("Part 4 multimodal browser workflow",()=>{
+  it("retains the conversation ID when a follow-up response omits it",async()=>{
+    const f=setup();
+    await f.send("List products");
+    mocks.ask.mockResolvedValueOnce({data:{answer:"Follow-up",conversationToken:"next-token"}});
+    await f.send("Show more");
+    await f.send("Continue");
+    expect(mocks.ask).toHaveBeenLastCalledWith("Continue","org","branch","next-token","id",undefined);
+  });
   it("clears text and all thumbnails before the pending network request completes",async()=>{
     const f=setup();let finish;mocks.media.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
     f.attach([image(),image(),image()]);f.query("#copilot-input").value="فیصل بٹ کا ایسٹیمیٹ";
@@ -54,7 +67,7 @@ describe("Part 4 multimodal browser workflow",()=>{
   });
   it("sends three slip previews in ONE request and preserves all attachments for retry",async()=>{
     const f=setup(),files=[1,2,3].map(index=>new File(["slip-"+index],"slip-"+index+".png",{type:"image/png"}));
-    f.attach(files);expect(f.query("#copilot-attachment").innerHTML).toContain("slip-3.png");
+    f.attach(files);await vi.waitFor(()=>expect(f.query("#copilot-attachment").innerHTML).toContain("slip-3.png"));
     mocks.media.mockRejectedValueOnce(new Error("retry"));
     await f.send("Waseem Mazhar Bhai, Ittehad Town Lahore, Dura Max 50% estimate");
     expect(f.query("#copilot-attachment").hidden).toBe(true);
@@ -62,7 +75,8 @@ describe("Part 4 multimodal browser workflow",()=>{
     expect(mocks.media.mock.calls[0][0]).not.toHaveProperty("media");
     await f.click("[data-copilot-retry]");
     expect(mocks.media.mock.calls[1][0].attachments).toHaveLength(3);expect(f.query("#copilot-attachment").hidden).toBe(true);
-    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
+    expect(URL.revokeObjectURL.mock.calls.map(([url])=>url).sort())
+      .toEqual(URL.createObjectURL.mock.results.map(({value})=>value).sort());
   });
   it("renders and confirms a combined customer/estimate with one click",async()=>{
     const f=setup();mocks.media.mockResolvedValue({data:{answer:"وسیم مظہر بھائی کا مکمل ایسٹیمیٹ تیار ہے۔",conversationToken:"signed",conversationId:"id",status:"review",
@@ -137,7 +151,7 @@ describe("Part 4 multimodal browser workflow",()=>{
   });
   it("blocks empty and unsupported attachments before sending",async()=>{
     const f=setup();f.attach(new File([],"empty.wav",{type:"audio/wav"}));await f.send();expect(mocks.media).not.toHaveBeenCalled();expect(f.markup()).toContain("فائل خالی ہے");
-    f.attach(new File(["svg"],"bad.svg",{type:"image/svg+xml"}));expect(f.markup()).toContain("JPEG، PNG");
+    f.attach(new File(["svg"],"bad.svg",{type:"image/svg+xml"}));await f.idle();expect(f.markup()).toContain("JPEG، PNG");
   });
 });
 describe("Part 4 untrusted display and bounded attachments",()=>{

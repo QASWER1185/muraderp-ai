@@ -11,6 +11,12 @@ function storage() {
 }
 
 describe("Copilot browser key storage", () => {
+  it("clears a saved key when the user explicitly saves an empty value", () => {
+    const local = storage();
+    saveCopilotApiKey("test-only-gemini-key-123456789", local);
+    saveCopilotApiKey("", local);
+    expect(getCopilotApiKey(local)).toBeNull();
+  });
   it("stores, reads, and removes a validated Gemini key", () => {
     const local = storage();
     const key = "AIzaSyExampleKeyForCopilot123456789";
@@ -20,7 +26,7 @@ describe("Copilot browser key storage", () => {
     expect(getCopilotApiKey(local)).toBeNull();
   });
 
-  it.each(["", "short", "x".repeat(513), `valid-${"x".repeat(20)}\nInjected: true`, "test-only-gemini-key with-space", "test-only-gemini-key\u0000suffix", "test-only-gemini-key\u200bsuffix"])(
+  it.each(["short", "x".repeat(513), `valid-${"x".repeat(20)}\nInjected: true`, "test-only-gemini-key with-space", "test-only-gemini-key\u0000suffix", "test-only-gemini-key\u200bsuffix"])(
     "rejects an invalid API key value",
     (value) => expect(() => saveCopilotApiKey(value, storage())).toThrow("valid Gemini API key"),
   );
@@ -29,7 +35,7 @@ describe("Copilot browser key storage", () => {
     const local = storage();
     local.setItem("muraderp.copilot.gemini-key.v1",key);
     expect(getCopilotApiKey(local)).toBeNull();
-    expect(local.getItem("muraderp.copilot.gemini-key.v1")).toBe(key);
+    expect(local.getItem("muraderp.copilot.gemini-key.v1")).toBeNull();
   });
   it("trims surrounding copy/paste padding before saving", () => {
     const local = storage();

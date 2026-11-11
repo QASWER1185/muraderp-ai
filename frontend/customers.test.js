@@ -8,6 +8,7 @@ describe("customer production workflow", () => {
       name: "Ali Raza",
       phone: "03001234567",
       city: "Lahore",
+      address: null, opening_balance: 0,
     });
   });
 

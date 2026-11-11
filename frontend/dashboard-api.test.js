@@ -9,7 +9,7 @@ describe("dashboard browser API", () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { inventory_items: [] } }) });
     vi.stubGlobal("fetch", fetch);
     await getDashboardStock(context);
-    expect(fetch).toHaveBeenCalledWith("/api/v1/dashboard/stock", { credentials: "include", headers: { "X-Organization-Id": context.organizationId, "X-Branch-Id": context.branchId } });
+    expect(fetch).toHaveBeenCalledWith("/api/v1/dashboard/stock", { credentials: "include", signal: expect.any(AbortSignal), headers: { "X-Organization-Id": context.organizationId, "X-Branch-Id": context.branchId } });
   });
 
   it("requests profit only for the explicit date range", async () => {
@@ -24,6 +24,6 @@ describe("dashboard browser API", () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { count: 3 } }) });
     vi.stubGlobal("fetch", fetch);
     expect((await getDashboardEstimateCount(context)).data.count).toBe(3);
-    expect(fetch).toHaveBeenCalledWith("/api/v1/dashboard/estimates/count", { credentials: "include", headers: { "X-Organization-Id": context.organizationId, "X-Branch-Id": context.branchId } });
+    expect(fetch).toHaveBeenCalledWith("/api/v1/dashboard/estimates/count", { credentials: "include", signal: expect.any(AbortSignal), headers: { "X-Organization-Id": context.organizationId, "X-Branch-Id": context.branchId } });
   });
 });
