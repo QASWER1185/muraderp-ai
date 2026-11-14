@@ -98,12 +98,14 @@ describe("estimate document calculations", () => {
     expect(() => validateEstimateDraft(value)).toThrow("between 0 and 100");
   });
 
-  it("renders the current unsaved draft with percentage totals and no Unit, per-item discount, or technical IDs", () => {
+  it("preserves desktop draft columns and totals while showing full columns in the mobile document table", () => {
     const markup = estimatePreviewMarkup({ ...draft(), savedEstimateId: null, lines: meaningfulEstimateLines(draft().lines) });
+    const desktop = markup.split('<article class="mobile-document-preview')[0];
     for (const text of ["M. MURAD BUILDING MATERIAL STORE", "0308-6235608", "Al Kabir Town", "GM", "Discount (45%)", "Amount After Discount", "Carriage / Delivery", "Grand Total"]) expect(markup).toContain(text);
     expect(markup).toContain("<th>#</th><th>Item</th><th>Quantity</th><th>Rate</th><th>Total</th>");
-    expect(markup).not.toContain("<th>Unit</th>");
-    expect(markup).not.toContain(">bag<");
+    expect(desktop).not.toContain("<th>Unit</th>");
+    expect(desktop).not.toContain(">bag<");
+    expect(markup).toContain("<th>Unit</th>");
     expect(markup.match(/<th>Discount<\/th>/)).toBeNull();
     expect(markup).not.toMatch(/Organization ID|Branch ID|Source Estimate ID|UUID/i);
   });

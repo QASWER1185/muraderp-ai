@@ -5,7 +5,7 @@ import { createInvoice, createInvoiceFromEstimate, getInvoice, getReadyEstimate,
 import { getProduct, listProducts } from "./product-api.js";
 import { getWarehouse, listWarehouses } from "./warehouse-api.js";
 import { getWorkspaceContext } from "./workspace-context.js";
-import { documentTemplateLabel, documentTemplateOptions, mobileDocumentPreview, normalizeDocumentTemplate, SANITARY_ELECTRIC } from "./document-templates.js";
+import { documentTemplateLabel, documentTemplateOptions, mobileDocumentPreview, normalizeDocumentTemplate, orderedDocumentLines, SANITARY_ELECTRIC } from "./document-templates.js";
 import { createSavedEstimatePdfFile, downloadEstimatePdf } from "./estimate-pdf.js";
 
 const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -23,6 +23,7 @@ export function invoiceListMarkup(invoices, customerNames = new Map()) {
 }
 
 export function invoiceDetailMarkup({ invoice, lines, customer = invoice.customer ?? {}, warehouse = invoice.warehouse ?? {} }) {
+  lines = orderedDocumentLines(lines);
   const heading = `<div class="side-dialog-head"><div><p class="eyebrow">Posted Invoice</p><h2>${escapeHtml(invoice.invoice_number)}</h2></div><button class="icon-button" type="button" data-invoice-close aria-label="Close">${icon("close")}</button></div>`;
   const actions = `<div class="invoice-document-actions"><button class="button secondary" type="button" data-invoice-print>Print</button><button class="button secondary" type="button" data-invoice-pdf>Download PDF</button><button class="button customer-whatsapp" type="button" data-invoice-whatsapp>WhatsApp Share</button>${!['VOID','VOIDED'].includes(invoice.status) ? `<button class="button primary" type="button" data-invoice-receive-payment="${escapeHtml(invoice.id)}" ${invoice.status === 'PAID' ? 'disabled title="This invoice has no outstanding balance"' : ''}>Receive Payment</button>` : ""}</div><p class="invoice-share-feedback" role="status" aria-live="polite"></p>`;
   const desktop = `<div class="invoice-desktop-detail">

@@ -1,8 +1,9 @@
+import { orderedDocumentLines } from "./document-templates.js";
+
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
 export function savedEstimateRows(estimate){
-  const rows=estimate.lines.map((line,index)=>({line,index}));
-  return [...new Set(rows.map(({line})=>line.category||'Items'))].flatMap(category=>rows.filter(({line})=>(line.category||'Items')===category));
+  return orderedDocumentLines(estimate.lines).map((line,index)=>({line,index}));
 }
 
 // Browser canvas shapes Urdu using the same bundled font as Customer Preview.
@@ -16,14 +17,13 @@ export async function createSavedEstimatePdfFile(estimate, store, documentObject
   const ctx=canvas.getContext('2d');
   const measure=(value,size=24)=>{ctx.font=`700 ${size}px "Noto Sans Arabic", sans-serif`;return ctx.measureText(String(value??'')).width;};
   const wrap=(value,max,size=23)=>{const rows=[];let row='';for(const word of String(value??'').split(/\s+/u)){if(row&&measure(`${row} ${word}`,size)>max){rows.push(row);row=word;}else row+=(row?' ':'')+word;}if(row)rows.push(row);return rows.length?rows:[''];};
-  const prepared=savedEstimateRows(estimate).map(({line,index})=>({line,number:index+1,label:wrap(line.product_name,building?480:360,24)}));
+  const prepared=savedEstimateRows(estimate).map(({line,index})=>({line,number:line.line_number??index+1,label:wrap(line.product_name,building?480:360,24)}));
   const customer=estimate.customer??{};
   const customerAddress=wrap(customer.address??customer.city??customer.location??'',1120,23);
   const notes=wrap(estimate.notes||'Rates subject to confirmation. Thank you for your business.',1120,23);
-  const groupCount=prepared.reduce((count,row,index)=>count+(index===0||row.line.category!==prepared[index-1].line.category?1:0),0);
   const rowsHeight=prepared.reduce((sum,row)=>sum+Math.max(58,row.label.length*34+18),0);
   const totalsCount=3+(Number(estimate.discount_total)>0?1:0);
-  const height=760+customerAddress.length*34+rowsHeight+groupCount*102+notes.length*34+totalsCount*52;
+  const height=760+customerAddress.length*34+rowsHeight+notes.length*34+totalsCount*52;
   canvas.height=height;ctx.fillStyle='#FFFFFF';ctx.fillRect(0,0,width,height);
   const draw=(value,x,y,size=24,color='#000000',align='left',weight=700)=>{ctx.font=`${weight} ${size}px "Noto Sans Arabic", sans-serif`;ctx.fillStyle=color;ctx.textAlign=align;ctx.direction=/[\u0600-\u06ff]/u.test(String(value))?'rtl':'ltr';ctx.fillText(String(value??''),x,y);};
   const num=value=>Number(value??0).toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -58,11 +58,7 @@ export async function createSavedEstimatePdfFile(estimate, store, documentObject
   const tableHeight=52;ctx.fillStyle='#007AB7';ctx.fillRect(left,y,width-left*2,tableHeight);
   columns.forEach(({label,x,align})=>draw(label,align==='right'?x:x,y+34,21,'#FFFFFF',align,800));
   y+=tableHeight;
-  let group=null,groupTotal=0;
-  const subtotal=()=>{if(group===null)return;const h=42;ctx.fillStyle='#f1f5f9';ctx.fillRect(left,y,width-left*2,h);draw(`${group} subtotal`,left+18,y+29,22,'#0E2E4F','left',800);draw(num(groupTotal),right-16,y+29,23,'#000000','right',800);y+=h;rule(y);};
   prepared.forEach(({line,label,number})=>{
-    const category=line.category||'Items';
-    if(category!==group){subtotal();group=category;groupTotal=0;ctx.fillStyle='#e8f3fb';ctx.fillRect(left,y,width-left*2,48);draw(category.toUpperCase(),left+16,y+32,24,'#0E2E4F','left',800);y+=48;rule(y);}
     const rowHeight=Math.max(58,label.length*34+18);
     draw(number,60,y+34,23,'#0f172a','left',650);
     label.forEach((part,index)=>draw(part,124,y+31+index*32,24,'#000000','left',750));
@@ -70,9 +66,9 @@ export async function createSavedEstimatePdfFile(estimate, store, documentObject
       ?[{value:line.quantity,x:725},{value:line.unit,x:850},{value:num(line.unit_price),x:1030},{value:num(line.line_total),x:1220}]
       :[{value:line.quantity,x:535},{value:line.unit,x:640},{value:num(line.list_price),x:765},{value:`${Number(line.discount_percent).toFixed(2)}%`,x:875},{value:num(line.unit_price),x:1035},{value:num(line.line_total),x:1220}];
     values.forEach(({value,x})=>draw(value,x,y+34,22,'#0f172a','right',700));
-    groupTotal+=Number(line.line_total)||0;y+=rowHeight;rule(y);
+    y+=rowHeight;rule(y);
   });
-  subtotal();y+=30;
+  y+=30;
   draw('NOTES',left,y,21,'#04588C','left',800);notes.forEach((note,index)=>draw(note,left,y+34+index*32,22,'#0D0E20','left',650));
   y+=Math.max(58,32+notes.length*32);
   const totalRows=[['Subtotal',estimate.subtotal]];
@@ -226,7 +222,7 @@ function buildPdf(contents) {
 }
 
 export function createEstimatePdfFile(draft, totals) {
-  const rows = draft.lines.map((line, index) => ({ line, number: index + 1 }));
+  const rows = orderedDocumentLines(draft.lines).map((line, index) => ({ line, number: line.line_number ?? index + 1 }));
   const chunks = [];
   for (let index = 0; index < rows.length; index += 16) chunks.push(rows.slice(index, index + 16));
   if (!chunks.length) chunks.push([]);

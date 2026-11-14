@@ -1102,3 +1102,9 @@ a{color:#04588C}
 }
 
 .register-sort-controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.register-sort-controls button{min-height:36px}
+.mobile-document-lines{min-width:0;overflow-x:auto}
+.mobile-document-lines table{width:100%;min-width:680px;border-collapse:collapse;font-size:12px}
+.mobile-document-lines th,.mobile-document-lines td{border:1.5px solid #cbd5e1;padding:8px;text-align:left;vertical-align:top}
+.mobile-document-lines th{background:#0E2E4F;color:#fff;font-weight:800;white-space:nowrap}
+.mobile-document-lines td:nth-child(2){min-width:180px}
+.mobile-document-lines td:not(:nth-child(2)){white-space:nowrap}
