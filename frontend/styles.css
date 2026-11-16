@@ -1110,3 +1110,5 @@ a{color:#04588C}
 .mobile-document-lines td:not(:nth-child(2)){white-space:nowrap}
 
 .report-period-pills{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}.report-period-pills .active{background:var(--blue-soft,#e9f1ff);font-weight:700}.dashboard-period-card{min-width:0}.dashboard-period-card>.premium-metric,.dashboard-period-card>.mobile-dashboard-metric{width:100%}.dashboard-period-card .report-period-pills{justify-content:center}.dashboard-period-card .report-period-pills button{font-size:11px;padding:6px 8px}.table tfoot{font-weight:700;background:#f0f6f3}
+
+.rickshaw-entry{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.rickshaw-entry label{display:flex;flex-direction:column;gap:6px}.rickshaw-entry fieldset{display:flex;gap:12px;border:1px solid var(--line,#ddd);border-radius:8px}.rickshaw-entry fieldset label{flex-direction:row;align-items:center}.rickshaw-entry output{font-size:22px;font-weight:700;padding:8px}.rickshaw-entry .dialog-actions,.rickshaw-entry [role=alert]{grid-column:1/-1}@media(max-width:720px){.rickshaw-entry{grid-template-columns:repeat(2,minmax(0,1fr))}}

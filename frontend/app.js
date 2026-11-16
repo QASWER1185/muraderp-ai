@@ -1,3 +1,4 @@
+import { mountRickshawTrips } from "./rickshaw-trips.js";
 import { mountRegisterActions } from './register-actions.js';
 import { mountSettings } from './settings.js';
 import { mountRegisterTools } from './register-tools.js';
@@ -29,7 +30,7 @@ const groups = [
   ["Purchasing", [["vendors", "Vendors", "building"], ["purchases", "Purchases", "cart"], ["vendor-payments", "Vendor Payments", "wallet"]]],
   ["Inventory", [["products", "Products", "package"], ["warehouses", "Warehouses", "warehouse"], ["inventory", "Stock", "boxes"], ["rates", "Rate Lists", "tags"]]],
   ["Administration", [["settings", "Settings", "building"]]],
-  ["Finance", [["payments", "Payments", "wallet"], ["accounting", "Accounting", "receipt"], ["reports", "Reports", "chart"]]],
+  ["Finance", [["rickshaw-trips", "Rickshaw Trips", "cart"], ["payments", "Payments", "wallet"], ["accounting", "Accounting", "receipt"], ["reports", "Reports", "chart"]]],
 ];
 const sections = groups.flatMap(([, items]) => items);
 const AUTHENTICATED_API_BOUNDARY = "/api/v1/";
@@ -109,6 +110,7 @@ function navigate(routeId, updateHistory = true) {
   if(id==="vendor-payments")mountVendorPayments(content);
   if(id==="rates")mountRateLists(content);
   if(id==="accounting")mountAccounting(content);
+  if(id==="rickshaw-trips")mountRickshawTrips(content);
   if(id==="reports")mountReports(content);
   if(id==="estimates")mountEstimateWorkspace(content,{route:currentSection});
   mountRecordDeletion(content,id,()=>navigate(currentSection,false));

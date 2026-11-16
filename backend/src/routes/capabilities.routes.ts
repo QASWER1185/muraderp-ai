@@ -1,3 +1,4 @@
+import { createRickshawRouter } from "./rickshaw.routes.js";
 import { ReversalService } from "../services/accounting/reversal.service.js";
 import { Router, type Request } from 'express';
 import { z } from 'zod';
@@ -12,6 +13,7 @@ import { ApiError } from '../errors/api-error.js';
 import { createRegisterApiRouter } from './register-api.routes.js';
 export function createCapabilitiesRouter(options:{internalApiToken?:string|undefined;servicePrincipalId?:string|undefined;tenantAuthorizer?:Pick<TenantAccessService,'assertAuthorized'>|undefined;recordDeletion?:Parameters<typeof createRecordDeletionRouter>[0]|undefined}={}) {
  const router=Router();let authorizer=options.tenantAuthorizer;
+ router.use(createRickshawRouter(options));
  router.use(createRegisterApiRouter(options));
  router.use(createRecordDeletionRouter({...options,...options.recordDeletion}));
  router.use('/stock',createStockAdjustmentRouter(options));

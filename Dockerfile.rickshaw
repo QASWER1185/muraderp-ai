@@ -1,0 +1,12 @@
+FROM node:22-alpine AS rickshaw-build
+WORKDIR /build
+COPY backend/package.json backend/package-lock.json ./backend/
+RUN npm ci --prefix backend --no-audit --no-fund
+COPY backend ./backend
+RUN npm run build --prefix backend
+
+# Preserve the verified production reporting and reversal runtime.
+FROM asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api@sha256:b961f91e1d8062161da027b01aa81ed2e328c70795328eaee39cd28f6c8b8735
+COPY --from=rickshaw-build /build/backend/dist/routes/rickshaw.routes.js /app/backend/dist/routes/rickshaw.routes.js
+COPY --from=rickshaw-build /build/backend/dist/routes/capabilities.routes.js /app/backend/dist/routes/capabilities.routes.js
+COPY frontend /app/frontend
