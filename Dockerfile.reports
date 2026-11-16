@@ -1,0 +1,14 @@
+# Compile only the additive reporting modules; keep the exact working runtime.
+FROM node:22-alpine AS reports-build
+WORKDIR /build
+COPY backend/package.json backend/package-lock.json ./backend/
+RUN npm ci --prefix backend --no-audit --no-fund
+COPY backend ./backend
+RUN npm run build --prefix backend
+
+FROM asia-south1-docker.pkg.dev/muraderp-ai/cloud-run-source-deploy/muraderp-api@sha256:1e59143ee062f834a6dde13adcc25ed4f7ad72a955f5ddca8a3e7e355df9cbbd
+COPY --from=reports-build /build/backend/dist/reports/operations-report.js /app/backend/dist/reports/operations-report.js
+COPY --from=reports-build /build/backend/dist/routes/reports.browser.routes.js /app/backend/dist/routes/reports.browser.routes.js
+COPY scripts/patch-reporting-runtime.mjs /tmp/patch-reporting-runtime.mjs
+RUN node /tmp/patch-reporting-runtime.mjs /app/backend/dist
+COPY frontend /app/frontend
