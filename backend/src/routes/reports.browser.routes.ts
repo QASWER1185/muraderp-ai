@@ -8,6 +8,8 @@ import { createCopilotAuth } from "../middleware/copilot-auth.js";
 import { DASHBOARD_HEADS } from "../reports/dashboard.types.js";
 import { ReportingService } from "../reports/reporting.service.js";
 import { SupabaseReportingGateway } from "../reports/supabase-reporting.gateway.js";
+import { OperationsReportGateway } from "../reports/operations-report.js";
+import { getSupabaseServiceRoleClient } from "../config/supabase.js";
 import { requireAuthoritativeTransactionIdentity } from "./authoritative-transaction-context.js";
 
 const uuid = z.string().uuid();
@@ -21,6 +23,7 @@ export interface ReportsBrowserOptions {
   tenantAuthorizer?: Pick<TenantAccessService, "assertAuthorized"> | undefined;
   authenticate?: RequestHandler | undefined;
   internalApiToken?: string | undefined;
+  operationsFactory?: ((branchId: string) => Pick<OperationsReportGateway, "read">) | undefined;
   servicePrincipalId?: string | undefined;
 }
 
@@ -79,6 +82,15 @@ export function createReportsBrowserRouter(options: ReportsBrowserOptions = {}):
     const period = periodQuery.parse(request.query);
     response.setHeader("Cache-Control", "no-store");
     response.json({ data: await gateway.getTrialBalance(identity.organizationId, period), as_of: period.to });
+  });
+  router.get("/operations", async (request, response) => {
+    const { identity } = await authorized(request);
+    const period = periodQuery.parse(request.query);
+    if ((Date.parse(period.to) - Date.parse(period.from)) / 86400000 > 365) throw new ApiError(422, "REPORT_PERIOD_TOO_LONG", "Choose a reporting period of at most 366 days.");
+    const productId = z.coerce.number().int().positive().optional().parse(request.query.productId);
+    const gateway = options.operationsFactory?.(identity.branchId) ?? new OperationsReportGateway(getSupabaseServiceRoleClient(), identity.branchId);
+    response.setHeader("Cache-Control", "no-store");
+    response.json({ data: await gateway.read(identity.organizationId, period, productId) });
   });
   return router;
 }

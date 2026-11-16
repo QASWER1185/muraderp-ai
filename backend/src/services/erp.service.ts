@@ -407,7 +407,7 @@ export class SupabaseErpService implements ErpService {
   async listPurchases(page: PageRequest, organizationId: string, branchId: string): Promise<PageResult<Purchase>> {
     let query = this.client
       .from("purchases")
-      .select("*")
+      .select("*,purchase_items(quantity)")
       .eq("organization_id", organizationId)
       .eq("branch_id", branchId)
       .order("id", { ascending: false })
@@ -415,7 +415,7 @@ export class SupabaseErpService implements ErpService {
     if (page.cursor !== undefined) query = query.lt("id", page.cursor);
     const { data, error } = await query;
     if (error) throw databaseError(error, "Purchases");
-    return pageResult(data, page.limit);
+    return pageResult((data ?? []).map(({ purchase_items, ...row }) => ({ ...row, quantity: (purchase_items ?? []).reduce((n, item) => n + Number(item.quantity), 0) })), page.limit);
   }
 
   async getPurchase(id: number, organizationId: string, branchId: string): Promise<PurchaseDetail | null> {

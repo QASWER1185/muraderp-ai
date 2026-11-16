@@ -17,7 +17,7 @@ export function purchaseErrorMessage(error) {
 
 export function purchaseListMarkup(purchases) {
   if (!purchases.length) return `<div class="empty-state">${icon("cart", 26)}<h2>No purchases yet</h2><p>Posted purchases for this branch will appear here.</p></div>`;
-  return `<div class="invoice-list">${purchases.map((purchase) => `<button class="invoice-row" type="button" data-purchase-id="${escapeHtml(purchase.id)}"><span><strong>${escapeHtml(purchase.invoice_number || `Purchase #${purchase.id}`)}</strong><small>${escapeHtml(purchase.purchase_date)} · Vendor #${escapeHtml(purchase.vendor_id)}</small></span><strong>${money(purchase.total)}</strong>${icon("chevron")}</button>`).join("")}</div>`;
+  return `<div class="table-wrap"><table class="table"><thead><tr><th>Purchase</th><th>Date</th><th>Vendor</th><th>Quantity</th><th>Total</th></tr></thead><tbody>${purchases.map(purchase => `<tr><td><button class="button secondary compact" type="button" data-purchase-id="${escapeHtml(purchase.id)}">${escapeHtml(purchase.invoice_number || "Purchase #" + purchase.id)}</button></td><td>${escapeHtml(purchase.purchase_date)}</td><td>${escapeHtml(purchase.vendor_name || "Vendor #" + purchase.vendor_id)}</td><td>${escapeHtml(purchase.quantity ?? "Unavailable")}</td><td>${money(purchase.total)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 export function purchaseDetailMarkup({ purchase, items }) {

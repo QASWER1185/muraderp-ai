@@ -21,3 +21,5 @@ export const getReportOverview = (context) => read("/api/v1/browser/reports/over
 export const getFinancialSummary = (context, period) => read(`/api/v1/browser/reports/summary?${periodQuery(period)}`, context);
 export const getTrialBalance = (context, period) => read(`/api/v1/browser/reports/trial-balance?${periodQuery(period)}`, context);
 export const getReportHead = (context, head, period) => read(`/api/v1/browser/reports/details?${new URLSearchParams({ head, ...period })}`, context);
+
+export const getOperationsReport = (context, period, productId) => read(`/api/v1/browser/reports/operations?${new URLSearchParams({ ...period, ...(productId ? { productId } : {}) })}`, context);

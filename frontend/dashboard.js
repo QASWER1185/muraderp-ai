@@ -1,3 +1,4 @@
+import { reportPeriod, periodLabel, periodPills } from "./report-period.js";
 import { getDashboardEstimateCount, getDashboardMetric, getDashboardStock } from "./dashboard-api.js";
 import { icon } from "./icons.js";
 import { getWorkspaceContext } from "./workspace-context.js";
@@ -44,13 +45,7 @@ function mobileActivityRows(items) {
   return visible.length ? visible.map((item) => `<div class="activity-row"><span class="activity-icon">${icon(item.quantity < 0 ? "arrowUp" : "boxes", 16)}</span><span><strong dir="auto">${escapeHtml(item.product_name)}</strong><small>${escapeHtml(String(item.movement_type).replaceAll("_", " "))}</small></span><span><strong>${Number(item.quantity).toLocaleString("en-PK")}</strong><small>${new Date(item.created_at).toLocaleDateString("en-PK")}</small></span></div>`).join("") : `<div class="dashboard-empty compact"><strong>No recent stock activity</strong><small>New inventory movements will appear here.</small></div>`;
 }
 
-function dateRange(range) {
-  const end = new Date();
-  const start = new Date(end);
-  if (range === "monthly") start.setDate(1);
-  const localDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-  return { from: localDate(start), to: localDate(end) };
-}
+const dateRange = range => reportPeriod(range);
 
 function trendPeriods() {
   const today = new Date();
@@ -86,17 +81,17 @@ export function dashboardMarkup() {
   </header>
 
   <section class="dashboard-section mobile-dashboard-metrics-section" aria-label="Live business metrics"><div class="mobile-dashboard-metrics">
-    <button class="mobile-dashboard-metric" type="button" data-dashboard-metric="sales"><span class="mobile-metric-icon">${icon("chart", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Total Sales</span><strong data-mobile-metric-value="sales">Loading</strong><small data-mobile-metric-note="sales">Posted sales this month</small></span></button>
+    <div class="dashboard-period-card"><button class="mobile-dashboard-metric" type="button" data-dashboard-metric="sales"><span class="mobile-metric-icon">${icon("chart", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Total Sales</span><strong data-mobile-metric-value="sales">Loading</strong><small data-mobile-metric-note="sales">Posted sales this month</small></span></button>${periodPills("data-sales-range")}</div>
     <button class="mobile-dashboard-metric" type="button" data-dashboard-metric="estimates"><span class="mobile-metric-icon">${icon("file", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Total Estimates</span><strong data-mobile-metric-value="estimates">Loading</strong><small data-mobile-metric-note="estimates">Active</small></span></button>
     <button class="mobile-dashboard-metric" type="button" data-dashboard-metric="receivables"><span class="mobile-metric-icon">${icon("wallet", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Receivables</span><strong data-mobile-metric-value="receivables">Loading</strong><small class="mobile-metric-pending" data-mobile-metric-note="receivables">Pending</small></span></button>
-    <button class="mobile-dashboard-metric" type="button" data-profit-open><span class="mobile-metric-icon">${icon("trendUp", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Profit / Loss</span><strong data-mobile-profit-value>Loading</strong><small data-mobile-profit-note>This month</small></span></button>
+    <div class="dashboard-period-card"><button class="mobile-dashboard-metric" type="button" data-profit-open><span class="mobile-metric-icon">${icon("trendUp", 18)}</span><span class="mobile-metric-copy"><span class="mobile-metric-label">Profit / Loss</span><strong data-mobile-profit-value>Loading</strong><small data-mobile-profit-note>This month</small></span></button>${periodPills("data-profit-card-range")}</div>
   </div></section>
 
   <section class="dashboard-section dashboard-overview-section"><div class="dashboard-section-title"><div><p class="eyebrow">Business snapshot</p><h2>Overview</h2></div><span class="privacy-note">Financial figures open on request</span></div>
     <div class="premium-metric-grid" aria-label="Business summary">
-      ${[["sales","Total Sales","chart","Current month"],["estimates","Total Estimates","file","All estimates in this branch"],["receivables","Receivables","wallet","Balance as of today"]].map(([key, label, iconName, note]) => `<button class="premium-metric" type="button" data-dashboard-metric="${key}"><span class="premium-metric-icon">${icon(iconName)}</span><div><p>${label}</p><strong data-metric-value="${key}">View details</strong><small data-metric-note="${key}">${note} · Open on request</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></button>`).join("")}
+      ${[["sales","Total Sales","chart","Current month"],["estimates","Total Estimates","file","All estimates in this branch"],["receivables","Receivables","wallet","Balance as of today"]].map(([key, label, iconName, note]) => `<div class="dashboard-period-card"><button class="premium-metric" type="button" data-dashboard-metric="${key}"><span class="premium-metric-icon">${icon(iconName)}</span><div><p>${label}</p><strong data-metric-value="${key}">View details</strong><small data-metric-note="${key}">${note} · Open on request</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></button>${key === "sales" ? periodPills("data-sales-range") : ""}</div>`).join("")}
       <article class="premium-metric"><span class="premium-metric-icon green">${icon("boxes")}</span><div><p>Inventory Items</p><strong id="inventory-count">Loading</strong><small id="inventory-count-note">Checking authorized stock</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></article>
-      <button class="premium-metric profit-metric" type="button" data-profit-open><span class="premium-metric-icon amber">${icon("trendUp")}</span><div><p>Today's Profit</p><strong>Open securely</strong><small>Daily and monthly view</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></button>
+      <div class="dashboard-period-card"><button class="premium-metric profit-metric" type="button" data-profit-open><span class="premium-metric-icon amber">${icon("trendUp")}</span><div><p>Profit / Loss</p><strong data-desktop-profit-value>Loading</strong><small data-desktop-profit-note>This month</small></div><span class="metric-arrow">${icon("chevron", 16)}</span></button>${periodPills("data-profit-card-range")}</div>
     </div>
   </section>
 
@@ -118,7 +113,7 @@ export function dashboardMarkup() {
 
   <section class="dashboard-copilot-card"><div class="copilot-orb">${icon("sparkles", 25)}</div><div><p class="eyebrow">MuradERP AI</p><h2>Your business copilot is ready to help</h2><p>Prepare an estimate, read a material list, or review an ERP action in one conversation. Nothing is posted without your confirmation.</p></div><button class="button primary" type="button" data-open-copilot>Open Copilot ${icon("arrowRight", 16)}</button></section>
 
-  <dialog id="profit-dialog" class="modal-dialog profit-dialog"><div class="profit-panel"><div class="surface-heading"><div><p class="eyebrow">Private financial view</p><h2>Profit</h2></div><button class="icon-button" type="button" data-profit-close aria-label="Close">${icon("close")}</button></div><div class="profit-tabs" role="tablist"><button class="active" type="button" data-profit-range="daily">Daily Profit</button><button type="button" data-profit-range="monthly">Monthly Profit</button></div><div id="profit-context" class="profit-context"></div><div id="profit-content" class="dashboard-loading" role="status"><span class="spinner"></span><span>Loading verified profit...</span></div></div></dialog></div>`;
+  <dialog id="profit-dialog" class="modal-dialog profit-dialog"><div class="profit-panel"><div class="surface-heading"><div><p class="eyebrow">Private financial view</p><h2>Profit</h2></div><button class="icon-button" type="button" data-profit-close aria-label="Close">${icon("close")}</button></div>${periodPills("data-profit-range")}<div id="profit-context" class="profit-context"></div><div id="profit-content" class="dashboard-loading" role="status"><span class="spinner"></span><span>Loading verified profit...</span></div></div></dialog></div>`;
 }
 
 export function mountDashboard(container, options = {}) {
@@ -176,26 +171,34 @@ export function mountDashboard(container, options = {}) {
     }
   }
 
+  let salesRange = "monthly", profitRange = "monthly", profitGeneration = 0, salesGeneration = 0, dialogGeneration = 0;
+  const markPills = (attribute, range) => container.querySelectorAll(`[${attribute}]`).forEach(button => { const active = button.getAttribute(attribute) === range; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); });
   async function loadProfit(range) {
+    const generation = ++dialogGeneration;
     container.querySelectorAll("[data-profit-range]").forEach((button) => button.classList.toggle("active", button.dataset.profitRange === range));
     const period = dateRange(range);
-    profitContext.textContent = range === "daily" ? `For ${new Date(`${period.from}T00:00:00`).toLocaleDateString("en-PK", { dateStyle: "long" })}` : `${new Date(`${period.from}T00:00:00`).toLocaleDateString("en-PK", { day: "numeric", month: "long" })} – ${new Date(`${period.to}T00:00:00`).toLocaleDateString("en-PK", { day: "numeric", month: "long", year: "numeric" })}`;
+    profitContext.textContent = periodLabel(period);
+    markPills("data-profit-range", range);
     profitContent.className = "dashboard-loading";
     profitContent.innerHTML = '<span class="spinner"></span><span>Loading verified profit...</span>';
     if (!context) { profitContent.innerHTML = dashboardUnavailable("Choose your workspace before opening private financial data.", true); return; }
     try {
-      const response = await (options.getMetric ?? getDashboardMetric)(context, "profit", period);
-      const value = response.data?.value ?? response.value;
-      if (value == null || value === "") throw new Error("Profit value is unavailable");
+      const [response, lossResponse] = await Promise.all([(options.getMetric ?? getDashboardMetric)(context, "profit", period), (options.getMetric ?? getDashboardMetric)(context, "loss", period)]);
+      const value = Number(response.data?.value ?? response.value) - Number(lossResponse.data?.value ?? lossResponse.value);
+      if (!Number.isFinite(value)) throw new Error("Profit value is unavailable");
+      if (generation !== dialogGeneration) return;
       profitContent.className = "profit-value";
-      profitContent.innerHTML = `<span>${range === "daily" ? "Daily Profit" : "Monthly Profit"}</span><strong>${money(value)}</strong><small>Verified by the reporting service</small>`;
+      profitContent.innerHTML = `<span>${range === "daily" ? "Daily" : range === "weekly" ? "Weekly" : "Monthly"} Profit / Loss</span><strong>${money(value)}</strong><small>Verified by the reporting service</small>`;
     } catch (error) {
+      if (generation !== dialogGeneration) return;
       profitContent.className = "";
       profitContent.innerHTML = dashboardUnavailable(error?.status === 401 ? "Sign in to view profit." : error?.status === 403 ? "You do not have permission to view reports." : "Profit reporting is not connected to this frontend yet.");
     }
   }
 
   async function loadMetric(key) {
+    const generation = key === "sales" ? ++salesGeneration : 0;
+    const selectedPeriod = dateRange(key === "sales" ? salesRange : "daily");
     const valueNode = container.querySelector(`[data-metric-value="${key}"]`);
     const noteNode = container.querySelector(`[data-metric-note="${key}"]`);
     const mobileValueNode = container.querySelector(`[data-mobile-metric-value="${key}"]`);
@@ -207,13 +210,15 @@ export function mountDashboard(container, options = {}) {
     try {
       const result = key === "estimates"
         ? await (options.getEstimateCount ?? getDashboardEstimateCount)(context)
-        : await (options.getMetric ?? getDashboardMetric)(context, key, key === "receivables" ? dateRange("daily") : dateRange("monthly"));
+        : await (options.getMetric ?? getDashboardMetric)(context, key, selectedPeriod);
       const value = key === "estimates" ? result.data?.count : result.data?.value;
       if (value == null || !Number.isFinite(Number(value))) throw new Error("Invalid dashboard value");
+      if (key === "sales" && generation !== salesGeneration) return;
       const formatted = key === "estimates" ? Number(value).toLocaleString("en-PK") : money(value);
       values.forEach((node) => { node.textContent = formatted; });
-      notes.forEach((node) => { node.textContent = key === "sales" ? "Posted sales this month" : key === "estimates" ? "Active" : "Pending"; });
+      notes.forEach((node) => { node.textContent = key === "sales" ? `Net posted sales · ${periodLabel(selectedPeriod)}` : key === "estimates" ? `All records as of ${selectedPeriod.to}` : `Cumulative as of ${selectedPeriod.to}`; });
     } catch (error) {
+      if (key === "sales" && generation !== salesGeneration) return;
       values.forEach((node) => { node.textContent = "Unavailable"; });
       const note = error?.status === 401 ? "Sign in to view" : error?.status === 403 ? "Access denied for this branch" : "Could not load live data";
       notes.forEach((node) => { node.textContent = note; });
@@ -221,10 +226,15 @@ export function mountDashboard(container, options = {}) {
   }
 
   async function loadMobileProfit() {
+    const generation = ++profitGeneration;
+    markPills("data-profit-card-range", profitRange);
+    const valueNodes = [mobileProfitValue, container.querySelector("[data-desktop-profit-value]")].filter(Boolean);
+    const noteNodes = [mobileProfitNote, container.querySelector("[data-desktop-profit-note]")].filter(Boolean);
+    valueNodes.forEach(node => { node.textContent = "Loading..."; });
     if (!mobileProfitValue) return;
-    if (!context) { mobileProfitValue.textContent = "Unavailable"; mobileProfitNote.textContent = "Choose a workspace"; return; }
+    if (!context) { valueNodes.forEach(node => { node.textContent = "Unavailable"; }); noteNodes.forEach(node => { node.textContent = "Choose a workspace"; }); return; }
     try {
-      const period = dateRange("monthly");
+      const period = dateRange(profitRange);
       const [profitResult, lossResult] = await Promise.all([
         (options.getMetric ?? getDashboardMetric)(context, "profit", period),
         (options.getMetric ?? getDashboardMetric)(context, "loss", period),
@@ -232,12 +242,14 @@ export function mountDashboard(container, options = {}) {
       const profit = Number(profitResult.data?.value ?? profitResult.value);
       const loss = Number(lossResult.data?.value ?? lossResult.value);
       if (!Number.isFinite(profit) || !Number.isFinite(loss)) throw new Error("Invalid profit/loss value");
+      if (generation !== profitGeneration) return;
       const net = profit - loss;
-      mobileProfitValue.textContent = `${net < 0 ? "−" : ""}${money(Math.abs(net))}`;
-      mobileProfitNote.textContent = net < 0 ? "This month loss" : net > 0 ? "This month profit" : "This month net";
+      valueNodes.forEach(node => { node.textContent = `${net < 0 ? "−" : ""}${money(Math.abs(net))}`; });
+      noteNodes.forEach(node => { node.textContent = `${net < 0 ? "Loss" : "Net profit"} · ${periodLabel(period)}`; });
     } catch (error) {
-      mobileProfitValue.textContent = "Unavailable";
-      mobileProfitNote.textContent = error?.status === 401 ? "Sign in to view" : error?.status === 403 ? "Access denied" : "Could not load live data";
+      if (generation !== profitGeneration) return;
+      valueNodes.forEach(node => { node.textContent = "Unavailable"; });
+      noteNodes.forEach(node => { node.textContent = error?.status === 401 ? "Sign in to view" : error?.status === 403 ? "Access denied" : "Could not load live data"; });
     }
   }
 
@@ -260,13 +272,17 @@ export function mountDashboard(container, options = {}) {
   }
 
   root.addEventListener("click", (event) => {
+    const salesPreset = event.target.closest("[data-sales-range]")?.dataset.salesRange;
+    if (salesPreset) { salesRange = salesPreset; markPills("data-sales-range", salesRange); void loadMetric("sales"); return; }
+    const profitPreset = event.target.closest("[data-profit-card-range]")?.dataset.profitCardRange;
+    if (profitPreset) { profitRange = profitPreset; void loadMobileProfit(); return; }
     const metric = event.target.closest("[data-dashboard-metric]")?.dataset.dashboardMetric;
     if (metric === "sales") { globalThis.location.hash = "#/invoices"; return; }
     if (metric === "receivables") { globalThis.location.hash = "#/customers"; return; }
     if (metric === "estimates") { globalThis.location.hash = "#/estimates/list"; return; }
     if (metric) void loadMetric(metric);
     if (event.target.closest("[data-sales-trend]")) void loadTrend();
-    if (event.target.closest("[data-profit-open]")) { profitDialog.showModal(); void loadProfit("daily"); }
+    if (event.target.closest("[data-profit-open]")) { profitDialog.showModal(); void loadProfit(profitRange); }
     if (event.target.closest("[data-profit-close]")) profitDialog.close();
     const range = event.target.closest("[data-profit-range]")?.dataset.profitRange;
     if (range) void loadProfit(range);

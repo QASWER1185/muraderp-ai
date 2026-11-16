@@ -1108,3 +1108,5 @@ a{color:#04588C}
 .mobile-document-lines th{background:#0E2E4F;color:#fff;font-weight:800;white-space:nowrap}
 .mobile-document-lines td:nth-child(2){min-width:180px}
 .mobile-document-lines td:not(:nth-child(2)){white-space:nowrap}
+
+.report-period-pills{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}.report-period-pills .active{background:var(--blue-soft,#e9f1ff);font-weight:700}.dashboard-period-card{min-width:0}.dashboard-period-card>.premium-metric,.dashboard-period-card>.mobile-dashboard-metric{width:100%}.dashboard-period-card .report-period-pills{justify-content:center}.dashboard-period-card .report-period-pills button{font-size:11px;padding:6px 8px}.table tfoot{font-weight:700;background:#f0f6f3}

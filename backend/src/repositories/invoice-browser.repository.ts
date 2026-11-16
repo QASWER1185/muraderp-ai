@@ -49,13 +49,13 @@ export class SupabaseInvoiceBrowserRepository implements InvoiceBrowserRepositor
   }
 
   async list(organizationId: string, branchId: string, limit: number, cursor?: number) {
-    let query = this.client.from("invoices").select(invoiceColumns)
+    let query = this.client.from("invoices").select(invoiceColumns + ",invoice_items(quantity)")
       .eq("organization_id", organizationId).eq("branch_id", branchId)
       .order("id", { ascending: false }).limit(limit + 1);
     if (cursor !== undefined) query = query.lt("id", cursor);
     const { data, error } = await query;
     if (error) throw new ApiError(502, "INVOICE_READ_FAILED", "Invoices could not be loaded");
-    const rows = (data ?? []) as InvoiceSummary[];
+    const rows = (data ?? []).map((row: any) => { const { invoice_items, ...invoice } = row; return { ...invoice, quantity: (invoice_items ?? []).reduce((n: number, item: any) => n + Number(item.quantity), 0) }; }) as InvoiceSummary[];
     return { data: rows.slice(0, limit), next_cursor: rows.length > limit ? rows[limit - 1]!.id : null };
   }
 

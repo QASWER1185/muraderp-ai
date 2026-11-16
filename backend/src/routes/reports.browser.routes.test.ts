@@ -16,16 +16,17 @@ function setup(allowed = true) {
     getDashboardDetail: vi.fn().mockResolvedValue({ key: "profit", label: "Profit", value: "2.0000" }),
     getTrialBalance: vi.fn().mockResolvedValue([{ code: "1000", total_debit: "10.0000" }]),
   };
+  const operations = { read: vi.fn().mockResolvedValue({ sales: { daily: [] } }) };
   const assertAuthorized = vi.fn().mockImplementation(() => allowed ? Promise.resolve() : Promise.reject(new Error("DENIED")));
   const hasPermission = vi.fn().mockResolvedValue(allowed);
   const app = express();
   app.use("/api/v1/browser/reports", createReportsBrowserRouter({
-    gatewayFactory: () => gateway,
+    gatewayFactory: () => gateway, operationsFactory: () => operations,
     tenantAuthorizer: { assertAuthorized }, permissionGateway: { hasPermission },
     authenticate: (req, _res, next) => { req.browserPrincipal = { userId }; next(); },
   }));
   app.use((error: Error & { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(error instanceof ZodError ? 400 : error.status ?? 403).json({ error: error.message }));
-  return { app, gateway, assertAuthorized, hasPermission };
+  return { app, gateway, operations, assertAuthorized, hasPermission };
 }
 
 const headers = { "X-Organization-Id": organizationId, "X-Branch-Id": branchId };
@@ -60,4 +61,19 @@ describe("Reports browser routes", () => {
     expect((await request(valid.app).get("/api/v1/browser/reports/summary?from=2026-09-30&to=2026-09-01").set(headers)).status).toBe(400);
     expect(valid.gateway.getFinancialSummary).not.toHaveBeenCalled();
   });
+});
+
+it("authorizes operations before reads and rejects invalid bounds and product identifiers", async () => {
+ const { app, operations } = setup();
+ const url = "/api/v1/browser/reports/operations?" + period;
+ expect((await request(app).get(url + "&productId=231").set(headers)).status).toBe(200);
+ expect(operations.read).toHaveBeenCalledWith(organizationId, {from:"2026-09-01",to:"2026-09-30"},231);
+ operations.read.mockClear();
+ for(const query of ["from=2026-09-30&to=2026-09-01", "from=2020-01-01&to=2026-01-01", period + "&productId=-1"]){
+  expect((await request(app).get("/api/v1/browser/reports/operations?"+query).set(headers)).status).toBeGreaterThanOrEqual(400);
+ }
+ expect(operations.read).not.toHaveBeenCalled();
+ const denied=setup(false);
+ expect((await request(denied.app).get(url).set(headers)).status).toBe(403);
+ expect(denied.operations.read).not.toHaveBeenCalled();
 });
