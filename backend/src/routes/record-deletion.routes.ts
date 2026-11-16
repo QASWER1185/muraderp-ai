@@ -1,3 +1,4 @@
+import { ReversalService } from "../services/accounting/reversal.service.js";
 import { Router, type Request, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { createCopilotAuth } from '../middleware/copilot-auth.js';
@@ -50,18 +51,25 @@ export function createRecordDeletionRouter(options: {
     if(error)throw new ApiError(error.code==='23514'||error.code==='23503'?409:error.code==='42501'?403:502,'DELETE_REFUSED',['23514','23503'].includes(error.code??'')?error.message??'Referenced records prevent deletion':'Version could not be deleted');
     if(!data)throw new ApiError(404,'NOT_FOUND','record not found');response.status(204).send();
   });
-  for(const [path,entity,permission] of targets) router.delete(`/${path}/:id`,authenticate,async(request,response)=>{
-    const identity=deletionIdentity(request);
-    authorizer??=new TenantAccessService(createServiceRoleAuthorizationGateway());
-    await authorizer.assertAuthorized({userId:identity.userId,organizationId:identity.organizationId},permission,{kind:'branch',branchId:identity.branchId});
-    const args={p_entity:entity,p_id:z.coerce.number().int().positive().parse(request.params.id),p_organization_id:identity.organizationId,p_branch_id:identity.branchId,p_actor_user_id:identity.userId};
-    const result=options.remove ? await options.remove(args) : await (getSupabaseAdminClient() as any).rpc('delete_unused_record',args);
-    if(result.error) {
-      const status=result.error.code==='42501'?403:['23503','23514'].includes(result.error.code??'')?409:502;
-      throw new ApiError(status,'DELETE_REFUSED',status===502?'Deletion could not be completed':result.error.message??'Linked records prevent deletion');
+  const reversal = new ReversalService(options.remove);
+  for(const [path,entity,permission] of targets) {
+    async function authorize(request: Request) {
+      const identity = deletionIdentity(request);
+      authorizer ??= new TenantAccessService(createServiceRoleAuthorizationGateway());
+      await authorizer.assertAuthorized({userId:identity.userId,organizationId:identity.organizationId},permission,{kind:'branch',branchId:identity.branchId});
+      return identity;
     }
-    if(!result.data) throw new ApiError(404,'NOT_FOUND','Record was not found in this workspace');
-    response.status(204).send();
-  });
+    router.get('/'+path+'/:id/delete-preview',authenticate,async(request,response)=>{
+      const identity=await authorize(request);
+      const data=await reversal.execute(identity,entity,z.coerce.number().int().positive().parse(request.params.id),'DELETE',true);
+      response.setHeader('Cache-Control','no-store');response.json({data});
+    });
+    router.delete('/'+path+'/:id',authenticate,async(request,response)=>{
+      const identity=await authorize(request);
+      const fingerprint=z.string().regex(/^[a-f0-9]{32}$/).optional().parse(request.body?.fingerprint);
+      await reversal.execute(identity,entity,z.coerce.number().int().positive().parse(request.params.id),'DELETE',false,fingerprint);
+      response.status(204).send();
+    });
+  }
   return router;
 }

@@ -1,9 +1,22 @@
-import { recordRequest } from './record-deletion.js';
+import { recordRequest, deletionSummaryMarkup } from './record-deletion.js';
 import { getWorkspaceContext } from './workspace-context.js';
 const config={customers:['customers','data-customer-select','#customer-detail-pane'],vendors:['vendors','data-vendor-edit','#vendor-editor'],products:['products','data-product-id','#product-detail'],warehouses:['warehouses','data-warehouse-id','#warehouse-detail'],estimates:['estimates','data-estimate-open','[data-estimate-dialog]'],invoices:['invoices','data-invoice-id','#invoice-detail'],purchases:['purchases','data-purchase-id','#purchase-detail'],returns:['returns','data-return-id','#return-detail'],payments:['payments','data-payment-id','#payment-detail'],'vendor-payments':['vendor-payments','data-vendor-payment-id','#vendor-payment-detail'],rates:['rate-lists','data-rate-list-id','#rate-list-detail']};
 export function confirmRecordDeletion(container,path,label,refresh){
- const dialog=document.createElement('dialog');dialog.className='side-dialog';dialog.dataset.recordGuard='';dialog.innerHTML='<form class="modal-card"><h2>Delete record</h2><p data-label></p><p>Referenced records, posted ledgers, payments, and stock movements are protected. Posted invoices must use the void workflow.</p><p role="alert" data-error></p><div class="dialog-actions"><button type="button" class="button secondary" data-cancel>Cancel</button><button type="submit" class="button primary">Delete record</button></div></form>';
- dialog.querySelector('[data-label]').textContent=label;container.append(dialog);dialog.showModal();const close=()=>{dialog.close();dialog.remove();};dialog.querySelector('[data-cancel]').onclick=close;dialog.querySelector('form').onsubmit=async event=>{event.preventDefault();const submit=dialog.querySelector('[type=submit]');submit.disabled=true;try{await recordRequest(path,{method:'DELETE'});close();refresh();}catch(error){dialog.querySelector('[data-error]').textContent=error.message;submit.disabled=false;}};
+ const dialog=document.createElement('dialog');dialog.className='side-dialog';dialog.dataset.recordGuard='';
+ dialog.innerHTML='<form class="modal-card"><h2>Review record deletion</h2><p data-label></p><p>Posted records reverse stock, ledger and balances atomically. Referenced records and negative stock block deletion.</p><section data-impact aria-live="polite"></section><p role="alert" data-error></p><div class="dialog-actions"><button type="button" class="button secondary" data-cancel>Cancel</button><button type="submit" class="button primary" disabled>Loading reversal impact...</button></div></form>';
+ dialog.querySelector('[data-label]').textContent=label;container.append(dialog);dialog.showModal();
+ const close=()=>{dialog.close();dialog.remove();};dialog.querySelector('[data-cancel]').onclick=close;
+ const submit=dialog.querySelector('[type=submit]'),errorNode=dialog.querySelector('[data-error]');let preview=null;
+ const previewPath=path.replace(/^rate-lists\/\d+\/versions\/(\d+)$/, 'rate-lists/versions/$1');
+ async function loadPreview(){
+  preview=null;submit.disabled=true;errorNode.textContent='Loading reversal impact...';
+  try{const result=await recordRequest(previewPath+'/delete-preview');preview=result.data;dialog.querySelector('[data-impact]').innerHTML=deletionSummaryMarkup(preview);submit.textContent=preview.posted?'Confirm reversal and delete':'Confirm delete';submit.disabled=!preview.allowed;errorNode.textContent=preview.allowed?'Review the impact, then confirm.':'Deletion is blocked.';}catch(error){errorNode.textContent=error.message;}
+ }
+ dialog.querySelector('form').onsubmit=async event=>{
+  event.preventDefault();if(!preview?.allowed||!preview.fingerprint)return;submit.disabled=true;
+  try{await recordRequest(path,{method:'DELETE',body:JSON.stringify({fingerprint:preview.fingerprint})});close();refresh();}catch(error){await loadPreview();errorNode.textContent=error.message;}
+ };
+ void loadPreview();
 }
 export async function downloadRegisterCsv(resource,filters={}){
  const i=getWorkspaceContext();if(!i)throw new Error('Choose an authorized workspace first.');const query=new URLSearchParams(Object.entries(filters).filter(([key,v])=>key==='ids'||(v!==''&&v!==undefined)));const r=await fetch(`/api/v1/${resource}/export?${query}`,{credentials:'include',headers:{'X-Organization-Id':i.organizationId,'X-Branch-Id':i.branchId}});if(!r.ok){const body=await r.json().catch(()=>({}));throw new Error(body.error?.message??'CSV export failed');}const url=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=url;a.download=`${resource}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

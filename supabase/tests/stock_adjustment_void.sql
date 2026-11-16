@@ -11,6 +11,7 @@ begin
  insert into public.products(organization_id,name,sku,category,unit,purchase_price,sale_price) values(org,'Test',org::text,'Test','piece',60,100) returning id into p;
  insert into public.warehouses(organization_id,name) values(org,'Test') returning id into w;
  insert into public.inventory(organization_id,product_id,warehouse_id,quantity) values(org,p,w,10);
+ insert into public.stock_movements(organization_id,branch_id,product_id,warehouse_id,movement_type,quantity,quantity_delta,reference_type,reference_id) values(org,b,p,w,'ADJUSTMENT',10,10,'OPENING_STOCK',1);
  result:=public.adjust_stock_atomic(org,b,actor,p,w,1,'Cycle count','Test operator');
  if (result->>'quantity_after')::numeric<>11 then raise exception '+1 failed';end if;
  result:=public.adjust_stock_atomic(org,b,actor,p,w,-1,'Cycle count reversal','Test operator');

@@ -9,3 +9,12 @@ function setup(){const remove=vi.fn().mockResolvedValue({data:true,error:null}),
 it.each(['customers','vendors','products','warehouses','estimates','invoices','purchases','rate-lists','rate-lists/versions','returns','payments','vendor-payments'])('scopes DELETE %s to the authenticated actor and workspace',async path=>{const {app,remove}=setup();expect((await request(app).delete(`/${path}/7`).set(headers)).status).toBe(204);expect(remove).toHaveBeenCalledWith(expect.objectContaining({p_id:7,p_organization_id:org,p_branch_id:branch,p_actor_user_id:actor}));});
 it('returns a clear conflict for linked records and a 404 for another tenant',async()=>{const {app,remove}=setup();remove.mockResolvedValueOnce({data:null,error:{code:'23514',message:'Cannot delete: linked stock movements exist.'}});let response=await request(app).delete('/invoices/7').set(headers);expect(response.status).toBe(409);expect(response.body.error.message).toContain('stock movements');remove.mockResolvedValueOnce({data:false,error:null});expect((await request(app).delete('/invoices/7').set(headers)).status).toBe(404);});
 it('blocks cross-site requests before accessing data',async()=>{const {app,remove}=setup();expect((await request(app).delete('/customers/7').set(headers).set('Sec-Fetch-Site','cross-site')).status).toBe(403);expect(remove).not.toHaveBeenCalled();});
+
+it('previews reversal impact without execution and forwards confirmation fingerprints',async()=>{
+ const {app,remove}=setup();
+ remove.mockResolvedValueOnce({data:{allowed:false,blockers:['Product 271 would have negative stock -1']},error:null});
+ const preview=await request(app).get('/returns/4/delete-preview').set(headers);
+ expect(preview.status).toBe(200);expect(preview.body.data.allowed).toBe(false);
+ expect(remove).toHaveBeenCalledWith(expect.objectContaining({p_entity:'credit_notes',p_action:'DELETE',p_dry_run:true}));
+ expect((await request(app).get('/invoices/7/delete-preview').set(headers).set('Sec-Fetch-Site','cross-site')).status).toBe(403);
+});

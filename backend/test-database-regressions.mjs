@@ -12,6 +12,7 @@ const tests = [
   'guarded_record_deletion.sql',
   'remaining_capabilities.sql',
   'stock_adjustment_void.sql',
+  'atomic_record_reversal.sql',
   'accounting_ledger_foundation_v2.sql',
   'p0_8_authoritative_accounting_posting.sql',
   'products_final_gate.sql',
