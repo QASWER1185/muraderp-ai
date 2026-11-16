@@ -23,6 +23,8 @@ begin
  ret:=(result->'credit_note'->>'id')::bigint;
  if ret is null or cp is null or pur is null then raise exception 'Fixture response identifiers missing: %, %, %',ret,cp,pur;end if;
  insert into public.estimates(organization_id,branch_id,customer_id,estimate_number,issue_date,currency_code,status) values(org,b,c,'TEST-EST',current_date,'PKR','DRAFT') returning id into est;
+ insert into public.estimate_items(estimate_id,line_number,product_id,quantity,unit,unit_price,discount_amount,pricing_source) values(est,1,p,1,'piece',1312,0,'MANUAL_OVERRIDE'),(est,2,q,1,'piece',360,0,'MANUAL_OVERRIDE');
+ update public.estimates set status='CANCELLED' where id=est;
  -- Real-world cleanup history: return removal at zero stock must fail atomically.
  perform public.adjust_stock_atomic(org,b,actor,p,w,-4,'Test cleanup','Regression');
  perform public.adjust_stock_atomic(org,b,actor,q,w,-5,'Test cleanup','Regression');
@@ -47,6 +49,8 @@ begin
  perform public.reverse_record_atomic('purchases',pur,org,b,actor);
  perform public.reverse_record_atomic('estimates',est,org,b,actor);
  perform public.reverse_record_atomic('customers',c,org,b,actor);
+ if exists(select 1 from public.companion_learning_events where estimate_id=est) then raise exception 'Derived estimate facts survived';end if;
+ if (select jsonb_array_length(reversal_summary->'removed_learning_events') from public.audit_logs where entity_type='estimates' and entity_id=est)<>2 then raise exception 'Derived facts were not audited';end if;
  if exists(select 1 from public.inventory where product_id in(p,q) and quantity<>0) then raise exception 'Surviving stock did not reconcile to zero';end if;
  if exists(select 1 from public.customers where id=c) or exists(select 1 from public.purchases where id=pur) then raise exception 'Records not deleted';end if;
  if (select count(*) from public.audit_logs where organization_id=org)<>7 then raise exception 'Audit count mismatch';end if;

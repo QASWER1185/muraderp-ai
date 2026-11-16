@@ -1,4 +1,4 @@
-const CACHE_NAME = "muraderp-ai-shell-v55-atomic-reversal";
+const CACHE_NAME = "muraderp-ai-shell-v56-atomic-reversal";
 const APP_SHELL = [
   "/report-period.js", "/operations-reports.js",
   "/register-actions.js",

@@ -70,6 +70,7 @@ const reversalEscape=value=>String(value??'').replaceAll('&','&amp;').replaceAll
 export function deletionSummaryMarkup(summary){
  const list=(rows,render)=>rows?.length?'<ul>'+rows.map(r=>'<li>'+render(r)+'</li>').join('')+'</ul>':'<p>No change.</p>';
  return '<h3>'+ (summary.posted?'Posted record reversal':'Record deletion') +'</h3><p>This action removes the record. Original journals and an immutable reversal audit are retained.</p>'+
+ (summary.derived_learning_events?'<p>Derived estimate suggestions to archive in the audit: '+reversalEscape(summary.derived_learning_events)+'</p>':'')+
  '<h4>Stock impact</h4>'+list(summary.stock,r=>'Product '+reversalEscape(r.product_id)+' / Warehouse '+reversalEscape(r.warehouse_id)+': '+reversalEscape(r.before)+' → '+reversalEscape(r.after)+' (change '+reversalEscape(r.quantity_change)+')')+
  '<h4>Ledger reversal</h4>'+list(summary.ledger_delta,r=>'Account '+reversalEscape(r.code)+': Debit '+reversalEscape(r.reversal_debit)+', Credit '+reversalEscape(r.reversal_credit))+
  '<h4>Customer balance</h4>'+list(summary.customer_balances,r=>'Customer '+reversalEscape(r.customer_id)+': change '+reversalEscape(r.balance_change)+', after '+reversalEscape(r.balance_after)+' '+reversalEscape(r.currency))+
