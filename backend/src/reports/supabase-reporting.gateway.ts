@@ -41,7 +41,17 @@ export function projectFinancialReport(accounts: Account[], allLines: LedgerLine
   const netIncome = revenue - expenses;
   const purchases = periodLines.filter((line) => line.source_type === "PURCHASE" && line.code === "2000").reduce((total, line) => total + decimal(line.credit) - decimal(line.debit), 0n);
   const cashAndBank = ["1000", "1010", "1090"].reduce((total, code) => total + accountNet(allLines, code), 0n);
+  const cogs = accountNet(periodLines,"5000");
+  const itemize = (codes: string[], type: string) => accounts.filter(a => codes.includes(a.code) && a.account_type === type)
+    .map(a => ({code:a.code,name:a.name,amount:format(accountNet(periodLines,a.code))}));
+  const householdDrawings = itemize(["3100","3110","3120","3130","3140"],"EQUITY");
+  const drawings = householdDrawings.reduce((total,row)=>total+decimal(row.amount),0n);
   const summary: FinancialSummary = {
+    monthEnd: {
+      salesRevenue:format(revenue),cogs:format(cogs),grossProfit:format(revenue-cogs),
+      operatingExpenses:format(expenses-cogs),businessExpenses:itemize(["5100","5110","5120"],"EXPENSE"),
+      netBusinessProfit:format(netIncome),householdDrawings,totalDrawings:format(drawings),remaining:format(netIncome-drawings),
+    },
     totalDebits: format(sum(periodLines, "debit")),
     totalCredits: format(sum(periodLines, "credit")),
     netIncome: format(netIncome),

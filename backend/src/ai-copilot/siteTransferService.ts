@@ -112,11 +112,13 @@ export class SiteTransferService {
       lines=items.map((row:any)=>({lineNumber:row.line_number,quantity:Number(row.quantity),dispatched:Number(row.dispatched),delivered:Number(row.delivered),pending:Number(row.quantity)-Number(row.delivered)}));
     } else if(tool==="erp_log_expense"){
       const {data:accounts,error}=await this.deps.database().from("accounts").select("id,code,account_type").eq("is_active",true).in("code",[input.expenseAccountCode,input.cashAccountCode]);
-      if(error)fail("حساب کے کھاتے نہیں پڑھے جا سکے۔");
-      const expense=accounts?.find((row:any)=>row.code===input.expenseAccountCode && row.account_type==="EXPENSE");
+      if(error)fail("Accounts could not be loaded.");
+      const expense=accounts?.find((row:any)=>row.code===input.expenseAccountCode && row.account_type===(input.kind==="drawings"?"EQUITY":"EXPENSE"));
       const cash=accounts?.find((row:any)=>row.code===input.cashAccountCode && row.account_type==="ASSET");
-      if(!expense||!cash)fail("موجودہ خرچ اور نقد یا بینک کے درست کھاتے منتخب کریں۔");
+      if(!expense||!cash || (input.kind==="drawings" && (!["3100","3110","3120","3130","3140"].includes(input.expenseAccountCode) || !["1000","1010"].includes(input.cashAccountCode) || input.salespersonId!=null)))fail("Choose valid expense or drawings and funding accounts.");
+      if (input.kind==="drawings" && (!/^[ -~]{1,500}$/.test(input.description) || !/^\d+(\.\d{1,2})?$/.test(String(input.amount)))) fail("Enter English notes and a PKR amount with at most two decimal places.");
       data={...input,expenseAccountId:expense.id,cashAccountId:cash.id};
+      lines=[{description:input.description,amount:input.amount,debit:input.expenseAccountCode,credit:input.cashAccountCode}];
     } else if(tool==="erp_update_commodity_rates"){
       data={...input,rates:[]};
       for(const item of input.items){
@@ -128,7 +130,7 @@ export class SiteTransferService {
       lines=data.rates;
     } else fail("یہ کاروباری عمل دستیاب نہیں۔");
     data.id=id;data.number=number;data.date=data.date??date;
-    return {tool,input,data,preview:{title:tool,summary:"حاجی صاحب، "+({
+    return {tool,input,data,preview:{title:tool,summary:tool==="erp_log_expense" ? "Review the category, funding account and amount before confirming the journal entry." : "حاجی صاحب، "+({
       erp_create_site:"گاہک کی نئی سائٹ",erp_prepare_site_return:"اصل فروخت نرخ پر سائٹ واپسی کا زیرِ وصولی میمو",
       erp_transfer_site_material:"دوسری سائٹ کے لیے نئے نرخ پر سامان اور بغیر نرخ کا ٹرانسفر چلّان",
       erp_deliver_site_transfer:"سائٹ ترسیل، اصل نرخ پر کریڈٹ اور نئے نرخ پر انوائس",
@@ -137,6 +139,15 @@ export class SiteTransferService {
     } as Record<string,string>)[tool]+" تیار ہے۔ تفصیل دیکھ کر تصدیق کر دیں۔",lines,...(data.challan?{challan:data.challan}:{}),...(data.totals?{totals:data.totals}:{})}};
   }
   async execute(action:PreparedErpAction,scope:AgentScope,key:string) {
+    if(action.tool==="erp_log_expense" && action.data.kind==="drawings"){
+      const d=action.data;
+      const {data,error}=await this.deps.database().rpc("post_journal_entry",{
+        p_org:scope.organizationId,p_branch:scope.branchId,p_actor:scope.userId,p_key:key,
+        p_date:d.date,p_kind:d.kind,p_category:d.expenseAccountCode,p_funding:d.cashAccountCode,p_amount:d.amount,p_notes:d.description,p_void:null,
+      });
+      if(error)throw new ApiError(error.code==="42501"?403:409,"DRAWINGS_REJECTED","Household drawings could not be posted.");
+      return data;
+    }
     const {data,error}=await this.deps.database().rpc("commit_depot_action",{
       p_organization_id:scope.organizationId,p_branch_id:scope.branchId,p_actor_user_id:scope.userId,
       p_service_principal:this.deps.principal,p_tool:action.tool,p_payload:action.data,p_idempotency_key:key,
@@ -145,6 +156,11 @@ export class SiteTransferService {
     return data;
   }
   async verify(action:PreparedErpAction,scope:AgentScope,result:any) {
+    if(action.tool==="erp_log_expense" && action.data.kind==="drawings"){
+      const journal=await this.one("journal_entries",result.journal_entry_id,scope);
+      if(journal.status!=="POSTED" || journal.source_type!=="DRAWINGS")throw new Error("Drawings journal not posted");
+      return;
+    }
     const tables:Record<string,string>={erp_create_site:"customer_sites",erp_prepare_site_return:"site_return_memos",erp_transfer_site_material:"site_transfers",erp_deliver_site_transfer:"site_transfers",erp_create_dispatch:"dispatch_orders",erp_record_dispatch:"dispatch_orders",erp_log_expense:"depot_expenses"};
     const table=tables[action.tool];
     if(table){const row=await this.one(table,result.id,scope);if(!row)throw new Error("Depot record verification failed");

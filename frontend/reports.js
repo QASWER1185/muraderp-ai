@@ -13,6 +13,19 @@ export function reportsErrorMessage(error) {
   return error instanceof Error ? error.message : "Reports could not be loaded.";
 }
 
+function monthEndMarkup(month) {
+  if (!month) return "";
+  const row=(label,value)=>`<div><dt>${escapeHtml(label)}</dt><dd>${money(value)}</dd></div>`;
+  return `<section><h3>Month-end summary (PKR)</h3><dl>
+    ${row("Sales Revenue",month.salesRevenue)}${row("Cost of Goods Sold (COGS)",month.cogs)}
+    ${row("Gross Profit",month.grossProfit)}${row("Operating Expenses",month.operatingExpenses)}
+    ${month.businessExpenses.map(item=>row(item.code+" "+item.name,item.amount)).join("")}
+    ${row("Net Business Profit",month.netBusinessProfit)}${row("Household Drawings",month.totalDrawings)}
+    ${month.householdDrawings.map(item=>row(item.code+" "+item.name,item.amount)).join("")}
+    ${row(Number(month.remaining)<0?"Shortfall":"Saving",Math.abs(Number(month.remaining)))}
+  </dl></section>`;
+}
+
 export function summaryMarkup(summary) {
   const items = [
     ["Total debits", summary.totalDebits], ["Total credits", summary.totalCredits],
@@ -66,7 +79,7 @@ export function mountReports(container, options = {}) {
       const picker = form.elements.productId, chosen = picker.value;
       picker.innerHTML = `<option value="">Choose product</option>${report.data.products.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} · ${escapeHtml(p.unit)}</option>`).join("")}`;
       picker.value = chosen;
-      summary.innerHTML = `<p>${escapeHtml(selected.from)} to ${escapeHtml(selected.to)}: debits, credits and net income. Balances cumulative through ${escapeHtml(selected.to)}.</p>` + summaryMarkup(financial.data);
+      summary.innerHTML = `<p>${escapeHtml(selected.from)} to ${escapeHtml(selected.to)}: debits, credits and net income. Balances cumulative through ${escapeHtml(selected.to)}.</p>` + summaryMarkup(financial.data) + (["monthly","custom"].includes(form.elements.preset.value) ? monthEndMarkup(financial.data.monthEnd) : "");
       trial.innerHTML = `<p>As of ${escapeHtml(selected.to)} (cumulative)</p>` + trialBalanceMarkup(balances.data);
       status.textContent = `Report loaded for ${selected.from} to ${selected.to}.`;
     } catch (error) { if (current !== generation) return; operations.textContent = reportsErrorMessage(error); summary.textContent = "Report unavailable for this period."; trial.textContent = "Report unavailable for this period."; status.textContent = reportsErrorMessage(error); }
