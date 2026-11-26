@@ -26,7 +26,7 @@ describe("posted general-ledger reporting projection", () => {
       line("5000", "0", "750.0000", "2026-09-30", "CREDIT_NOTE"),
     ];
     const result = projectFinancialReport(accounts, lines, { from: "2026-09-01", to: "2026-09-30" });
-    expect(result.summary).toEqual({ totalDebits: "3400.0000", totalCredits: "3400.0000", netIncome: "0.0000", receivables: "-10.0000", payables: "0.0000", cashAndBank: "10.0000" });
+    expect(result.summary).toMatchObject({ totalDebits: "3400.0000", totalCredits: "3400.0000", netIncome: "0.0000", receivables: "-10.0000", payables: "0.0000", cashAndBank: "10.0000" });
     expect(result.heads.sales).toBe("0.0000");
     expect(result.legacy.salesReturns).toBe("950.0000");
     expect(result.trialBalance.find((row) => row.code === "1100")?.net_balance).toBe("-10.0000");

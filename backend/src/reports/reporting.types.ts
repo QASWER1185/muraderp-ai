@@ -3,7 +3,20 @@ export interface ReportPeriod {
   to: string;
 }
 
+export interface MonthEndSummary {
+  salesRevenue: string;
+  cogs: string;
+  grossProfit: string;
+  operatingExpenses: string;
+  businessExpenses: {code:string;name:string;amount:string}[];
+  netBusinessProfit: string;
+  householdDrawings: {code:string;name:string;amount:string}[];
+  totalDrawings: string;
+  remaining: string;
+}
+
 export interface FinancialSummary {
+  monthEnd?: MonthEndSummary;
   totalDebits: string;
   totalCredits: string;
   netIncome: string;

@@ -1,5 +1,6 @@
-const CACHE_NAME = "muraderp-ai-shell-v57-rickshaw-register";
+const CACHE_NAME = "muraderp-ai-shell-expense-register";
 const APP_SHELL = [
+  "/expenses.js",
   "/rickshaw-trips.js",
   "/report-period.js", "/operations-reports.js",
   "/register-actions.js",

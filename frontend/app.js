@@ -1,3 +1,4 @@
+import { mountExpenses } from "./expenses.js";
 import { mountRickshawTrips } from "./rickshaw-trips.js";
 import { mountRegisterActions } from './register-actions.js';
 import { mountSettings } from './settings.js';
@@ -30,7 +31,7 @@ const groups = [
   ["Purchasing", [["vendors", "Vendors", "building"], ["purchases", "Purchases", "cart"], ["vendor-payments", "Vendor Payments", "wallet"]]],
   ["Inventory", [["products", "Products", "package"], ["warehouses", "Warehouses", "warehouse"], ["inventory", "Stock", "boxes"], ["rates", "Rate Lists", "tags"]]],
   ["Administration", [["settings", "Settings", "building"]]],
-  ["Finance", [["rickshaw-trips", "Rickshaw Trips", "cart"], ["payments", "Payments", "wallet"], ["accounting", "Accounting", "receipt"], ["reports", "Reports", "chart"]]],
+  ["Finance", [["rickshaw-trips", "Rickshaw Trips", "cart"], ["payments", "Payments", "wallet"], ["accounting", "Accounting", "receipt"], ["expenses", "Expenses", "wallet"], ["reports", "Reports", "chart"]]],
 ];
 const sections = groups.flatMap(([, items]) => items);
 const AUTHENTICATED_API_BOUNDARY = "/api/v1/";
@@ -109,6 +110,7 @@ function navigate(routeId, updateHistory = true) {
   if(id==="payments")mountPayments(content,{paymentId:/^payments\/\d+$/.test(currentSection)?Number(currentSection.split("/")[1]):undefined,sourceInvoiceId:/^payments\/from-invoice\/\d+$/.test(currentSection)?Number(currentSection.split("/")[2]):undefined});
   if(id==="vendor-payments")mountVendorPayments(content);
   if(id==="rates")mountRateLists(content);
+  if(id==="expenses")mountExpenses(content);
   if(id==="accounting")mountAccounting(content);
   if(id==="rickshaw-trips")mountRickshawTrips(content);
   if(id==="reports")mountReports(content);
