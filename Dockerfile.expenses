@@ -14,6 +14,6 @@ COPY --from=build /build/backend/dist/routes/accounting.browser.routes.js /app/b
 COPY --from=build /build/backend/dist/reports/supabase-reporting.gateway.js /app/backend/dist/reports/supabase-reporting.gateway.js
 COPY --from=build /build/backend/dist/ai-copilot/conversationalMunshi.js /app/backend/dist/ai-copilot/conversationalMunshi.js
 COPY --from=build /build/backend/dist/ai-copilot/siteTransferService.js /app/backend/dist/ai-copilot/siteTransferService.js
-COPY --from=build /build/backend/dist/ai-copilot/tools/registry.js /app/backend/dist/ai-copilot/tools/registry.js
-RUN cd /app/backend && NODE_ENV=test node --input-type=module -e "await Promise.all([import('./dist/routes/accounting.browser.routes.js'), import('./dist/reports/supabase-reporting.gateway.js'), import('./dist/ai-copilot/siteTransferService.js'), import('./dist/ai-copilot/tools/registry.js')])"
+COPY scripts/patch-expenses-runtime.mjs /tmp/patch-expenses-runtime.mjs
+RUN node /tmp/patch-expenses-runtime.mjs && cd /app/backend && NODE_ENV=test node --input-type=module -e "await import('./dist/app.js')"
 COPY frontend /app/frontend
